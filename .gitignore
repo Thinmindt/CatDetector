@@ -3,3 +3,7 @@
 # Python
 .venv/
 __pycache__/
+*.pyc
+
+# Local configuration files
+.env

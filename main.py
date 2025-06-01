@@ -1,5 +1,8 @@
+import pathlib
 from src.motion_recorder import MotionRecorder
 
 if __name__ == "__main__":
-    recorder = MotionRecorder(output_dir="/home/pi/cat_videos")
+
+    video_directory = pathlib.Path($"{Config.NETWORK_SHARE_DIR}/captures/")
+    recorder = MotionRecorder(video_directory=$"{Config.NETWORK_SHARE_DIR}", file_previx="cat_videos")
     recorder.monitor()
