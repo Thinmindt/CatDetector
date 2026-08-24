@@ -1,37 +1,33 @@
-import threading
 import time
 import cv2
 import datetime
 import os
-from flask import Flask, Response
-from picamera2 import Picamera2
 from picamera2.encoders import H264Encoder
-from picamera2.outputs import FfmpegOutput
+from picamera2.outputs import CircularOutput, FfmpegOutput
 
 
 class MotionRecorder:
     """
-    A class to monitor a cats using a camera, detect motion, and record video.
-    This class uses the Picamera2 library for camera interaction and OpenCV for motion detection.
+    A class to monitor cats using motion detection and record video.
+    Uses circular buffer to avoid camera resource conflicts.
     """
 
     def __init__(
         self,
+        camera_manager,
         video_directory="videos",
         file_prefix="cat_video_",
         motion_threshold=5000,
-        enable_streaming=False,
-        stream_port=5000,
+        motion_timeout=10,
+        buffer_seconds=30,  # Keep 30 seconds of pre-motion footage
     ):
         """
-        Initializes the MotionRecorder with a specified video directory.
-        :param video_directory: Directory where recorded videos will be saved.
+        Initializes the MotionRecorder with a shared camera manager.
         """
 
-        # Initialize the camera
-        self.picam2 = Picamera2()
-        self.picam2.configure(self.picam2.create_video_configuration())
-        self.picam2.start()
+        # Use shared camera
+        self.camera_manager = camera_manager
+        self.picam2 = camera_manager.get_camera()
         self.recording = False
 
         # Initialize motion detection parameters
@@ -44,167 +40,129 @@ class MotionRecorder:
         if not os.path.exists(video_directory):
             os.makedirs(video_directory)
 
-        # Streaming setup
-        self.enable_streaming = enable_streaming
-        self.latest_frame = None
-        self.frame_lock = threading.Lock()
+        # Motion tracking
+        self.last_motion_time = time.time()
+        self.motion_timeout = motion_timeout
 
-        if enable_streaming:
-            self.setup_streaming(stream_port)
+        # Circular buffer setup
+        self.buffer_seconds = buffer_seconds
+        self.circular_output = None
+        self.encoder = None
+        self.current_filename = None
 
-    def setup_streaming(self, port):
-        """Setup Flask web streaming"""
+        # Initialize continuous recording
+        self._setup_circular_recording()
 
-        self.app = Flask(__name__)
+        # Register as consumer of camera frames
+        self.camera_manager.add_consumer(self._process_frames)
 
-        @self.app.route("/")
-        def index():
-            return """
-            <!DOCTYPE html>
-            <html>
-            <head><title>Cat Motion Detector</title></head>
-            <body>
-                <h1>Cat Motion Detector - Live Feed</h1>
-                <img src="/video_feed" style="width:100%; max-width:800px;">
-                <p>Motion Threshold: {}</p>
-            </body>
-            </html>
-            """.format(
-                self.motion_threshold
-            )
+    def _setup_circular_recording(self):
+        """Setup circular buffer recording that runs continuously"""
+        try:
+            self.encoder = H264Encoder(bitrate=10000000)
+            # Create circular buffer (keeps last N seconds in memory)
+            self.circular_output = CircularOutput(
+                buffersize=self.buffer_seconds * 30
+            )  # ~30fps
 
-        @self.app.route("/video_feed")
-        def video_feed():
-            return Response(
-                self.generate_stream_frames(),
-                mimetype="multipart/x-mixed-replace; boundary=frame",
-            )
+            # Start continuous recording to circular buffer
+            self.picam2.start_recording(self.encoder, self.circular_output)
+            print("Circular recording started")
+        except Exception as e:
+            print(f"Failed to setup circular recording: {e}")
 
-        # Start streaming in background thread
-        stream_thread = threading.Thread(
-            target=lambda: self.app.run(
-                host="0.0.0.0", port=port, debug=False, use_reloader=False
-            )
-        )
-        stream_thread.daemon = True
-        stream_thread.start()
+    def _process_frames(self, main_frame, lores_frame):
+        """Process frames from camera manager"""
+        # Use lores frame for motion detection (more efficient)
+        motion_detected = self.detect_motion(lores_frame)
 
-    def generate_stream_frames(self):
-        """Generate frames for web streaming"""
-        while True:
-            with self.frame_lock:
-                if self.latest_frame is not None:
-                    # Convert frame to JPEG
-                    ret, buffer = cv2.imencode(
-                        ".jpg", self.latest_frame, [cv2.IMWRITE_JPEG_QUALITY, 70]
-                    )
-                    if ret:
-                        frame_bytes = buffer.tobytes()
-                        yield (
-                            b"--frame\r\n"
-                            b"Content-Type: image/jpeg\r\n\r\n" + frame_bytes + b"\r\n"
-                        )
-            time.sleep(0.033)  # ~30 FPS
+        # Update last motion time if motion is detected
+        if motion_detected:
+            self.last_motion_time = time.time()
+
+            # Start saving if not already saving
+            if not self.recording:
+                self._start_saving()
+
+        # If saving but no motion for timeout period, stop saving
+        if self.recording and time.time() - self.last_motion_time > self.motion_timeout:
+            self._stop_saving()
 
     def detect_motion(self, frame):
-        # Store latest frame for streaming
-        if self.enable_streaming:
-            with self.frame_lock:
-                self.latest_frame = frame.copy()
+        # Convert RGB to BGR for OpenCV processing
+        frame_bgr = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
 
-        # ...existing motion detection code...
-        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        # Convert to grayscale and apply background subtraction
+        gray = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2GRAY)
         fg_mask = self.background_subtractor.apply(gray)
         motion_pixels = cv2.countNonZero(fg_mask)
 
-        # Add debug visualization to stream
-        if self.enable_streaming and motion_pixels > self.motion_threshold:
-            with self.frame_lock:
-                # Add motion detection overlay
-                cv2.putText(
-                    self.latest_frame,
-                    f"MOTION DETECTED! ({motion_pixels} pixels)",
-                    (10, 30),
-                    cv2.FONT_HERSHEY_SIMPLEX,
-                    0.7,
-                    (0, 0, 255),
-                    2,
-                )
+        description = (
+            f"Motion pixels: {motion_pixels}, threshold: {self.motion_threshold}"
+        )
+        if motion_pixels > self.motion_threshold:
+            print(f"{description} - Motion detected!")
+            return True
 
-        return motion_pixels > self.motion_threshold
+        print(description)
+        return False
 
-    def start_recording(self):
+    def _start_saving(self):
+        """Start saving using split recording method"""
         if self.recording:
-            return self.current_filename
+            return
 
         timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
         filename = f"{self.file_prefix}_{timestamp}.mp4"
-        self.current_filename = os.path.join(
-            str(self.video_directory), filename
-        )  # Fix: set before using
+        self.current_filename = os.path.join(str(self.video_directory), filename)
 
-        self.encoder = H264Encoder(bitrate=10000000)
-        self.output = FfmpegOutput(self.current_filename)
+        try:
+            # Create output for the split
+            self.file_output = FfmpegOutput(self.current_filename)
 
-        self.picam2.start_recording(self.encoder, self.output)
-        self.recording = True
-        print(f"Started recording to {self.current_filename}")
-        return self.current_filename
+            # Split recording to save to file while keeping circular buffer
+            self.picam2.split_recording(self.file_output)
 
-    def stop_recording(self):
+            self.recording = True
+            print(f"Started saving to {self.current_filename}")
+            return self.current_filename
+        except Exception as e:
+            print(f"Failed to start saving: {e}")
+            return None
+
+    def _stop_saving(self):
+        """Stop split recording"""
         if not self.recording:
             return
 
-        self.picam2.stop_recording()
-        self.recording = False
-        print(f"Stopped recording {self.current_filename}")
+        try:
+            # Split back to just circular buffer (stops file recording)
+            self.picam2.split_recording(self.circular_output)
+
+            # Clean up file output
+            if hasattr(self, "file_output"):
+                del self.file_output
+                self.file_output = None
+
+            print(f"Stopped saving {self.current_filename}")
+        except Exception as e:
+            print(f"Error stopping save: {e}")
+        finally:
+            self.recording = False
+
         return self.current_filename
 
-    def monitor(self):
-        """Main monitoring loop that handles motion detection and recording."""
 
-        self.last_motion_time = time.time()
-        self.motion_timeout = 120
-
+    def _cleanup(self):
+        """Clean up resources"""
         try:
-            print("Starting motion monitoring...")
-            while True:
-                # Capture a frame
-                frame = self.picam2.capture_array()
-                if frame is None:
-                    print("Failed to capture frame, retrying...")
-                    time.sleep(1)
-                    continue
-
-                # Check for motion
-                motion_detected = self.detect_motion(frame)
-
-                # Update last motion time if motion is detected
-                if motion_detected:
-                    self.last_motion_time = time.time()
-
-                    # Start recording if not already recording
-                    if not self.recording:
-                        self.start_recording()
-
-                # If recording but no motion for timeout period, stop recording
-                if (
-                    self.recording
-                    and time.time() - self.last_motion_time > self.motion_timeout
-                ):
-                    self.stop_recording()
-
-                # Sleep briefly to prevent high CPU usage
-                time.sleep(0.1)
-
-        except KeyboardInterrupt:
-            print("Monitoring stopped by user")
             if self.recording:
-                self.stop_recording()
-            self.picam2.close()
+                self._stop_saving()
+
+            if self.circular_output:
+                self.picam2.stop_recording()
+
+            if self.encoder:
+                del self.encoder
         except Exception as e:
-            print(f"Error in monitoring: {e}")
-            if self.recording:
-                self.stop_recording()
-            self.picam2.close()
-            raise
+            print(f"Cleanup error: {e}")
