@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import threading
 import time
 from collections.abc import Callable
 from typing import Any
@@ -25,6 +26,19 @@ def test_configures_both_streams_and_starts(
     assert config["main"]["size"] == (1280, 720)
     assert config["lores"]["size"] == (640, 480)
     assert fake_camera.started
+
+
+def test_both_streams_come_from_one_request(
+    fake_camera: FakePicamera2, camera_manager: Any
+) -> None:
+    """Regression: two capture_array() calls consumed two separate requests,
+    which halved the frame rate (measured 15fps vs 30fps) and left main and
+    lores a frame apart in time."""
+    camera_manager.add_consumer(lambda main, lores: None)
+    camera_manager.start_frame_distribution()
+
+    assert wait_for(lambda: fake_camera.capture_arrays_calls >= 3)
+    assert fake_camera.capture_array_calls == 0
 
 
 def test_consumers_receive_main_and_lores_frames(camera_manager: Any) -> None:
@@ -84,9 +98,35 @@ def test_start_frame_distribution_is_idempotent(camera_manager: Any) -> None:
 
 
 def test_stop_frame_distribution_ends_the_thread(camera_manager: Any) -> None:
+    """The join is bounded, so this assertion can actually fail.
+
+    With an unbounded join it was a tautology: the thread had necessarily
+    exited by the time it ran, and a regression hung the suite instead.
+    """
     camera_manager.start_frame_distribution()
     thread = camera_manager._frame_thread
     assert thread is not None
 
     camera_manager.stop_frame_distribution()
     assert not thread.is_alive()
+
+
+def test_a_wedged_consumer_cannot_hang_shutdown(camera_manager: Any) -> None:
+    """A consumer that never returns must not make stop() block forever."""
+    release = threading.Event()
+    entered = threading.Event()
+
+    def wedged(main: Frame, lores: Frame) -> None:
+        entered.set()
+        release.wait(timeout=30)
+
+    camera_manager.add_consumer(wedged)
+    camera_manager.start_frame_distribution()
+    assert entered.wait(timeout=5)
+
+    started = time.monotonic()
+    camera_manager.stop_frame_distribution()
+    elapsed = time.monotonic() - started
+
+    assert elapsed < 10  # bounded by the 5s join, not by the wedged consumer
+    release.set()

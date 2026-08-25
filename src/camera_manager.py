@@ -51,7 +51,10 @@ class CameraManager:
         """Stop distributing frames"""
         self._running = False
         if self._frame_thread:
-            self._frame_thread.join()
+            # Bounded join: a wedged consumer must not make shutdown hang forever.
+            self._frame_thread.join(timeout=5.0)
+            if self._frame_thread.is_alive():
+                print("Frame distribution thread did not stop within 5s")
 
     def _distribute_frames(self) -> None:
         """Internal method to capture and distribute frames"""
@@ -61,10 +64,13 @@ class CameraManager:
         while self._running:
             try:
                 with self._frame_lock:
-                    # Capture frames. The lock covers capture only -- consumers
-                    # and the sleep below stay outside it.
-                    main_frame: Frame = self.picam2.capture_array("main")
-                    lores_frame: Frame = self.picam2.capture_array("lores")
+                    # One request serves both streams. Two capture_array() calls
+                    # would consume two *different* requests: the frames would be
+                    # separate exposures ~33ms apart, and the loop would run at
+                    # half the frame rate (measured: 15fps vs 30fps).
+                    arrays, _ = self.picam2.capture_arrays(["main", "lores"])
+                main_frame: Frame = arrays[0]
+                lores_frame: Frame = arrays[1]
 
                 # Send to all consumers. Still synchronous and in order, so a
                 # slow consumer throttles the loop; it just no longer does so
@@ -79,7 +85,8 @@ class CameraManager:
                 if frame_count % 100 == 0:  # Log every 100 frames
                     print(f"Processed {frame_count} frames")
 
-                time.sleep(0.033)  # ~30 FPS
+                # No sleep: capture_arrays blocks until the next frame is ready,
+                # which paces this loop at the camera's ~30fps on its own.
 
             except Exception as e:
                 print(f"Frame capture error: {e}")

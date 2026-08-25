@@ -7,6 +7,7 @@ Anything that needs a real camera lives in tests/manual/ and is run by hand.
 
 from __future__ import annotations
 
+import time
 from collections.abc import Iterator
 from typing import Any
 
@@ -34,11 +35,18 @@ class FakeCircularOutput:
         self.started = False
         self.start_calls = 0
         self.stop_calls = 0
+        self.dead = False
+        self.stop_delay = 0.0
+        # Assigning fileoutput opens the file in the real class, so that is the
+        # statement that fails when the share is gone -- not start().
+        self.fail_on_fileoutput = False
         # Every path assigned to fileoutput, in order.
         self.files: list[Any] = []
 
     def __setattr__(self, name: str, value: Any) -> None:
         if name == "fileoutput" and hasattr(self, "files"):
+            if self.fail_on_fileoutput:
+                raise OSError("network share went away")
             self.files.append(value)
         super().__setattr__(name, value)
 
@@ -47,6 +55,10 @@ class FakeCircularOutput:
         self.start_calls += 1
 
     def stop(self) -> None:
+        # The real stop() drains the whole ring buffer to disk; stop_delay lets a
+        # test stand in for that being slow.
+        if self.stop_delay:
+            time.sleep(self.stop_delay)
         self.started = False
         self.stop_calls += 1
 
@@ -67,6 +79,8 @@ class FakePicamera2:
         self.recording_output: Any = None
         self.stop_encoder_calls: list[Any] = []
         self.stop_recording_calls = 0
+        self.capture_array_calls = 0
+        self.capture_arrays_calls = 0
         self._tick = 0
 
     def create_video_configuration(self, **kwargs: Any) -> dict[str, Any]:
@@ -79,10 +93,27 @@ class FakePicamera2:
         self.started = True
 
     def capture_array(self, name: str = "main") -> Frame:
-        # Vary the value per call so tests can tell frames apart.
+        # Counted so a test can prove the loop no longer burns two requests.
+        self.capture_array_calls += 1
         self._tick = (self._tick + 1) % 256
         shape = MAIN_SIZE if name == "main" else LORES_SIZE
         return make_frame(shape, self._tick)
+
+    def capture_arrays(
+        self, names: list[str] | None = None
+    ) -> tuple[list[Frame], dict[str, Any]]:
+        """One request serving several streams, as the real API does.
+
+        Returns (arrays, metadata) -- not a bare list.
+        """
+        self.capture_arrays_calls += 1
+        self._tick = (self._tick + 1) % 256
+        wanted = names if names is not None else ["main"]
+        arrays = [
+            make_frame(MAIN_SIZE if n == "main" else LORES_SIZE, self._tick)
+            for n in wanted
+        ]
+        return arrays, {"SensorTimestamp": self._tick}
 
     def start_recording(self, encoder: Any, output: Any, **kwargs: Any) -> None:
         self.recording_encoder = encoder
@@ -120,9 +151,16 @@ def fake_camera(monkeypatch: pytest.MonkeyPatch) -> FakePicamera2:
 
 @pytest.fixture
 def fake_encoders(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Patch the encoder and circular buffer MotionRecorder builds."""
+    """Patch the encoder and circular buffer MotionRecorder builds.
+
+    Note it patches _ResilientCircularOutput, the subclass the recorder actually
+    constructs. Patching CircularOutput would not help: the subclass bound the
+    real base class at import time.
+    """
     monkeypatch.setattr("src.motion_recorder.H264Encoder", FakeH264Encoder)
-    monkeypatch.setattr("src.motion_recorder.CircularOutput", FakeCircularOutput)
+    monkeypatch.setattr(
+        "src.motion_recorder._ResilientCircularOutput", FakeCircularOutput
+    )
 
 
 @pytest.fixture

@@ -18,7 +18,7 @@ uv run ruff check .                          # lint
 uv run ruff format .                         # format
 uv run mypy .                                # type-check (strict, must stay clean)
 
-uv run python tests/manual/camera_test.py    # hardware smoke test; writes test_images/test_image.jpg
+uv run python tests/manual/check_camera.py   # hardware smoke test; writes test_images/test_image.jpg
 ```
 
 **Run the tests and all three static checks before every commit.** All four must be clean.
@@ -29,19 +29,25 @@ uv run python tests/manual/camera_test.py    # hardware smoke test; writes test_
 
 `tests/` holds pytest unit tests that never touch the camera. That is possible because picamera2 binds to
 hardware when a `Picamera2` is **constructed**, not when it is imported, so `tests/conftest.py` fakes
-`Picamera2`, `H264Encoder` and `CircularOutput`, and `StubSubtractor` replaces MOG2 so a test can dictate
-the foreground pixel count exactly.
+`Picamera2`, `H264Encoder` and `_ResilientCircularOutput`, and `StubSubtractor` replaces MOG2 so a test
+can dictate the foreground pixel count exactly. Note the fixture patches `_ResilientCircularOutput`, the
+subclass the recorder actually constructs — patching `CircularOutput` would not work, because the subclass
+bound the real base class at import time.
 
-`tests/manual/` holds hardware smoke scripts. They grab the real camera, so pytest is configured
-(`norecursedirs = ["manual"]`) never to collect them — run those by hand.
+`tests/manual/` holds hardware smoke scripts that grab the real camera. They are named `check_*.py` so they
+match none of pytest's collection globs, which is structural: `norecursedirs` was *not* enough, because it
+only suppresses directory walking and does not stop an explicitly named path (`pytest tests/manual`).
 
-Two traps when adding tests here:
+Three traps when adding tests here:
 
 - **Never fetch `/video_feed` with the Flask test client.** It buffers the whole response and
   `generate_frames()` is an infinite generator, so the suite hangs with no failure. Build the response
   through `app.view_functions["video_feed"]()` inside a `test_request_context` instead.
 - `pythonpath = ["."]` in `pyproject.toml` is load-bearing: `src/` and `config.py` are top-level modules
   of an application, not an installed package, so without it every import fails.
+- **Join with a timeout, and assert something that can fail.** `assert not thread.is_alive()` after an
+  unbounded `join()` is a tautology, and a regression hangs the suite instead of failing it. The suite runs
+  with `--timeout=60` for the same reason.
 
 ## Environment: the constraint that governs dependencies
 
@@ -82,10 +88,17 @@ the shared `Frame` (`NDArray[np.uint8]`) and `FrameConsumer` type aliases.
 
 **Frame fan-out.** `CameraManager` configures two streams — `main` at 1280x720 for display/recording and
 `lores` at 640x480 for cheap analysis. Components call `add_consumer(fn)` to register a
-`fn(main_frame, lores_frame)` callback; a single background thread (`_distribute_frames`) captures both
-arrays under `_frame_lock`, then invokes every consumer **synchronously, in order** outside the lock, then
-sleeps ~33 ms. The lock covers capture only. Consumers still run on the capture thread, so a slow or
-blocking consumer throttles the capture loop and every other consumer.
+`fn(main_frame, lores_frame)` callback; a single background thread (`_distribute_frames`) takes **one**
+`capture_arrays(["main", "lores"])` under `_frame_lock`, then invokes every consumer **synchronously, in
+order** outside the lock. The lock covers capture only, and there is no sleep — `capture_arrays` blocks
+until the next frame, which paces the loop at ~30 fps on its own.
+
+Use `capture_arrays`, never two `capture_array` calls: those consume two *separate* libcamera requests, so
+the two frames would be different exposures ~33 ms apart and the loop would run at half rate (measured:
+15 fps vs 30 fps). Note `capture_arrays` returns `(arrays, metadata)`, not a bare list.
+
+Consumers still run on the capture thread, so a slow or blocking consumer throttles the capture loop and
+every other consumer.
 Consumers must copy anything they retain and return fast — hand work off to their own thread if it isn't
 cheap. Consumer exceptions are caught and logged per-frame, so a broken consumer fails loudly but does not
 stop the loop.
@@ -94,9 +107,17 @@ stop the loop.
 [src/motion_recorder.py](src/motion_recorder.py) reaches through `camera_manager.get_camera()` and drives
 picamera2's own encoder pipeline: an `H264Encoder` writes continuously into a `CircularOutput` (a rolling
 `buffer_seconds`-worth of pre-motion footage), and recording is diverted to a file when motion starts
-(`circular_output.fileoutput = path` then `.start()`, which flushes the buffer from its most recent
-keyframe so the clip opens with the pre-motion footage) and back to buffering only when it stops
-(`.stop()`, which drains the remainder and closes the file). So the recorder uses the consumer callback only for
+(`circular_output.fileoutput = path` then `.start()`, which flushes the buffer from its **oldest** keyframe
+so the clip opens with the pre-motion footage) and back to buffering only when it stops (`.stop()`, which
+drains the remainder and closes the file).
+
+Two consequences of that design worth knowing. `stop()` **empties** the ring buffer, so pre-motion footage
+is only as long as the gap since the last clip ended, capped at `buffer_seconds` — back-to-back visits get
+little or no pre-roll. And because `stop()` drains the whole buffer to disk, it runs on its own thread
+(`_finish_clip`): inline on the capture thread it would stall frame distribution, and picamera2's event
+loop with it, for the length of a multi-megabyte network write.
+
+So the recorder uses the consumer callback only for
 *detection* (MOG2 background subtraction on the `lores` frame, thresholded on `countNonZero`), while the
 actual bytes flow through picamera2's encoder. Changing frame distribution does not change what is
 recorded, and vice versa.
@@ -119,6 +140,16 @@ therefore calls `stop_encoder(self.encoder)` — only the encoder is the recorde
 - Clips are raw H.264 elementary streams (`.h264`), which is what `CircularOutput` writes — not MP4.
   They decode fine, but carry no container metadata, so players report no duration and cannot seek.
   Remux with `ffmpeg -i clip.h264 -c copy clip.mp4` if that matters.
+- **Storage errors must never reach picamera2.** Clip bytes are written inline on picamera2's camera
+  event-loop thread, and `FileOutput._write` only catches connection errors — an `OSError` from the CIFS
+  share (ENOSPC/EIO/ESTALE) would propagate into that thread, kill it, and leave every `capture_arrays()`
+  call blocked forever. `_ResilientCircularOutput` swallows it and marks the output `dead`; `_finish_clip`
+  reports such a clip as incomplete instead of logging a clean save.
+- **Durations use `time.monotonic()`.** This Pi has no RTC backup cell, and an NTP step on a wall clock
+  would hold a clip open (or cut it short) by the size of the jump.
+- `main.py` degrades rather than dying: if the share is not mounted it starts without recording (otherwise
+  `mkdir` would create `captures/` on the SD card and clips would vanish when the share mounts over it),
+  and a recorder that fails to construct leaves the web stream running.
 - MOG2 has no background model on its first frame and reports the whole frame as foreground, which used
   to trigger a clip on every startup. `MotionRecorder` suppresses detection for its first `warmup_frames`
   (default 30, ~1s) while still feeding the subtractor so the model trains. Measured on this camera:

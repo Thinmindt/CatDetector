@@ -4,7 +4,7 @@ import time
 from picamera2 import Picamera2
 
 
-def test_camera() -> bool:
+def check_camera() -> bool:
     print("Initializing camera...")
     try:
         # Initialize camera
@@ -49,4 +49,4 @@ def test_camera() -> bool:
 
 
 if __name__ == "__main__":
-    test_camera()
+    check_camera()
