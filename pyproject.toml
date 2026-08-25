@@ -22,6 +22,7 @@ dependencies = [
 [dependency-groups]
 dev = [
     "mypy>=1.18",
+    "pytest>=8.3",
     "ruff>=0.14",
 ]
 
@@ -29,6 +30,16 @@ dev = [
 # picamera2 is an apt package built against /usr/bin/python3.13. A uv-managed
 # CPython download would not see it, so never let uv pick one.
 python-preference = "only-system"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# src/ and config.py are top-level modules of an application, not an installed
+# package, so the repo root has to be importable.
+pythonpath = ["."]
+addopts = "-q --strict-markers"
+# tests/manual holds hardware smoke scripts. They grab the real camera, so they
+# are run by hand (python tests/manual/<script>.py), never collected by pytest.
+norecursedirs = ["manual"]
 
 [tool.ruff]
 target-version = "py313"
