@@ -86,8 +86,10 @@ class WebStreamer:
                 1,
             )
 
+        # frame_rgb is already a private copy of main_frame and is never touched
+        # again after publishing, so a second copy here would be wasted work.
         with self.frame_lock:
-            self.latest_frame = frame_rgb.copy()
+            self.latest_frame = frame_rgb
 
     def setup_routes(self) -> None:
         @self.app.route("/")
@@ -130,17 +132,25 @@ class WebStreamer:
 
     def generate_frames(self) -> Iterator[bytes]:
         while True:
+            # Take a reference under the lock, then encode and yield outside it.
+            # A suspended generator keeps hold of its context manager, so yielding
+            # inside the lock would let one slow viewer (a backgrounded tab, a
+            # phone on bad wifi) block the capture thread indefinitely -- which
+            # now also runs motion detection. Publishing replaces latest_frame
+            # wholesale and never mutates it, so the reference stays valid.
             with self.frame_lock:
-                if self.latest_frame is not None:
-                    ret, buffer = cv2.imencode(
-                        ".jpg", self.latest_frame, [cv2.IMWRITE_JPEG_QUALITY, 70]
+                frame = self.latest_frame
+
+            if frame is not None:
+                ret, buffer = cv2.imencode(
+                    ".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 70]
+                )
+                if ret:
+                    frame_bytes = buffer.tobytes()
+                    yield (
+                        b"--frame\r\n"
+                        b"Content-Type: image/jpeg\r\n\r\n" + frame_bytes + b"\r\n"
                     )
-                    if ret:
-                        frame_bytes = buffer.tobytes()
-                        yield (
-                            b"--frame\r\n"
-                            b"Content-Type: image/jpeg\r\n\r\n" + frame_bytes + b"\r\n"
-                        )
             time.sleep(0.033)  # ~30 FPS
 
     def start(self) -> None:

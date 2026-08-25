@@ -44,7 +44,7 @@ uv sync
 
 ```
 uv run python main.py                        # camera + web stream on :5000
-uv run python tests/manual/camera_test.py    # camera smoke test (needs the camera)
+uv run python tests/manual/check_camera.py    # camera smoke test (needs the camera)
 ```
 
 `uv run` uses the project environment directly, so there is no need to activate the venv.

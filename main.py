@@ -1,3 +1,4 @@
+import os
 import pathlib
 import threading
 import time
@@ -23,21 +24,45 @@ def monitor(
     except KeyboardInterrupt:
         print("Monitoring stopped by user")
     finally:
+        # Stop the producer first. Tearing the recorder down while the capture
+        # thread is still calling into it races _start_saving, which can leave
+        # a zero-byte clip behind and the recorder stuck reporting "recording".
+        camera_manager.stop_frame_distribution()
         if motion_recorder:
             motion_recorder.cleanup()
-        camera_manager.stop_frame_distribution()
+
+
+def build_recorder(
+    camera_manager: CameraManager, share: pathlib.Path
+) -> MotionRecorder | None:
+    """Build the recorder, or return None and keep the stream running.
+
+    Two ways this legitimately fails on a Pi that boots faster than its NAS:
+    the share is not mounted yet, in which case mkdir would cheerfully create
+    captures/ on the SD card and clips would fill the boot media until the share
+    mounts over them; or the encoder cannot start. Neither should cost the web
+    stream, which is often how you find out something is wrong.
+    """
+    if not os.path.ismount(share):
+        print(f"{share} is not mounted - starting without recording")
+        return None
+
+    try:
+        return MotionRecorder(
+            camera_manager=camera_manager,
+            video_directory=share / "captures",
+            file_prefix="cat_video",
+        )
+    except Exception as error:
+        print(f"Recorder unavailable ({error}) - continuing with the stream only")
+        return None
 
 
 if __name__ == "__main__":
-    video_directory = pathlib.Path(f"{Config.NETWORK_SHARE_DIR}/captures/")
+    share = pathlib.Path(Config.NETWORK_SHARE_DIR)
 
     camera_manager = CameraManager()
-
-    recorder = MotionRecorder(
-        camera_manager=camera_manager,
-        video_directory=video_directory,
-        file_prefix="cat_video",
-    )
+    recorder = build_recorder(camera_manager, share)
 
     web_streamer = WebStreamer(
         camera_manager=camera_manager,

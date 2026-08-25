@@ -6,6 +6,7 @@ import itertools
 from pathlib import Path
 from typing import Any
 
+import numpy as np
 import pytest
 from conftest import LORES_SIZE, MAIN_SIZE, make_frame
 
@@ -97,13 +98,42 @@ def test_annotates_with_a_path_filename(make_streamer: Any, tmp_path: Path) -> N
     """Regression: current_filename is a Path, so the overlay uses .name.
 
     A str would have no .name, and this consumer runs on the capture thread.
+    Asserts on pixels: without that, deleting the whole overlay block passes.
     """
     clip = tmp_path / "cat_video_20260824_120000.h264"
     streamer = make_streamer(StubRecorder(recording=True, filename=clip))
+    plain = make_frame(MAIN_SIZE, 0)
 
-    streamer._consume_frames(make_frame(MAIN_SIZE), make_frame(LORES_SIZE))
+    streamer._consume_frames(plain.copy(), make_frame(LORES_SIZE))
 
     assert streamer.latest_frame is not None
+    # The overlay must have actually drawn something.
+    assert not np.array_equal(streamer.latest_frame, plain)
+    # ... in the top-left band, where RECORDING and the filename go.
+    assert streamer.latest_frame[:80].any()
+
+
+def test_generate_frames_does_not_hold_the_lock_while_suspended(
+    make_streamer: Any,
+) -> None:
+    """Regression: the generator yielded from inside `with self.frame_lock`.
+
+    A suspended generator keeps its context manager, so one slow MJPEG viewer
+    held the lock forever and blocked the capture thread -- which also runs
+    motion detection.
+    """
+    streamer = make_streamer(None)
+    streamer.latest_frame = make_frame(MAIN_SIZE, 128)
+
+    frames = streamer.generate_frames()
+    next(frames)  # park the generator mid-stream, exactly as a viewer does
+
+    acquired = streamer.frame_lock.acquire(blocking=False)
+    if acquired:
+        streamer.frame_lock.release()
+    frames.close()
+
+    assert acquired
 
 
 def test_registers_itself_as_a_frame_consumer(
