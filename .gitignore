@@ -14,3 +14,6 @@ __pycache__/
 
 # Test files
 test_images/
+
+# Local planning notes
+docs/
