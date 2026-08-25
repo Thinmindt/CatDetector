@@ -59,6 +59,17 @@ uv run ruff format .         # format
 uv run mypy .                # type-check (strict)
 ```
 
+## Security
+
+**The web stream has no authentication.** `/` and `/video_feed` are served to anyone who can
+reach port 5000, over plain HTTP, by Flask's development server. Anyone on the same network
+can watch the camera.
+
+Run this only on a network you trust, and **do not forward port 5000 through your router** or
+let UPnP open it. If you ever need it reachable from outside, put authentication and a real
+WSGI server (waitress, gunicorn) in front of it first — and note that the development server
+prints its own warning about this on every start.
+
 ## Configuration
 
 Copy the settings you need into a `.env` file at the repo root (gitignored):
