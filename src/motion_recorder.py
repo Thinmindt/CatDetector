@@ -41,7 +41,9 @@ class _ResilientCircularOutput(CircularOutput):  # type: ignore[misc]
             super()._write(frame, timestamp)
         except OSError as error:
             self.dead = True
-            log.error("Clip write failed, abandoning clip: %s", error)
+            # Anticipated (share full or gone) and the errno text says it all,
+            # so no traceback.
+            log.error("Clip write failed, abandoning clip: %s", error)  # noqa: TRY400
 
     def is_abandoned(self) -> bool:
         """Whether a write failed and the current clip has been given up on."""
@@ -127,7 +129,7 @@ class MotionRecorder:
 
     # --- detection ----------------------------------------------------------
 
-    def _process_frames(self, main_frame: Frame, lores_frame: Frame) -> None:
+    def _process_frames(self, main_frame: Frame, lores_frame: Frame) -> None:  # noqa: ARG002 -- signature fixed by FrameConsumer
         """Consumer callback: detect on the lores frame and drive the recorder."""
         if self._closed:
             return
@@ -200,8 +202,8 @@ class MotionRecorder:
             self.circular_output.dead = False
             self.circular_output.fileoutput = path
             self.circular_output.start()
-        except Exception as error:
-            log.error("Failed to start saving to %s: %s", path, error)
+        except Exception:
+            log.exception("Failed to start saving to %s", path)
             return None
 
         self.current_filename = path
@@ -238,8 +240,8 @@ class MotionRecorder:
         """Drain the ring buffer into the clip and close it. Runs off-thread."""
         try:
             output.stop()
-        except Exception as error:
-            log.error("Error finishing %s: %s", path, error)
+        except Exception:
+            log.exception("Error finishing %s", path)
             return
 
         if output.is_abandoned():
@@ -270,7 +272,9 @@ class MotionRecorder:
         try:
             free = shutil.disk_usage(self.video_directory).free
         except OSError as error:
-            log.error("Cannot check free space on %s: %s", self.video_directory, error)
+            log.error(  # noqa: TRY400 -- anticipated; the errno text is enough
+                "Cannot check free space on %s: %s", self.video_directory, error
+            )
             return False
 
         if free < self.min_free_bytes:
@@ -293,8 +297,8 @@ class MotionRecorder:
                 self.picam2.stop_encoder(self.encoder)
                 self.encoder = None
                 self.circular_output = None
-        except Exception as error:
-            log.error("Cleanup error: %s", error)
+        except Exception:
+            log.exception("Cleanup error")
 
     def _await_final_flush(self) -> None:
         if self._drain_thread is None:

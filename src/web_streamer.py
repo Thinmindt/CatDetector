@@ -50,7 +50,7 @@ class WebStreamer:
         # Register as consumer
         self.camera_manager.add_consumer(self._consume_frames)
 
-    def _consume_frames(self, main_frame: Frame, lores_frame: Frame) -> None:
+    def _consume_frames(self, main_frame: Frame, lores_frame: Frame) -> None:  # noqa: ARG002 -- signature fixed by FrameConsumer
         """Consume frames from camera manager"""
         # Use lores frame for streaming (more efficient)
         frame_rgb = main_frame.copy()
@@ -160,4 +160,6 @@ class WebStreamer:
             time.sleep(STREAM_INTERVAL_SECONDS)
 
     def start(self) -> None:
-        self.app.run(host="0.0.0.0", port=self.port, debug=False, threaded=True)
+        # Deliberate: the stream is meant to be reachable from other devices on the
+        # LAN. It has no authentication, so see the Security section of the README.
+        self.app.run(host="0.0.0.0", port=self.port, debug=False, threaded=True)  # noqa: S104

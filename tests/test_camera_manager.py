@@ -9,6 +9,10 @@ from typing import Any
 
 from conftest import LORES_SIZE, MAIN_SIZE, FakePicamera2, Frame
 
+# Generous: the bound that matters is "does not wait on the wedged consumer",
+# not the exact join timeout.
+SHUTDOWN_BUDGET_SECONDS = 10
+
 
 def wait_for(predicate: Callable[[], bool], timeout: float = 5.0) -> bool:
     deadline = time.monotonic() + timeout
@@ -128,5 +132,5 @@ def test_a_wedged_consumer_cannot_hang_shutdown(camera_manager: Any) -> None:
     camera_manager.stop_frame_distribution()
     elapsed = time.monotonic() - started
 
-    assert elapsed < 10  # bounded by the 5s join, not by the wedged consumer
+    assert elapsed < SHUTDOWN_BUDGET_SECONDS
     release.set()
