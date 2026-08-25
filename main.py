@@ -1,13 +1,16 @@
 import pathlib
 import threading
 import time
+
 from config import Config
 from src.camera_manager import CameraManager
 from src.motion_recorder import MotionRecorder
 from src.web_streamer import WebStreamer
 
 
-def monitor(camera_manager: CameraManager, motion_recorder: MotionRecorder = None):
+def monitor(
+    camera_manager: CameraManager, motion_recorder: MotionRecorder | None = None
+) -> None:
     """Start monitoring by starting frame distribution"""
     print("Starting motion monitoring with circular buffer...")
     try:
@@ -26,7 +29,6 @@ def monitor(camera_manager: CameraManager, motion_recorder: MotionRecorder = Non
 
 
 if __name__ == "__main__":
-
     video_directory = pathlib.Path(f"{Config.NETWORK_SHARE_DIR}/captures/")
 
     camera_manager = CameraManager()
