@@ -59,6 +59,36 @@ select = [
     "SIM",  # flake8-simplify
     "C4",   # flake8-comprehensions
     "RUF",  # ruff-specific
+    "C90",  # mccabe complexity -- pushes extraction over long commented blocks
+    "PLR2004",  # magic value in comparison -- name it instead
+    "LOG",  # logging call correctness
+    "G",    # no f-strings in log calls; keep formatting lazy
+    "TRY",  # exception antipatterns
+    "PTH",  # pathlib over os.path
+    "RET",  # simplify returns
+    "ARG",  # unused arguments
+    "S",    # bandit security checks
+]
+ignore = [
+    # A clear ValueError message at the raise site beats a bespoke exception
+    # class in a project this size.
+    "TRY003",
+]
+
+[tool.ruff.lint.mccabe]
+# Set to the current worst function, so new complexity has to be extracted
+# rather than absorbed. Raise it deliberately, never to make a warning go away.
+max-complexity = 5
+
+[tool.ruff.lint.per-file-ignores]
+# In tests the literals *are* the expected values -- naming HTTP 200 or a frame
+# count adds indirection without meaning. S101 is `assert`, which is how pytest
+# works at all.
+"tests/**" = [
+    "S101",     # assert is how pytest works
+    "PLR2004",  # assertion literals are the expected values
+    "ARG",      # fixtures and stub callbacks are unused by design
+    "S108",     # a fake /tmp path in an env-var test touches no filesystem
 ]
 
 [tool.mypy]

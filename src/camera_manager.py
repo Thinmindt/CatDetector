@@ -67,40 +67,48 @@ class CameraManager:
                 )
 
     def _distribute_frames(self) -> None:
-        """Internal method to capture and distribute frames"""
+        """Capture frames and hand them to every consumer until stopped.
+
+        There is no sleep: capture_next_frames() blocks until the camera has the
+        next frame, which paces the loop at ~30fps on its own.
+        """
         log.info("Starting frame distribution loop")
         frame_count = 0
 
         while self._running:
             try:
-                with self._frame_lock:
-                    # One request serves both streams. Two capture_array() calls
-                    # would consume two *different* requests: the frames would be
-                    # separate exposures ~33ms apart, and the loop would run at
-                    # half the frame rate (measured: 15fps vs 30fps).
-                    arrays, _ = self.picam2.capture_arrays(["main", "lores"])
-                main_frame: Frame = arrays[0]
-                lores_frame: Frame = arrays[1]
-
-                # Send to all consumers. Still synchronous and in order, so a
-                # slow consumer throttles the loop; it just no longer does so
-                # while holding the capture lock.
-                for consumer in self._consumers:
-                    try:
-                        consumer(main_frame, lores_frame)
-                    except Exception:
-                        log.exception("Error in consumer")
-
+                main_frame, lores_frame = self._capture_next_frames()
+                self._dispatch(main_frame, lores_frame)
                 frame_count += 1
                 if frame_count % FRAME_LOG_INTERVAL == 0:
                     log.debug("Processed %d frames", frame_count)
-
-                # No sleep: capture_arrays blocks until the next frame is ready,
-                # which paces this loop at the camera's ~30fps on its own.
-
-            except Exception as e:
-                log.error("Frame capture error: %s", e)
+            except Exception:
+                log.exception("Frame capture error")
                 time.sleep(CAPTURE_ERROR_BACKOFF_SECONDS)
+
+    def _capture_next_frames(self) -> tuple[Frame, Frame]:
+        """Both streams from a single libcamera request.
+
+        Two capture_array() calls would consume two *different* requests: the
+        frames would be separate exposures ~33ms apart, and the loop would run
+        at half the frame rate (measured: 15fps vs 30fps). Note capture_arrays
+        returns (arrays, metadata), not a bare list.
+        """
+        with self._frame_lock:
+            arrays, _ = self.picam2.capture_arrays(["main", "lores"])
+        return arrays[0], arrays[1]
+
+    def _dispatch(self, main_frame: Frame, lores_frame: Frame) -> None:
+        """Consumers run outside the capture lock, synchronously and in order.
+
+        A slow consumer still throttles the loop; it just no longer does so
+        while holding the lock. A raising consumer must not stop the others.
+        """
+        for consumer in self._consumers:
+            try:
+                consumer(main_frame, lores_frame)
+            except Exception:
+                log.exception("Error in consumer")
 
     def get_camera(self) -> Picamera2:
         """Get the camera instance for recording"""
@@ -113,5 +121,5 @@ class CameraManager:
             time.sleep(1)
             self.picam2.close()
             log.info("Camera closed successfully")
-        except Exception as e:
-            log.error("Error closing camera: %s", e)
+        except Exception:
+            log.exception("Error closing camera")

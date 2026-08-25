@@ -30,6 +30,11 @@ def recorder(camera_manager: Any, fake_encoders: None, tmp_path: Path) -> Iterat
     yield rec
 
 
+# Handing the drain to a thread should be effectively instant; the fake's
+# stop_delay is 1.0s, so anything near that means the caller waited on it.
+HANDOFF_BUDGET_SECONDS = 0.5
+
+
 def arm(recorder: Any) -> None:
     """Push the detector past its warmup with quiet frames."""
     recorder.background_subtractor.motion_pixels = 0
@@ -227,7 +232,7 @@ def test_draining_a_clip_does_not_block_the_caller(recorder: Any) -> None:
     recorder._stop_saving()
     elapsed = time.monotonic() - started
 
-    assert elapsed < 0.5  # handed off, not waited on
+    assert elapsed < HANDOFF_BUDGET_SECONDS
     recorder._drain_thread.join(timeout=5)
     assert recorder.circular_output.stop_calls == 1
 
