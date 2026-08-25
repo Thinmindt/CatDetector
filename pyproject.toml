@@ -1,0 +1,70 @@
+[project]
+name = "cat-detector"
+version = "0.1.0"
+description = "Raspberry Pi camera monitor: motion-triggered recording plus a live MJPEG web stream."
+# Widened so the project keeps working across the bookworm(3.11) -> trixie(3.13)
+# OS upgrade. Narrow to "==3.13.*" once trixie is in place.
+requires-python = ">=3.11,<3.14"
+
+# NOTE: picamera2 and libcamera are deliberately absent. They are not installable
+# from PyPI (libcamera ships compiled Python bindings built against the system
+# libcamera) and must come from apt via the venv's system-site-packages. See README.
+dependencies = [
+    "flask>=3.0",
+    "numpy>=2.2,<3",
+    # opencv-python 5.x resolves cleanly but is a major bump from the 4.11 this
+    # project has been running on. Unpin deliberately, not by accident.
+    "opencv-python>=4.11,<5",
+    "python-dotenv>=1.1",
+
+    # These three are picamera2's own runtime dependencies, and they are listed
+    # here for one reason: ABI. The system numpy is 1.24, so the apt builds of
+    # simplejpeg/av/PIL are compiled against the numpy 1.x C ABI. opencv-python
+    # requires numpy >= 2, and that numpy shadows the system one inside the venv,
+    # which makes the apt builds fail at import with "numpy.dtype size changed".
+    # Installing numpy-2-built wheels here shadows the apt copies and keeps
+    # `import picamera2` working. Do not drop them.
+    "av>=14.4",
+    "pillow>=11.2",
+    "simplejpeg>=1.8.2",
+]
+
+[dependency-groups]
+dev = [
+    "mypy>=1.18",
+    "ruff>=0.14",
+]
+
+[tool.uv]
+# picamera2 is an apt package built against /usr/bin/python3.11. A uv-managed
+# CPython download would not see it, so never let uv pick one.
+python-preference = "only-system"
+
+[tool.ruff]
+target-version = "py311"
+line-length = 88
+
+[tool.ruff.lint]
+select = [
+    "E",    # pycodestyle errors
+    "F",    # pyflakes
+    "W",    # pycodestyle warnings
+    "I",    # isort
+    "UP",   # pyupgrade
+    "B",    # flake8-bugbear
+    "SIM",  # flake8-simplify
+    "C4",   # flake8-comprehensions
+    "RUF",  # ruff-specific
+]
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+warn_unreachable = true
+pretty = true
+
+# Neither picamera2 nor its libcamera bindings are typed or PEP 561 marked.
+[[tool.mypy.overrides]]
+module = ["picamera2.*", "libcamera.*"]
+ignore_missing_imports = true
+follow_imports = "skip"

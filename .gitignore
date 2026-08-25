@@ -5,6 +5,10 @@
 __pycache__/
 *.pyc
 
+# Tooling caches
+.mypy_cache/
+.ruff_cache/
+
 # Local configuration files
 .env
 

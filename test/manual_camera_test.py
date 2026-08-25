@@ -1,9 +1,10 @@
-from picamera2 import Picamera2, Preview
-import time
 import os
+import time
+
+from picamera2 import Picamera2
 
 
-def test_camera():
+def test_camera() -> bool:
     print("Initializing camera...")
     try:
         # Initialize camera
@@ -29,7 +30,7 @@ def test_camera():
         print("Capturing test image...")
         time.sleep(2)  # Give camera time to adjust
         picam2.capture_file("test_images/test_image.jpg")
-        print(f"Test image saved to test_images/test_image.jpg")
+        print("Test image saved to test_images/test_image.jpg")
 
         # Show camera properties
         print("Camera properties:")

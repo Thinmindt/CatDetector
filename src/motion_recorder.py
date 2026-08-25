@@ -1,9 +1,14 @@
-import time
-import cv2
 import datetime
 import os
+import time
+from pathlib import Path
+from typing import Any
+
+import cv2
 from picamera2.encoders import H264Encoder
 from picamera2.outputs import CircularOutput, FfmpegOutput
+
+from src.camera_manager import CameraManager, Frame
 
 
 class MotionRecorder:
@@ -14,13 +19,13 @@ class MotionRecorder:
 
     def __init__(
         self,
-        camera_manager,
-        video_directory="videos",
-        file_prefix="cat_video_",
-        motion_threshold=5000,
-        motion_timeout=10,
-        buffer_seconds=30,  # Keep 30 seconds of pre-motion footage
-    ):
+        camera_manager: CameraManager,
+        video_directory: str | Path = "videos",
+        file_prefix: str = "cat_video_",
+        motion_threshold: int = 5000,
+        motion_timeout: float = 10,
+        buffer_seconds: int = 30,  # Keep 30 seconds of pre-motion footage
+    ) -> None:
         """
         Initializes the MotionRecorder with a shared camera manager.
         """
@@ -46,9 +51,10 @@ class MotionRecorder:
 
         # Circular buffer setup
         self.buffer_seconds = buffer_seconds
-        self.circular_output = None
-        self.encoder = None
-        self.current_filename = None
+        self.circular_output: Any = None
+        self.encoder: Any = None
+        self.file_output: Any = None
+        self.current_filename: str | None = None
 
         # Initialize continuous recording
         self._setup_circular_recording()
@@ -56,7 +62,7 @@ class MotionRecorder:
         # Register as consumer of camera frames
         self.camera_manager.add_consumer(self._process_frames)
 
-    def _setup_circular_recording(self):
+    def _setup_circular_recording(self) -> None:
         """Setup circular buffer recording that runs continuously"""
         try:
             self.encoder = H264Encoder(bitrate=10000000)
@@ -71,7 +77,7 @@ class MotionRecorder:
         except Exception as e:
             print(f"Failed to setup circular recording: {e}")
 
-    def _process_frames(self, main_frame, lores_frame):
+    def _process_frames(self, main_frame: Frame, lores_frame: Frame) -> None:
         """Process frames from camera manager"""
         # Use lores frame for motion detection (more efficient)
         motion_detected = self.detect_motion(lores_frame)
@@ -88,7 +94,7 @@ class MotionRecorder:
         if self.recording and time.time() - self.last_motion_time > self.motion_timeout:
             self._stop_saving()
 
-    def detect_motion(self, frame):
+    def detect_motion(self, frame: Frame) -> bool:
         # Convert RGB to BGR for OpenCV processing
         frame_bgr = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
 
@@ -107,10 +113,10 @@ class MotionRecorder:
         print(description)
         return False
 
-    def _start_saving(self):
+    def _start_saving(self) -> str | None:
         """Start saving using split recording method"""
         if self.recording:
-            return
+            return None
 
         timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
         filename = f"{self.file_prefix}_{timestamp}.mp4"
@@ -130,19 +136,17 @@ class MotionRecorder:
             print(f"Failed to start saving: {e}")
             return None
 
-    def _stop_saving(self):
+    def _stop_saving(self) -> str | None:
         """Stop split recording"""
         if not self.recording:
-            return
+            return None
 
         try:
             # Split back to just circular buffer (stops file recording)
             self.picam2.split_recording(self.circular_output)
 
             # Clean up file output
-            if hasattr(self, "file_output"):
-                del self.file_output
-                self.file_output = None
+            self.file_output = None
 
             print(f"Stopped saving {self.current_filename}")
         except Exception as e:
@@ -152,8 +156,7 @@ class MotionRecorder:
 
         return self.current_filename
 
-
-    def _cleanup(self):
+    def cleanup(self) -> None:
         """Clean up resources"""
         try:
             if self.recording:
@@ -163,6 +166,6 @@ class MotionRecorder:
                 self.picam2.stop_recording()
 
             if self.encoder:
-                del self.encoder
+                self.encoder = None
         except Exception as e:
             print(f"Cleanup error: {e}")
