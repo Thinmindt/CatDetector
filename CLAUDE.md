@@ -11,16 +11,37 @@ working directory *is* the Pi.
 ## Commands
 
 ```bash
-uv run python main.py                      # run the detector (camera + web stream on :5000)
-uv run python test/manual_camera_test.py   # camera smoke test; writes test_images/test_image.jpg
+uv run python main.py                        # run the detector (camera + web stream on :5000)
 
-uv run ruff check .                        # lint
-uv run ruff format .                       # format
-uv run mypy .                              # type-check (strict, must stay clean)
+uv run pytest                                # unit tests (no hardware needed)
+uv run ruff check .                          # lint
+uv run ruff format .                         # format
+uv run mypy .                                # type-check (strict, must stay clean)
+
+uv run python tests/manual/camera_test.py    # hardware smoke test; writes test_images/test_image.jpg
 ```
 
-There is no test runner. `test/` holds standalone scripts run directly with `python`, not pytest files.
+**Run the tests and all three static checks before every commit.** All four must be clean.
+
 `uv run` targets the project venv directly, so activating it is unnecessary.
+
+## Tests
+
+`tests/` holds pytest unit tests that never touch the camera. That is possible because picamera2 binds to
+hardware when a `Picamera2` is **constructed**, not when it is imported, so `tests/conftest.py` fakes
+`Picamera2`, `H264Encoder` and `CircularOutput`, and `StubSubtractor` replaces MOG2 so a test can dictate
+the foreground pixel count exactly.
+
+`tests/manual/` holds hardware smoke scripts. They grab the real camera, so pytest is configured
+(`norecursedirs = ["manual"]`) never to collect them — run those by hand.
+
+Two traps when adding tests here:
+
+- **Never fetch `/video_feed` with the Flask test client.** It buffers the whole response and
+  `generate_frames()` is an infinite generator, so the suite hangs with no failure. Build the response
+  through `app.view_functions["video_feed"]()` inside a `test_request_context` instead.
+- `pythonpath = ["."]` in `pyproject.toml` is load-bearing: `src/` and `config.py` are top-level modules
+  of an application, not an installed package, so without it every import fails.
 
 ## Environment: the constraint that governs dependencies
 

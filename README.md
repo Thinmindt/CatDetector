@@ -43,15 +43,16 @@ uv sync
 ## Run
 
 ```
-uv run python main.py                      # camera + web stream on :5000
-uv run python test/manual_camera_test.py   # camera smoke test
+uv run python main.py                        # camera + web stream on :5000
+uv run python tests/manual/camera_test.py    # camera smoke test (needs the camera)
 ```
 
 `uv run` uses the project environment directly, so there is no need to activate the venv.
 
-## Lint, format, type-check
+## Test, lint, format, type-check
 
 ```
+uv run pytest                # unit tests (no hardware needed)
 uv run ruff check .          # lint
 uv run ruff check --fix .    # lint + autofix
 uv run ruff format .         # format
