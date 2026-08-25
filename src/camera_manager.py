@@ -61,22 +61,25 @@ class CameraManager:
         while self._running:
             try:
                 with self._frame_lock:
-                    # Capture frames
+                    # Capture frames. The lock covers capture only -- consumers
+                    # and the sleep below stay outside it.
                     main_frame: Frame = self.picam2.capture_array("main")
                     lores_frame: Frame = self.picam2.capture_array("lores")
 
-                    # Send to all consumers
-                    for consumer in self._consumers:
-                        try:
-                            consumer(main_frame, lores_frame)
-                        except Exception as e:
-                            print(f"Error in consumer: {e}")
+                # Send to all consumers. Still synchronous and in order, so a
+                # slow consumer throttles the loop; it just no longer does so
+                # while holding the capture lock.
+                for consumer in self._consumers:
+                    try:
+                        consumer(main_frame, lores_frame)
+                    except Exception as e:
+                        print(f"Error in consumer: {e}")
 
-                    frame_count += 1
-                    if frame_count % 100 == 0:  # Log every 100 frames
-                        print(f"Processed {frame_count} frames")
+                frame_count += 1
+                if frame_count % 100 == 0:  # Log every 100 frames
+                    print(f"Processed {frame_count} frames")
 
-                    time.sleep(0.033)  # ~30 FPS
+                time.sleep(0.033)  # ~30 FPS
 
             except Exception as e:
                 print(f"Frame capture error: {e}")

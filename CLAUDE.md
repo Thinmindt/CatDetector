@@ -62,8 +62,9 @@ the shared `Frame` (`NDArray[np.uint8]`) and `FrameConsumer` type aliases.
 **Frame fan-out.** `CameraManager` configures two streams — `main` at 1280x720 for display/recording and
 `lores` at 640x480 for cheap analysis. Components call `add_consumer(fn)` to register a
 `fn(main_frame, lores_frame)` callback; a single background thread (`_distribute_frames`) captures both
-arrays and invokes every consumer **synchronously, in order, while holding `_frame_lock`**, then sleeps
-~33 ms. Consequence: a slow or blocking consumer throttles the capture loop and every other consumer.
+arrays under `_frame_lock`, then invokes every consumer **synchronously, in order** outside the lock, then
+sleeps ~33 ms. The lock covers capture only. Consumers still run on the capture thread, so a slow or
+blocking consumer throttles the capture loop and every other consumer.
 Consumers must copy anything they retain and return fast — hand work off to their own thread if it isn't
 cheap. Consumer exceptions are caught and logged per-frame, so a broken consumer fails loudly but does not
 stop the loop.
@@ -71,8 +72,10 @@ stop the loop.
 **Two independent video paths.** The consumer fan-out above is *not* how video gets recorded.
 [src/motion_recorder.py](src/motion_recorder.py) reaches through `camera_manager.get_camera()` and drives
 picamera2's own encoder pipeline: an `H264Encoder` writes continuously into a `CircularOutput` (a rolling
-`buffer_seconds`-worth of pre-motion footage), and recording is meant to be diverted to a file when motion
-starts and back to the circular buffer when it stops. So the recorder uses the consumer callback only for
+`buffer_seconds`-worth of pre-motion footage), and recording is diverted to a file when motion starts
+(`circular_output.fileoutput = path` then `.start()`, which flushes the buffer from its most recent
+keyframe so the clip opens with the pre-motion footage) and back to buffering only when it stops
+(`.stop()`, which drains the remainder and closes the file). So the recorder uses the consumer callback only for
 *detection* (MOG2 background subtraction on the `lores` frame, thresholded on `countNonZero`), while the
 actual bytes flow through picamera2's encoder. Changing frame distribution does not change what is
 recorded, and vice versa.
@@ -84,18 +87,16 @@ thread started from [main.py](main.py); `monitor()` on the main thread just star
 blocks until Ctrl-C.
 
 `WebStreamer` takes `motion_recorder` as an optional dependency and degrades gracefully to a bare feed when
-it is `None` — which is the current state of `main.py`, where the `MotionRecorder` construction is commented
-out. Re-enabling it means uncommenting both the recorder and the `motion_recorder=` argument.
+it is `None`. `main.py` wires a real `MotionRecorder` in.
 
-## Known bugs
+**The camera is shared, so the recorder must not stop it.** `Picamera2.stop_recording()` calls
+`stop()` on the camera itself, which would cut off every other consumer. `MotionRecorder.cleanup()`
+therefore calls `stop_encoder(self.encoder)` — only the encoder is the recorder's to stop.
 
-- **`MotionRecorder` cannot currently save a clip.** `_start_saving`/`_stop_saving` call
-  `self.picam2.split_recording(...)`, which does not exist on `Picamera2` 0.3.37 — that name is from the
-  legacy `picamera` library. Every save attempt is swallowed by the `except Exception` and logged as
-  `Failed to start saving: 'Picamera2' object has no attribute 'split_recording'`, so no file is ever
-  written. The picamera2 equivalent is to set `circular_output.fileoutput = path` and call
-  `circular_output.start()` / `.stop()`. This is almost certainly why the recorder is commented out in
-  `main.py`.
-- `MotionRecorder.detect_motion` prints a line for *every* frame (~30/sec), which floods stdout.
-- `CameraManager` holds `_frame_lock` across the entire consumer loop *and* the sleep, so the lock protects
-  far more than frame capture.
+## Notes
+
+- Clips are raw H.264 elementary streams (`.h264`), which is what `CircularOutput` writes — not MP4.
+  They decode fine, but carry no container metadata, so players report no duration and cannot seek.
+  Remux with `ffmpeg -i clip.h264 -c copy clip.mp4` if that matters.
+- `MotionRecorder` starts recording on the *first* detected motion, and MOG2 reports the whole frame as
+  foreground on its first frame, so the first clip after startup triggers immediately regardless of scene.
