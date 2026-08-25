@@ -1,3 +1,4 @@
+import logging
 import os
 import pathlib
 import threading
@@ -8,12 +9,14 @@ from src.camera_manager import CameraManager
 from src.motion_recorder import MotionRecorder
 from src.web_streamer import WebStreamer
 
+log = logging.getLogger(__name__)
+
 
 def monitor(
     camera_manager: CameraManager, motion_recorder: MotionRecorder | None = None
 ) -> None:
     """Start monitoring by starting frame distribution"""
-    print("Starting motion monitoring with circular buffer...")
+    log.info("Starting motion monitoring with circular buffer...")
     try:
         camera_manager.start_frame_distribution()
 
@@ -22,7 +25,7 @@ def monitor(
             time.sleep(1)
 
     except KeyboardInterrupt:
-        print("Monitoring stopped by user")
+        log.info("Monitoring stopped by user")
     finally:
         # Stop the producer first. Tearing the recorder down while the capture
         # thread is still calling into it races _start_saving, which can leave
@@ -44,7 +47,7 @@ def build_recorder(
     stream, which is often how you find out something is wrong.
     """
     if not os.path.ismount(share):
-        print(f"{share} is not mounted - starting without recording")
+        log.info("%s is not mounted - starting without recording", share)
         return None
 
     try:
@@ -54,11 +57,33 @@ def build_recorder(
             file_prefix="cat_video",
         )
     except Exception as error:
-        print(f"Recorder unavailable ({error}) - continuing with the stream only")
+        log.warning(
+            "Recorder unavailable (%s) - continuing with the stream only", error
+        )
         return None
 
 
+def configure_logging() -> None:
+    """Send timestamped records to stderr.
+
+    Replaces bare print(), which is block-buffered when stdout is not a TTY --
+    under systemd that loses every buffered line if the unit is killed rather
+    than exiting cleanly.
+    """
+    logging.basicConfig(
+        level=logging.WARNING,
+        format="%(asctime)s %(levelname)-7s %(name)s: %(message)s",
+        datefmt="%H:%M:%S",
+    )
+    # Only this application logs at INFO. A blanket INFO root turns on every
+    # third-party logger too -- picamera2 in particular narrates every state
+    # change, which buries our own lines.
+    logging.getLogger("src").setLevel(logging.INFO)
+    logging.getLogger(__name__).setLevel(logging.INFO)
+
+
 if __name__ == "__main__":
+    configure_logging()
     share = pathlib.Path(Config.NETWORK_SHARE_DIR)
 
     camera_manager = CameraManager()
@@ -73,7 +98,7 @@ if __name__ == "__main__":
     stream_thread = threading.Thread(target=web_streamer.start, daemon=True)
     stream_thread.start()
 
-    print("Starting cat detector with shared camera")
-    print("Web stream available at http://<pi-ip>:5000")
+    log.info("Starting cat detector with shared camera")
+    log.info("Web stream available at http://<pi-ip>:5000")
 
     monitor(camera_manager, recorder)

@@ -1,4 +1,5 @@
 import datetime
+import logging
 import shutil
 import threading
 import time
@@ -10,6 +11,16 @@ from picamera2.encoders import H264Encoder
 from picamera2.outputs import CircularOutput
 
 from src.camera_manager import CameraManager, Frame
+
+log = logging.getLogger(__name__)
+
+CAMERA_FPS = 30
+H264_BITRATE = 10_000_000
+
+# CircularOutput writes a raw H.264 elementary stream, not a container.
+CLIP_SUFFIX = ".h264"
+
+CLIP_FLUSH_TIMEOUT_SECONDS = 30
 
 
 class _ResilientCircularOutput(CircularOutput):  # type: ignore[misc]
@@ -24,13 +35,17 @@ class _ResilientCircularOutput(CircularOutput):  # type: ignore[misc]
     """
 
     def _write(self, frame: Any, timestamp: Any = None) -> None:
-        if getattr(self, "dead", False):
-            return  # this clip is already lost; stop hammering the share
+        if self.is_abandoned():
+            return
         try:
             super()._write(frame, timestamp)
         except OSError as error:
             self.dead = True
-            print(f"Clip write failed, abandoning clip: {error}")
+            log.error("Clip write failed, abandoning clip: %s", error)
+
+    def is_abandoned(self) -> bool:
+        """Whether a write failed and the current clip has been given up on."""
+        return bool(getattr(self, "dead", False))
 
 
 class MotionRecorder:
@@ -46,8 +61,8 @@ class MotionRecorder:
         file_prefix: str = "cat_video",
         motion_threshold: int = 5000,
         motion_timeout: float = 10,
-        buffer_seconds: int = 5,  # pre-motion footage; see _start_saving
-        warmup_frames: int = 30,  # ~1s at 30fps; see detect_motion
+        buffer_seconds: int = 5,
+        warmup_frames: int = 30,
         max_clip_seconds: float = 300,
         min_free_bytes: int = 1_000_000_000,
     ) -> None:
@@ -57,35 +72,31 @@ class MotionRecorder:
         if warmup_frames < 0:
             raise ValueError("warmup_frames must not be negative")
 
-        # Use shared camera
         self.camera_manager = camera_manager
         self.picam2 = camera_manager.get_camera()
         self.recording = False
 
-        # Initialize motion detection parameters
         self.motion_threshold = motion_threshold
         self.background_subtractor = cv2.createBackgroundSubtractorMOG2()
         self.last_motion_pixels = 0
         self.warmup_frames = warmup_frames
         self._frames_seen = 0
         if warmup_frames == 0:
-            print("Motion detection armed (warmup disabled)")
+            log.info("Motion detection armed (warmup disabled)")
 
-        # File management
         self.file_prefix = file_prefix
         self.video_directory = Path(video_directory)
         self.video_directory.mkdir(parents=True, exist_ok=True)
 
-        # Motion tracking. Durations use the monotonic clock: this Pi has no RTC
-        # backup cell, and an NTP step would otherwise hold a clip open (or cut
-        # it short) by the size of the jump.
+        # Durations use the monotonic clock: this Pi has no RTC backup cell, and
+        # an NTP step would otherwise hold a clip open (or cut it short) by the
+        # size of the jump.
         self.last_motion_time = time.monotonic()
         self.motion_timeout = motion_timeout
         self.max_clip_seconds = max_clip_seconds
         self.min_free_bytes = min_free_bytes
         self._clip_started = 0.0
 
-        # Circular buffer setup
         self.buffer_seconds = buffer_seconds
         self.circular_output: Any = None
         self.encoder: Any = None
@@ -93,10 +104,7 @@ class MotionRecorder:
         self._drain_thread: threading.Thread | None = None
         self._closed = False
 
-        # Initialize continuous recording
         self._setup_circular_recording()
-
-        # Register as consumer of camera frames
         self.camera_manager.add_consumer(self._process_frames)
 
     def _setup_circular_recording(self) -> None:
@@ -107,95 +115,71 @@ class MotionRecorder:
         never record, so it should fail at construction. main.py degrades to a
         bare stream rather than dying.
         """
-        self.encoder = H264Encoder(bitrate=10000000)
-        # buffersize is counted in frames, and the camera runs at ~30fps.
+        self.encoder = H264Encoder(bitrate=H264_BITRATE)
         self.circular_output = _ResilientCircularOutput(
-            buffersize=self.buffer_seconds * 30
+            buffersize=self.buffer_seconds * CAMERA_FPS
         )
 
         # Encodes the "main" stream. This is a separate path from the frame
         # fan-out in CameraManager, which only feeds detection and the web view.
         self.picam2.start_recording(self.encoder, self.circular_output)
-        print("Circular recording started")
+        log.info("Circular recording started")
+
+    # --- detection ----------------------------------------------------------
 
     def _process_frames(self, main_frame: Frame, lores_frame: Frame) -> None:
-        """Process frames from camera manager"""
-        # The consumer stays registered after cleanup(), so without this the
-        # recorder would keep trying to open clips against a torn-down output.
+        """Consumer callback: detect on the lores frame and drive the recorder."""
         if self._closed:
             return
 
         now = time.monotonic()
 
-        # Use lores frame for motion detection (more efficient)
         if self.detect_motion(lores_frame):
             self.last_motion_time = now
-
-            # Start saving if not already saving
-            if not self.recording:
-                self._start_saving()
-
-        # If saving but no motion for timeout period, stop saving
-        elif self.recording and now - self.last_motion_time > self.motion_timeout:
+            self._start_saving()
+        elif self._motion_has_stopped(now):
             self._stop_saving()
 
-        # A scene that keeps triggering -- a sunbeam or a shadow tracking across
-        # the floor, both of which MOG2 reports as foreground -- would otherwise
-        # record without bound at 10 Mbit/s (4.5 GB/hour).
-        if self.recording and now - self._clip_started > self.max_clip_seconds:
-            print(f"Clip reached the {self.max_clip_seconds:.0f}s limit")
+        if self._clip_has_run_too_long(now):
+            log.info("Clip reached the %.0fs limit", self.max_clip_seconds)
             self._stop_saving()
 
     def detect_motion(self, frame: Frame) -> bool:
-        # RGB -> BGR followed by BGR -> GRAY is the same as one RGB -> GRAY pass.
-        gray = cv2.cvtColor(frame, cv2.COLOR_RGB2GRAY)
-        fg_mask = self.background_subtractor.apply(gray)
-
-        # Kept so the threshold can be tuned from the clip-start log line below.
-        # Deliberately not printed per frame: this runs ~30 times a second.
-        self.last_motion_pixels = int(cv2.countNonZero(fg_mask))
-
-        # MOG2 has no background model on its first frame, so it calls the whole
-        # frame foreground -- which used to trigger a clip on every startup. Keep
-        # feeding it frames so the model trains, but do not report motion until it
-        # has settled. Measured on this camera: frame 0 is 100% foreground, frame 1
-        # is ~3.8% (still over the default threshold), frame 2 onward is under 25
-        # pixels. 30 frames is roughly a second of margin on top of that.
-        if self._frames_seen < self.warmup_frames:
-            self._frames_seen += 1
-            if self._frames_seen == self.warmup_frames:
-                print(f"Motion detection armed after {self.warmup_frames} frames")
+        self.last_motion_pixels = self._count_foreground_pixels(frame)
+        if self._is_warming_up():
             return False
-
         return self.last_motion_pixels > self.motion_threshold
 
-    def _next_path(self) -> Path:
-        """A timestamped clip path that does not collide with an existing file.
+    def _count_foreground_pixels(self, frame: Frame) -> int:
+        # RGB -> BGR followed by BGR -> GRAY is the same as one RGB -> GRAY pass.
+        gray = cv2.cvtColor(frame, cv2.COLOR_RGB2GRAY)
+        return int(cv2.countNonZero(self.background_subtractor.apply(gray)))
 
-        The timestamp is local time, which is ambiguous across the DST fall-back
-        where the same wall-clock second happens twice. picamera2 opens the file
-        "wb", so without this guard the earlier clip would be silently truncated.
+    def _is_warming_up(self) -> bool:
+        """Whether MOG2 is still building its background model.
+
+        It has no model on its first frame and so calls the whole frame
+        foreground, which used to trigger a clip on every startup. Measured on
+        this camera: frame 0 is 100% foreground, frame 1 ~3.8% (still over the
+        default threshold), frame 2 onward under 25 pixels.
         """
-        stamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-        path = self.video_directory / f"{self.file_prefix}_{stamp}.h264"
-        attempt = 1
-        while path.exists():
-            path = self.video_directory / f"{self.file_prefix}_{stamp}_{attempt}.h264"
-            attempt += 1
-        return path
-
-    def _has_room(self) -> bool:
-        """Refuse to start a clip that would fill the share."""
-        try:
-            free = shutil.disk_usage(self.video_directory).free
-        except OSError as error:
-            print(f"Cannot check free space on {self.video_directory}: {error}")
+        if self._frames_seen >= self.warmup_frames:
             return False
 
-        if free < self.min_free_bytes:
-            print(f"Refusing to record: only {free / 1e9:.1f} GB free")
-            return False
+        self._frames_seen += 1
+        if self._frames_seen == self.warmup_frames:
+            log.info("Motion detection armed after %d frames", self.warmup_frames)
         return True
+
+    def _motion_has_stopped(self, now: float) -> bool:
+        return self.recording and now - self.last_motion_time > self.motion_timeout
+
+    def _clip_has_run_too_long(self, now: float) -> bool:
+        """A sunbeam or a shadow tracking across the floor reads as motion
+        indefinitely, and would otherwise record without bound."""
+        return self.recording and now - self._clip_started > self.max_clip_seconds
+
+    # --- clip lifecycle -----------------------------------------------------
 
     def _start_saving(self) -> Path | None:
         """Divert the ring buffer to a file.
@@ -208,36 +192,33 @@ class MotionRecorder:
         """
         if self.recording or self.circular_output is None:
             return None
-
-        # The previous clip is still flushing and still owns the output.
-        if self._drain_thread is not None and self._drain_thread.is_alive():
+        if self._previous_clip_is_still_flushing() or not self._has_room():
             return None
 
-        if not self._has_room():
-            return None
-
-        path = self._next_path()
+        path = self._next_clip_path()
         try:
             self.circular_output.dead = False
             self.circular_output.fileoutput = path
             self.circular_output.start()
-        except Exception as e:
-            print(f"Failed to start saving to {path}: {e}")
+        except Exception as error:
+            log.error("Failed to start saving to %s: %s", path, error)
             return None
 
         self.current_filename = path
         self.recording = True
         self._clip_started = time.monotonic()
-        print(f"Started saving to {path} (motion pixels: {self.last_motion_pixels})")
+        log.info(
+            "Started saving to %s (motion pixels: %d)", path, self.last_motion_pixels
+        )
         return path
 
     def _stop_saving(self) -> Path | None:
         """Stop writing to the file and fall back to buffering only.
 
-        The actual flush happens on its own thread: CircularOutput.stop() drains
-        the whole ring buffer to disk, and doing that inline would stall the
-        capture thread -- and picamera2's event loop with it -- for the length of
-        a multi-megabyte network write.
+        The flush happens on its own thread: CircularOutput.stop() drains the
+        whole ring buffer to disk, and doing that inline would stall the capture
+        thread -- and picamera2's event loop with it -- for the length of a
+        multi-megabyte network write.
         """
         if not self.recording:
             return None
@@ -258,13 +239,44 @@ class MotionRecorder:
         try:
             output.stop()
         except Exception as error:
-            print(f"Error finishing {path}: {error}")
+            log.error("Error finishing %s: %s", path, error)
             return
 
-        if getattr(output, "dead", False):
-            print(f"Clip {path} is incomplete: writes failed partway through")
+        if output.is_abandoned():
+            log.warning("Clip %s is incomplete: writes failed partway through", path)
         else:
-            print(f"Stopped saving {path}")
+            log.info("Stopped saving %s", path)
+
+    def _previous_clip_is_still_flushing(self) -> bool:
+        return self._drain_thread is not None and self._drain_thread.is_alive()
+
+    def _next_clip_path(self) -> Path:
+        """A timestamped clip path that does not collide with an existing file.
+
+        The timestamp is local time, which is ambiguous across the DST fall-back
+        where the same wall-clock second happens twice. picamera2 opens the file
+        "wb", so without this guard the earlier clip would be silently truncated.
+        """
+        stamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        path = self.video_directory / f"{self.file_prefix}_{stamp}{CLIP_SUFFIX}"
+        attempt = 1
+        while path.exists():
+            name = f"{self.file_prefix}_{stamp}_{attempt}{CLIP_SUFFIX}"
+            path = self.video_directory / name
+            attempt += 1
+        return path
+
+    def _has_room(self) -> bool:
+        try:
+            free = shutil.disk_usage(self.video_directory).free
+        except OSError as error:
+            log.error("Cannot check free space on %s: %s", self.video_directory, error)
+            return False
+
+        if free < self.min_free_bytes:
+            log.warning("Refusing to record: only %.1f GB free", free / 1e9)
+            return False
+        return True
 
     def cleanup(self) -> None:
         """Clean up resources"""
@@ -272,12 +284,7 @@ class MotionRecorder:
         try:
             if self.recording:
                 self._stop_saving()
-
-            # Let the last clip finish flushing before the encoder goes away.
-            if self._drain_thread is not None:
-                self._drain_thread.join(timeout=30)
-                if self._drain_thread.is_alive():
-                    print("Clip still flushing after 30s; abandoning it")
+            self._await_final_flush()
 
             if self.encoder:
                 # Deliberately not stop_recording(): that also stops the shared
@@ -286,5 +293,15 @@ class MotionRecorder:
                 self.picam2.stop_encoder(self.encoder)
                 self.encoder = None
                 self.circular_output = None
-        except Exception as e:
-            print(f"Cleanup error: {e}")
+        except Exception as error:
+            log.error("Cleanup error: %s", error)
+
+    def _await_final_flush(self) -> None:
+        if self._drain_thread is None:
+            return
+        self._drain_thread.join(timeout=CLIP_FLUSH_TIMEOUT_SECONDS)
+        if self._drain_thread.is_alive():
+            log.warning(
+                "Clip still flushing after %ds; abandoning it",
+                CLIP_FLUSH_TIMEOUT_SECONDS,
+            )

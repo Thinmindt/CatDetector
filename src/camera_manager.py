@@ -1,3 +1,4 @@
+import logging
 import threading
 import time
 from collections.abc import Callable
@@ -5,6 +6,12 @@ from collections.abc import Callable
 import numpy as np
 from numpy.typing import NDArray
 from picamera2 import Picamera2
+
+log = logging.getLogger(__name__)
+
+JOIN_TIMEOUT_SECONDS = 5.0
+CAPTURE_ERROR_BACKOFF_SECONDS = 2.0
+FRAME_LOG_INTERVAL = 100
 
 # Frames arrive from picamera2 as HxWx3 uint8 arrays.
 Frame = NDArray[np.uint8]
@@ -45,20 +52,23 @@ class CameraManager:
             target=self._distribute_frames, daemon=True
         )
         self._frame_thread.start()
-        print("Frame distribution started")
+        log.info("Frame distribution started")
 
     def stop_frame_distribution(self) -> None:
         """Stop distributing frames"""
         self._running = False
         if self._frame_thread:
             # Bounded join: a wedged consumer must not make shutdown hang forever.
-            self._frame_thread.join(timeout=5.0)
+            self._frame_thread.join(timeout=JOIN_TIMEOUT_SECONDS)
             if self._frame_thread.is_alive():
-                print("Frame distribution thread did not stop within 5s")
+                log.warning(
+                    "Frame distribution thread did not stop within %ss",
+                    JOIN_TIMEOUT_SECONDS,
+                )
 
     def _distribute_frames(self) -> None:
         """Internal method to capture and distribute frames"""
-        print("Starting frame distribution loop")
+        log.info("Starting frame distribution loop")
         frame_count = 0
 
         while self._running:
@@ -78,19 +88,19 @@ class CameraManager:
                 for consumer in self._consumers:
                     try:
                         consumer(main_frame, lores_frame)
-                    except Exception as e:
-                        print(f"Error in consumer: {e}")
+                    except Exception:
+                        log.exception("Error in consumer")
 
                 frame_count += 1
-                if frame_count % 100 == 0:  # Log every 100 frames
-                    print(f"Processed {frame_count} frames")
+                if frame_count % FRAME_LOG_INTERVAL == 0:
+                    log.debug("Processed %d frames", frame_count)
 
                 # No sleep: capture_arrays blocks until the next frame is ready,
                 # which paces this loop at the camera's ~30fps on its own.
 
             except Exception as e:
-                print(f"Frame capture error: {e}")
-                time.sleep(2)
+                log.error("Frame capture error: %s", e)
+                time.sleep(CAPTURE_ERROR_BACKOFF_SECONDS)
 
     def get_camera(self) -> Picamera2:
         """Get the camera instance for recording"""
@@ -100,8 +110,8 @@ class CameraManager:
         """Close the camera"""
         try:
             self.stop_frame_distribution()
-            time.sleep(1)  # Give time for cleanup
+            time.sleep(1)
             self.picam2.close()
-            print("Camera closed successfully")
+            log.info("Camera closed successfully")
         except Exception as e:
-            print(f"Error closing camera: {e}")
+            log.error("Error closing camera: %s", e)

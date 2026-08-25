@@ -23,6 +23,9 @@ uv run python tests/manual/check_camera.py   # hardware smoke test; writes test_
 
 **Run the tests and all three static checks before every commit.** All four must be clean.
 
+Coding conventions live in [STYLE.md](STYLE.md) — naming over narration, logging over `print`,
+and which comments are worth keeping.
+
 `uv run` targets the project venv directly, so activating it is unnecessary.
 
 ## Tests

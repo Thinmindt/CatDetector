@@ -1,3 +1,4 @@
+import logging
 import threading
 import time
 from collections.abc import Iterator
@@ -7,6 +8,11 @@ from flask import Flask, Response
 
 from src.camera_manager import CameraManager, Frame
 from src.motion_recorder import MotionRecorder
+
+log = logging.getLogger(__name__)
+
+JPEG_QUALITY = 70
+STREAM_INTERVAL_SECONDS = 1 / 30
 
 # Kept out of the page f-string below so the CSS braces need no escaping.
 _PAGE_CSS = """
@@ -143,7 +149,7 @@ class WebStreamer:
 
             if frame is not None:
                 ret, buffer = cv2.imencode(
-                    ".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 70]
+                    ".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, JPEG_QUALITY]
                 )
                 if ret:
                     frame_bytes = buffer.tobytes()
@@ -151,7 +157,7 @@ class WebStreamer:
                         b"--frame\r\n"
                         b"Content-Type: image/jpeg\r\n\r\n" + frame_bytes + b"\r\n"
                     )
-            time.sleep(0.033)  # ~30 FPS
+            time.sleep(STREAM_INTERVAL_SECONDS)
 
     def start(self) -> None:
         self.app.run(host="0.0.0.0", port=self.port, debug=False, threaded=True)
