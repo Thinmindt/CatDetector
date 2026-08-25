@@ -22,12 +22,12 @@ uv run mypy .                              # type-check (strict, must stay clean
 There is no test runner. `test/` holds standalone scripts run directly with `python`, not pytest files.
 `uv run` targets the project venv directly, so activating it is unnecessary.
 
-## Environment: the two constraints that govern dependencies
+## Environment: the constraint that governs dependencies
 
-Package management is uv (`pyproject.toml` + committed `uv.lock`). Two non-obvious rules apply, and both
-have already caused breakage:
+Package management is uv (`pyproject.toml` + committed `uv.lock`). One non-obvious rule applies, and it
+has already caused breakage:
 
-**1. The venv must have system site packages.** `picamera2` and `libcamera` are apt packages — libcamera
+**The venv must have system site packages.** `picamera2` and `libcamera` are apt packages — libcamera
 ships compiled Python bindings and is not on PyPI — so they can only be reached through
 `include-system-site-packages = true`. `uv sync` *preserves* that flag on an existing venv, but if `.venv`
 is deleted, `uv sync` silently recreates it with the flag off and `import picamera2` starts failing. The
@@ -41,18 +41,17 @@ uv venv --system-site-packages && uv sync
 would not see the apt packages at all.
 
 **The Python version is not ours to choose.** `python3-libcamera` ships an ABI-tagged
-`_libcamera.cpython-311-aarch64-linux-gnu.so`, so the interpreter is whatever the OS ships — 3.11 on
-bookworm. `libcamera` is not on PyPI, so there is no pip escape hatch. Upgrading Python means upgrading
-the OS: Raspberry Pi OS trixie ships Python 3.13 with `python3-libcamera` 0.7.2 and `picamera2` 0.3.37.
-`requires-python` is deliberately widened to `>=3.11,<3.14` so the repo works either side of that move.
+`_libcamera.cpython-313-aarch64-linux-gnu.so`, so the interpreter is whatever the OS ships, and libcamera
+is not on PyPI to escape it. The Pi runs Raspberry Pi OS trixie (Debian 13): Python 3.13,
+`python3-libcamera` 0.7.2, `picamera2` 0.3.37, system numpy 2.2.4. `requires-python` is pinned to
+`==3.13.*` to match. Moving Python means moving the OS.
 
-**2. `av`, `pillow`, and `simplejpeg` are listed as project dependencies for ABI reasons, not because this
-code imports them.** They are picamera2's runtime deps. The system numpy is 1.24, so the *apt* builds of
-those three are compiled against the numpy 1.x C ABI — but `opencv-python` requires numpy >= 2, and that
-numpy shadows the system one inside the venv. The result is `import picamera2` dying with
-`ValueError: numpy.dtype size changed, may indicate binary incompatibility`. Pinning numpy-2-built wheels
-of all three in `pyproject.toml` shadows the apt copies and keeps the import working. **Do not remove
-them** because "nothing imports them" — that is exactly the trap.
+**An OS upgrade invalidates the venv silently.** `.venv/pyvenv.cfg` keeps the *old* `version_info` and
+the old `lib/python3.X/site-packages`, while `.venv/bin/python` is a symlink to `/usr/bin/python3` that
+now resolves to the *new* interpreter. Nothing raises — the venv's own packages just disappear from
+`sys.path` (system site packages still resolve, so `picamera2` imports and only the PyPI deps like `cv2`
+go missing, which makes it look like a dependency problem rather than a venv problem). Rebuild with the
+two-line recovery above.
 
 ## Architecture
 
@@ -91,7 +90,7 @@ out. Re-enabling it means uncommenting both the recorder and the `motion_recorde
 ## Known bugs
 
 - **`MotionRecorder` cannot currently save a clip.** `_start_saving`/`_stop_saving` call
-  `self.picam2.split_recording(...)`, which does not exist on `Picamera2` 0.3.27 — that name is from the
+  `self.picam2.split_recording(...)`, which does not exist on `Picamera2` 0.3.37 — that name is from the
   legacy `picamera` library. Every save attempt is swallowed by the `except Exception` and logged as
   `Failed to start saving: 'Picamera2' object has no attribute 'split_recording'`, so no file is ever
   written. The picamera2 equivalent is to set `circular_output.fileoutput = path` and call

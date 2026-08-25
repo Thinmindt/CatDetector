@@ -4,6 +4,10 @@ Raspberry Pi camera monitor: motion-triggered recording plus a live MJPEG web st
 
 ## System dependencies
 
+Runs on Raspberry Pi OS trixie (Debian 13), which ships Python 3.13. The Python version is set by
+the OS rather than by this project, because the `libcamera` bindings are ABI-tagged apt packages —
+hence the `requires-python = "==3.13.*"` pin.
+
 `picamera2` and its `libcamera` bindings are **not installable from PyPI** — they ship as
 compiled apt packages built against the system libcamera and the system Python:
 
@@ -31,6 +35,10 @@ uv sync
 > **Do not delete `.venv` and run a bare `uv sync`.** uv will recreate it *without*
 > system site packages and `import picamera2` will fail with `ModuleNotFoundError`.
 > If that happens, re-run the `uv venv --system-site-packages` line above, then `uv sync`.
+>
+> The same rebuild is required after an **OS upgrade**. A venv built against the old interpreter
+> keeps pointing at a `lib/python3.X/site-packages` that the new one never looks in, so its packages
+> silently vanish from `sys.path` without any error.
 
 ## Run
 

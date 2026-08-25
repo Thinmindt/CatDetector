@@ -2,9 +2,10 @@
 name = "cat-detector"
 version = "0.1.0"
 description = "Raspberry Pi camera monitor: motion-triggered recording plus a live MJPEG web stream."
-# Widened so the project keeps working across the bookworm(3.11) -> trixie(3.13)
-# OS upgrade. Narrow to "==3.13.*" once trixie is in place.
-requires-python = ">=3.11,<3.14"
+# Pinned to the interpreter the OS ships. python3-libcamera is an ABI-tagged apt
+# package (_libcamera.cpython-313-aarch64-linux-gnu.so) and libcamera is not on
+# PyPI, so the OS picks the Python version, not us. Raspberry Pi OS trixie = 3.13.
+requires-python = "==3.13.*"
 
 # NOTE: picamera2 and libcamera are deliberately absent. They are not installable
 # from PyPI (libcamera ships compiled Python bindings built against the system
@@ -16,17 +17,6 @@ dependencies = [
     # project has been running on. Unpin deliberately, not by accident.
     "opencv-python>=4.11,<5",
     "python-dotenv>=1.1",
-
-    # These three are picamera2's own runtime dependencies, and they are listed
-    # here for one reason: ABI. The system numpy is 1.24, so the apt builds of
-    # simplejpeg/av/PIL are compiled against the numpy 1.x C ABI. opencv-python
-    # requires numpy >= 2, and that numpy shadows the system one inside the venv,
-    # which makes the apt builds fail at import with "numpy.dtype size changed".
-    # Installing numpy-2-built wheels here shadows the apt copies and keeps
-    # `import picamera2` working. Do not drop them.
-    "av>=14.4",
-    "pillow>=11.2",
-    "simplejpeg>=1.8.2",
 ]
 
 [dependency-groups]
@@ -36,12 +26,12 @@ dev = [
 ]
 
 [tool.uv]
-# picamera2 is an apt package built against /usr/bin/python3.11. A uv-managed
+# picamera2 is an apt package built against /usr/bin/python3.13. A uv-managed
 # CPython download would not see it, so never let uv pick one.
 python-preference = "only-system"
 
 [tool.ruff]
-target-version = "py311"
+target-version = "py313"
 line-length = 88
 
 [tool.ruff.lint]
@@ -58,7 +48,7 @@ select = [
 ]
 
 [tool.mypy]
-python_version = "3.11"
+python_version = "3.13"
 strict = true
 warn_unreachable = true
 pretty = true
