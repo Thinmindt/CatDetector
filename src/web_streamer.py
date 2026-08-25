@@ -64,7 +64,7 @@ class WebStreamer:
                 )
                 # Add recording filename if available
                 if recorder.current_filename:
-                    filename = recorder.current_filename.split("/")[-1]
+                    filename = recorder.current_filename.name
                     cv2.putText(
                         frame_rgb,
                         f"File: {filename}",

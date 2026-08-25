@@ -33,15 +33,15 @@ if __name__ == "__main__":
 
     camera_manager = CameraManager()
 
-    # recorder = MotionRecorder(
-    #     camera_manager=camera_manager,
-    #     video_directory=video_directory,
-    #     file_prefix="cat_videos",
-    # )
+    recorder = MotionRecorder(
+        camera_manager=camera_manager,
+        video_directory=video_directory,
+        file_prefix="cat_video",
+    )
 
     web_streamer = WebStreamer(
         camera_manager=camera_manager,
-        # motion_recorder=recorder,
+        motion_recorder=recorder,
         port=5000,
     )
 
@@ -51,4 +51,4 @@ if __name__ == "__main__":
     print("Starting cat detector with shared camera")
     print("Web stream available at http://<pi-ip>:5000")
 
-    monitor(camera_manager)
+    monitor(camera_manager, recorder)
