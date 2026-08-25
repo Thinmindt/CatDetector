@@ -24,6 +24,7 @@ class MotionRecorder:
         motion_threshold: int = 5000,
         motion_timeout: float = 10,
         buffer_seconds: int = 30,  # Keep 30 seconds of pre-motion footage
+        warmup_frames: int = 30,  # ~1s at 30fps; see detect_motion
     ) -> None:
         """
         Initializes the MotionRecorder with a shared camera manager.
@@ -38,6 +39,8 @@ class MotionRecorder:
         self.motion_threshold = motion_threshold
         self.background_subtractor = cv2.createBackgroundSubtractorMOG2()
         self.last_motion_pixels = 0
+        self.warmup_frames = warmup_frames
+        self._frames_seen = 0
 
         # File management
         self.file_prefix = file_prefix
@@ -100,6 +103,19 @@ class MotionRecorder:
         # Kept so the threshold can be tuned from the clip-start log line below.
         # Deliberately not printed per frame: this runs ~30 times a second.
         self.last_motion_pixels = int(cv2.countNonZero(fg_mask))
+
+        # MOG2 has no background model on its first frame, so it calls the whole
+        # frame foreground -- which used to trigger a clip on every startup. Keep
+        # feeding it frames so the model trains, but do not report motion until it
+        # has settled. Measured on this camera: frame 0 is 100% foreground, frame 1
+        # is ~3.8% (still over the default threshold), frame 2 onward is under 25
+        # pixels. 30 frames is roughly a second of margin on top of that.
+        if self._frames_seen < self.warmup_frames:
+            self._frames_seen += 1
+            if self._frames_seen == self.warmup_frames:
+                print(f"Motion detection armed after {self.warmup_frames} frames")
+            return False
+
         return self.last_motion_pixels > self.motion_threshold
 
     def _start_saving(self) -> Path | None:

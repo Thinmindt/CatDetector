@@ -98,5 +98,8 @@ therefore calls `stop_encoder(self.encoder)` — only the encoder is the recorde
 - Clips are raw H.264 elementary streams (`.h264`), which is what `CircularOutput` writes — not MP4.
   They decode fine, but carry no container metadata, so players report no duration and cannot seek.
   Remux with `ffmpeg -i clip.h264 -c copy clip.mp4` if that matters.
-- `MotionRecorder` starts recording on the *first* detected motion, and MOG2 reports the whole frame as
-  foreground on its first frame, so the first clip after startup triggers immediately regardless of scene.
+- MOG2 has no background model on its first frame and reports the whole frame as foreground, which used
+  to trigger a clip on every startup. `MotionRecorder` suppresses detection for its first `warmup_frames`
+  (default 30, ~1s) while still feeding the subtractor so the model trains. Measured on this camera:
+  frame 0 is 100% foreground, frame 1 ~3.8% (still over the default threshold), frame 2 onward under 25
+  pixels — so the default carries about a second of margin.
