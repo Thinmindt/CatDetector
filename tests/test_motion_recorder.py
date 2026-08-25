@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import time
 from collections.abc import Iterator
 from pathlib import Path
@@ -244,18 +245,18 @@ def test_a_new_clip_waits_for_the_previous_drain(recorder: Any) -> None:
 
 
 def test_an_incomplete_clip_is_not_reported_as_saved(
-    recorder: Any, capsys: pytest.CaptureFixture[str]
+    recorder: Any, caplog: pytest.LogCaptureFixture
 ) -> None:
     """Regression: a clip whose writes failed was logged as a clean save."""
     recorder._start_saving()
     recorder.circular_output.dead = True
 
-    recorder._stop_saving()
-    recorder._drain_thread.join(timeout=5)
+    with caplog.at_level(logging.INFO):
+        recorder._stop_saving()
+        recorder._drain_thread.join(timeout=5)
 
-    output = capsys.readouterr().out
-    assert "incomplete" in output
-    assert "Stopped saving" not in output
+    assert "incomplete" in caplog.text
+    assert "Stopped saving" not in caplog.text
 
 
 def test_clip_stops_at_the_maximum_length(recorder: Any) -> None:
@@ -280,10 +281,10 @@ def test_refuses_to_record_without_free_space(recorder: Any) -> None:
 def test_a_second_clip_in_the_same_second_does_not_overwrite(recorder: Any) -> None:
     """Regression: local timestamps repeat across the DST fall-back, and
     picamera2 opens clips "wb", so a collision silently truncated the earlier."""
-    first = recorder._next_path()
+    first = recorder._next_clip_path()
     first.write_bytes(b"existing clip")
 
-    second = recorder._next_path()
+    second = recorder._next_clip_path()
 
     assert second != first
     assert first.read_bytes() == b"existing clip"
@@ -334,19 +335,20 @@ def test_zero_warmup_announces_that_it_is_armed(
     camera_manager: Any,
     fake_encoders: None,
     tmp_path: Path,
-    capsys: pytest.CaptureFixture[str],
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
     """warmup_frames=0 legitimately means "no warmup", but it must still say so:
-    the armed line is only printed from inside the warmup branch."""
+    the armed line is otherwise only logged from inside the warmup branch."""
     from src.motion_recorder import MotionRecorder
 
-    MotionRecorder(
-        camera_manager=camera_manager,
-        video_directory=tmp_path / "clips",
-        warmup_frames=0,
-    )
+    with caplog.at_level(logging.INFO):
+        MotionRecorder(
+            camera_manager=camera_manager,
+            video_directory=tmp_path / "clips",
+            warmup_frames=0,
+        )
 
-    assert "armed" in capsys.readouterr().out
+    assert "armed" in caplog.text
 
 
 def test_storage_errors_never_escape_to_picamera2() -> None:
@@ -382,16 +384,16 @@ def test_storage_errors_never_escape_to_picamera2() -> None:
 
 
 def test_recorder_is_inert_after_cleanup(
-    recorder: Any, capsys: pytest.CaptureFixture[str]
+    recorder: Any, caplog: pytest.LogCaptureFixture
 ) -> None:
     """The consumer stays registered after cleanup(), so a frame arriving late
     must not try to open a clip against a torn-down output."""
     arm(recorder)
     recorder.cleanup()
-    capsys.readouterr()
 
     recorder.background_subtractor.motion_pixels = 10**6
-    recorder._process_frames(make_frame(MAIN_SIZE), make_frame(LORES_SIZE))
+    with caplog.at_level(logging.DEBUG):
+        recorder._process_frames(make_frame(MAIN_SIZE), make_frame(LORES_SIZE))
 
     assert not recorder.recording
-    assert capsys.readouterr().out == ""
+    assert caplog.text == ""

@@ -50,6 +50,9 @@ class FakeCircularOutput:
             self.files.append(value)
         super().__setattr__(name, value)
 
+    def is_abandoned(self) -> bool:
+        return self.dead
+
     def start(self) -> None:
         self.started = True
         self.start_calls += 1
