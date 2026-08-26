@@ -49,6 +49,17 @@ uv run python tests/manual/check_camera.py    # camera smoke test (needs the cam
 
 `uv run` uses the project environment directly, so there is no need to activate the venv.
 
+## Reviewing captures
+
+```
+uv run python review.py      # label-review UI on :5001
+```
+
+Scans the captures directory into a local database and serves a keyboard-driven review page at
+`http://<pi-ip>:5001/review` — `c` cat, `n` not a cat, `u` unsure, `z` undo, click the frame
+strip to zoom. Works with or without the detector running. Requires `ffmpeg` (`sudo apt install
+ffmpeg`).
+
 ## Test, lint, format, type-check
 
 ```

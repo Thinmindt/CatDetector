@@ -12,3 +12,7 @@ class Config:
 
     # Set to a local path to log per-frame detection metrics. Off when unset.
     METRICS_CSV = os.getenv("METRICS_CSV")
+
+    # Local disk, never the share: SQLite locking is unreliable over CIFS.
+    DB_PATH = os.getenv("DB_PATH", "captures.db")
+    REVIEW_CACHE_DIR = os.getenv("REVIEW_CACHE_DIR", ".review_cache")

@@ -56,7 +56,14 @@ uv run mypy .                                # type-check (strict, must stay cle
 uv run python tests/manual/check_camera.py   # hardware smoke test; writes test_images/test_image.jpg
 
 METRICS_CSV=/home/butler/metrics.csv uv run python main.py   # + per-frame detection metrics
+
+uv run python review.py                      # label-review UI on :5001 (no camera needed)
 ```
+
+The review server ingests `$NETWORK_SHARE_DIR/captures/*.h264` into a local SQLite DB
+(`DB_PATH`, default `captures.db` — local disk, never the share) and serves a keyboard-driven
+cat/not-cat labeler at `/review`. It runs alongside main.py or on its own; frame extraction
+shells out to ffmpeg because cv2.VideoCapture cannot seek raw elementary streams.
 
 `METRICS_CSV` turns on the instrumentation for roadmap A.2. Point it at **local disk**, never at
 the share: one row per frame at 30 fps is the small-write pattern CIFS handles worst. Rows are
