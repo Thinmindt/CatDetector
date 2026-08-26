@@ -18,7 +18,7 @@ sudo apt install libcap-dev python3-dev python3-picamera2
 
 ## Python environment (uv)
 
-Install [uv](https://docs.astral.sh/uv/) if you don't have it:
+Install [uv](https://docs.astral.sh/uv/):
 
 ```
 curl -LsSf https://astral.sh/uv/install.sh | sh
