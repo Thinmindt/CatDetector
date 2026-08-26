@@ -17,3 +17,7 @@ test_images/
 
 # Local planning notes
 docs/
+
+# Review database and frame cache (local, per-Pi)
+captures.db*
+.review_cache/

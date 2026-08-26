@@ -6,6 +6,7 @@ import time
 
 from config import Config
 from src.camera_manager import CameraManager
+from src.logging_setup import configure_logging
 from src.motion_metrics import MetricsLog
 from src.motion_recorder import MotionRecorder
 from src.web_streamer import WebStreamer
@@ -62,19 +63,8 @@ def build_recorder(
         return None
 
 
-def configure_logging() -> None:
-    """Timestamped records to stderr: this application at INFO, the rest at WARNING."""
-    logging.basicConfig(
-        level=logging.WARNING,
-        format="%(asctime)s %(levelname)-7s %(name)s: %(message)s",
-        datefmt="%H:%M:%S",
-    )
-    logging.getLogger("src").setLevel(logging.INFO)
-    logging.getLogger(__name__).setLevel(logging.INFO)
-
-
 if __name__ == "__main__":
-    configure_logging()
+    configure_logging(__name__)
     share = pathlib.Path(Config.NETWORK_SHARE_DIR)
 
     camera_manager = CameraManager()
