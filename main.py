@@ -6,6 +6,7 @@ import time
 
 from config import Config
 from src.camera_manager import CameraManager
+from src.motion_metrics import MetricsLog
 from src.motion_recorder import MotionRecorder
 from src.web_streamer import WebStreamer
 
@@ -32,6 +33,13 @@ def monitor(
             motion_recorder.cleanup()
 
 
+def build_metrics() -> MetricsLog | None:
+    """A metrics log if METRICS_CSV is configured, otherwise None."""
+    if not Config.METRICS_CSV:
+        return None
+    return MetricsLog(Config.METRICS_CSV)
+
+
 def build_recorder(
     camera_manager: CameraManager, share: pathlib.Path
 ) -> MotionRecorder | None:
@@ -45,6 +53,7 @@ def build_recorder(
             camera_manager=camera_manager,
             video_directory=share / "captures",
             file_prefix="cat_video",
+            metrics=build_metrics(),
         )
     except Exception as error:
         log.warning(

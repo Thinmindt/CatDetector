@@ -4,31 +4,11 @@ from __future__ import annotations
 
 import logging
 import time
-from collections.abc import Iterator
 from pathlib import Path
-from typing import Any, cast
+from typing import Any
 
 import pytest
-from conftest import LORES_SIZE, MAIN_SIZE, FakePicamera2, StubSubtractor, make_frame
-
-
-@pytest.fixture
-def recorder(camera_manager: Any, fake_encoders: None, tmp_path: Path) -> Iterator[Any]:
-    from src.motion_recorder import MotionRecorder
-
-    rec = MotionRecorder(
-        camera_manager=camera_manager,
-        video_directory=tmp_path / "clips",
-        file_prefix="test",
-        motion_threshold=1000,
-        motion_timeout=5,
-        buffer_seconds=2,
-        warmup_frames=3,
-    )
-    # Swap MOG2 out so tests dictate the foreground pixel count exactly.
-    rec.background_subtractor = cast(Any, StubSubtractor())
-    yield rec
-
+from conftest import LORES_SIZE, MAIN_SIZE, FakePicamera2, make_frame
 
 # Handing the drain to a thread should be effectively instant; the fake's
 # stop_delay is 1.0s, so anything near that means the caller waited on it.

@@ -9,7 +9,8 @@ from __future__ import annotations
 
 import time
 from collections.abc import Iterator
-from typing import Any
+from pathlib import Path
+from typing import Any, cast
 
 import numpy as np
 import pytest
@@ -173,3 +174,36 @@ def camera_manager(fake_camera: FakePicamera2) -> Iterator[Any]:
     manager = CameraManager()
     yield manager
     manager.stop_frame_distribution()
+
+
+@pytest.fixture
+def recorder(camera_manager: Any, fake_encoders: None, tmp_path: Path) -> Iterator[Any]:
+    from src.motion_recorder import MotionRecorder
+
+    rec = MotionRecorder(
+        camera_manager=camera_manager,
+        video_directory=tmp_path / "clips",
+        file_prefix="test",
+        motion_threshold=1000,
+        motion_timeout=5,
+        buffer_seconds=2,
+        warmup_frames=3,
+    )
+    # Swap MOG2 out so tests dictate the foreground pixel count exactly.
+    rec.background_subtractor = cast(Any, StubSubtractor())
+    yield rec
+
+
+@pytest.fixture
+def recorder_with_real_mog2(
+    camera_manager: Any, fake_encoders: None, tmp_path: Path
+) -> Any:
+    """Recorder keeping the real MOG2, for tests about shadow handling."""
+    from src.motion_recorder import MotionRecorder
+
+    return MotionRecorder(
+        camera_manager=camera_manager,
+        video_directory=tmp_path / "clips",
+        motion_threshold=1000,
+        warmup_frames=0,
+    )
