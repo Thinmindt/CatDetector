@@ -27,9 +27,6 @@ def monitor(
     except KeyboardInterrupt:
         log.info("Monitoring stopped by user")
     finally:
-        # Stop the producer first. Tearing the recorder down while the capture
-        # thread is still calling into it races _start_saving, which can leave
-        # a zero-byte clip behind and the recorder stuck reporting "recording".
         camera_manager.stop_frame_distribution()
         if motion_recorder:
             motion_recorder.cleanup()
@@ -38,14 +35,7 @@ def monitor(
 def build_recorder(
     camera_manager: CameraManager, share: pathlib.Path
 ) -> MotionRecorder | None:
-    """Build the recorder, or return None and keep the stream running.
-
-    Two ways this legitimately fails on a Pi that boots faster than its NAS:
-    the share is not mounted yet, in which case mkdir would cheerfully create
-    captures/ on the SD card and clips would fill the boot media until the share
-    mounts over them; or the encoder cannot start. Neither should cost the web
-    stream, which is often how you find out something is wrong.
-    """
+    """Build the recorder, or return None if the share is missing or it fails."""
     if not os.path.ismount(share):
         log.info("%s is not mounted - starting without recording", share)
         return None
@@ -64,20 +54,12 @@ def build_recorder(
 
 
 def configure_logging() -> None:
-    """Send timestamped records to stderr.
-
-    Replaces bare print(), which is block-buffered when stdout is not a TTY --
-    under systemd that loses every buffered line if the unit is killed rather
-    than exiting cleanly.
-    """
+    """Timestamped records to stderr: this application at INFO, the rest at WARNING."""
     logging.basicConfig(
         level=logging.WARNING,
         format="%(asctime)s %(levelname)-7s %(name)s: %(message)s",
         datefmt="%H:%M:%S",
     )
-    # Only this application logs at INFO. A blanket INFO root turns on every
-    # third-party logger too -- picamera2 in particular narrates every state
-    # change, which buries our own lines.
     logging.getLogger("src").setLevel(logging.INFO)
     logging.getLogger(__name__).setLevel(logging.INFO)
 

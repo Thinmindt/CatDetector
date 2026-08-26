@@ -16,7 +16,6 @@ FRAME_LOG_INTERVAL = 100
 # Frames arrive from picamera2 as HxWx3 uint8 arrays.
 Frame = NDArray[np.uint8]
 
-# A consumer receives (main_frame, lores_frame) and returns nothing.
 FrameConsumer = Callable[[Frame, Frame], None]
 
 
@@ -58,7 +57,6 @@ class CameraManager:
         """Stop distributing frames"""
         self._running = False
         if self._frame_thread:
-            # Bounded join: a wedged consumer must not make shutdown hang forever.
             self._frame_thread.join(timeout=JOIN_TIMEOUT_SECONDS)
             if self._frame_thread.is_alive():
                 log.warning(
@@ -67,11 +65,7 @@ class CameraManager:
                 )
 
     def _distribute_frames(self) -> None:
-        """Capture frames and hand them to every consumer until stopped.
-
-        There is no sleep: capture_next_frames() blocks until the camera has the
-        next frame, which paces the loop at ~30fps on its own.
-        """
+        """Capture and dispatch until stopped. Paced by the blocking capture."""
         log.info("Starting frame distribution loop")
         frame_count = 0
 
@@ -87,22 +81,16 @@ class CameraManager:
                 time.sleep(CAPTURE_ERROR_BACKOFF_SECONDS)
 
     def _capture_next_frames(self) -> tuple[Frame, Frame]:
-        """Both streams from a single libcamera request.
-
-        Two capture_array() calls would consume two *different* requests: the
-        frames would be separate exposures ~33ms apart, and the loop would run
-        at half the frame rate (measured: 15fps vs 30fps). Note capture_arrays
-        returns (arrays, metadata), not a bare list.
-        """
+        """Both streams from one libcamera request. Blocks until the next frame."""
         with self._frame_lock:
             arrays, _ = self.picam2.capture_arrays(["main", "lores"])
         return arrays[0], arrays[1]
 
     def _dispatch(self, main_frame: Frame, lores_frame: Frame) -> None:
-        """Consumers run outside the capture lock, synchronously and in order.
+        """Call each consumer in order, outside the capture lock.
 
-        A slow consumer still throttles the loop; it just no longer does so
-        while holding the lock. A raising consumer must not stop the others.
+        Runs on the capture thread, so a slow consumer throttles the loop.
+        A raising consumer does not stop the others.
         """
         for consumer in self._consumers:
             try:

@@ -92,8 +92,6 @@ class WebStreamer:
                 1,
             )
 
-        # frame_rgb is already a private copy of main_frame and is never touched
-        # again after publishing, so a second copy here would be wasted work.
         with self.frame_lock:
             self.latest_frame = frame_rgb
 
@@ -138,12 +136,7 @@ class WebStreamer:
 
     def generate_frames(self) -> Iterator[bytes]:
         while True:
-            # Take a reference under the lock, then encode and yield outside it.
-            # A suspended generator keeps hold of its context manager, so yielding
-            # inside the lock would let one slow viewer (a backgrounded tab, a
-            # phone on bad wifi) block the capture thread indefinitely -- which
-            # now also runs motion detection. Publishing replaces latest_frame
-            # wholesale and never mutates it, so the reference stays valid.
+            # Encode and yield outside the lock.
             with self.frame_lock:
                 frame = self.latest_frame
 
@@ -160,6 +153,4 @@ class WebStreamer:
             time.sleep(STREAM_INTERVAL_SECONDS)
 
     def start(self) -> None:
-        # Deliberate: the stream is meant to be reachable from other devices on the
-        # LAN. It has no authentication, so see the Security section of the README.
         self.app.run(host="0.0.0.0", port=self.port, debug=False, threaded=True)  # noqa: S104
