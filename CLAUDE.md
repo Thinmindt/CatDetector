@@ -23,8 +23,10 @@ uv run python tests/manual/check_camera.py   # hardware smoke test; writes test_
 
 **Run the tests and all three static checks before every commit.** All four must be clean.
 
-Coding conventions live in [STYLE.md](STYLE.md) — naming over narration, logging over `print`,
-and which comments are worth keeping.
+Coding conventions live in `docs/STYLE.md`, which is **gitignored** and local-only — naming over
+narration, logging over `print`, and which comments are worth keeping. Read it before writing code
+here; like the roadmap it will not appear in a fresh clone, so check on disk rather than assuming
+there is no standard.
 
 `uv run` targets the project venv directly, so activating it is unnecessary.
 
