@@ -79,3 +79,12 @@ NETWORK_SHARE_DIR=/mnt/nas
 ```
 
 Recordings are written to `$NETWORK_SHARE_DIR/captures/`.
+
+Optional, for tuning detection:
+
+```
+METRICS_CSV=/home/you/metrics.csv
+```
+
+When set, every frame appends a row of detection metrics (foreground pixel count, largest
+contour area, bounding box) to that file. Use a local path, not the network share.

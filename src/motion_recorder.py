@@ -4,13 +4,14 @@ import shutil
 import threading
 import time
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import cv2
 from picamera2.encoders import H264Encoder
 from picamera2.outputs import CircularOutput
 
 from src.camera_manager import CameraManager, Frame
+from src.motion_metrics import MetricsLog, largest_blob
 
 log = logging.getLogger(__name__)
 
@@ -18,6 +19,9 @@ CAMERA_FPS = 30
 H264_BITRATE = 10_000_000
 
 CLIP_SUFFIX = ".h264"  # raw elementary stream, not a container
+
+# MOG2 marks shadow pixels with this value; only 255 is real foreground.
+SHADOW_PIXEL_VALUE = 127
 
 CLIP_FLUSH_TIMEOUT_SECONDS = 30
 
@@ -60,6 +64,7 @@ class MotionRecorder:
         warmup_frames: int = 30,
         max_clip_seconds: float = 300,
         min_free_bytes: int = 1_000_000_000,
+        metrics: MetricsLog | None = None,
     ) -> None:
         """
         Initializes the MotionRecorder with a shared camera manager.
@@ -74,6 +79,7 @@ class MotionRecorder:
         self.motion_threshold = motion_threshold
         self.background_subtractor = cv2.createBackgroundSubtractorMOG2()
         self.last_motion_pixels = 0
+        self.metrics = metrics
         self.warmup_frames = warmup_frames
         self._frames_seen = 0
         if warmup_frames == 0:
@@ -134,15 +140,29 @@ class MotionRecorder:
             self._stop_saving()
 
     def detect_motion(self, frame: Frame) -> bool:
-        self.last_motion_pixels = self._count_foreground_pixels(frame)
+        mask = self._foreground_mask(frame)
+        self.last_motion_pixels = int(cv2.countNonZero(mask))
+
+        if self.metrics is not None:
+            self.metrics.record(
+                self.last_motion_pixels, largest_blob(mask), self.recording
+            )
+
         if self._is_warming_up():
             return False
         return self.last_motion_pixels > self.motion_threshold
 
-    def _count_foreground_pixels(self, frame: Frame) -> int:
+    def _foreground_mask(self, frame: Frame) -> Frame:
+        """Binary foreground mask, with MOG2's shadow pixels excluded.
+
+        Shadow detection stays on: disabling it relabels shadows as foreground
+        rather than removing them.
+        """
         # RGB -> BGR followed by BGR -> GRAY is the same as one RGB -> GRAY pass.
         gray = cv2.cvtColor(frame, cv2.COLOR_RGB2GRAY)
-        return int(cv2.countNonZero(self.background_subtractor.apply(gray)))
+        mask = self.background_subtractor.apply(gray)
+        _, binary = cv2.threshold(mask, SHADOW_PIXEL_VALUE, 255, cv2.THRESH_BINARY)
+        return cast(Frame, binary)
 
     def _is_warming_up(self) -> bool:
         """Whether MOG2 is still training. Detection is suppressed until it is not."""
@@ -257,6 +277,9 @@ class MotionRecorder:
             if self.recording:
                 self._stop_saving()
             self._await_final_flush()
+
+            if self.metrics is not None:
+                self.metrics.close()
 
             if self.encoder:
                 # stop_encoder, not stop_recording: the camera is shared.

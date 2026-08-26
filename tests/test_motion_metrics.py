@@ -1,0 +1,184 @@
+"""Shadow exclusion and the per-frame metrics log."""
+
+from __future__ import annotations
+
+import csv
+import logging
+from pathlib import Path
+from typing import Any
+
+import cv2
+import numpy as np
+import pytest
+from conftest import LORES_SIZE, make_frame
+
+from src.motion_metrics import Blob, MetricsLog, largest_blob
+
+SHADOW_VALUE = 127
+
+
+def frame_with(background: int, patches: list[tuple[slice, slice, int]]) -> Any:
+    img = np.full((*LORES_SIZE, 3), background, dtype=np.uint8)
+    for rows, cols, value in patches:
+        img[rows, cols] = value
+    return img
+
+
+# --- shadow handling --------------------------------------------------------
+
+
+def test_mog2_marks_shadows_with_a_distinct_value() -> None:
+    """Documents the behaviour the fix depends on, against real MOG2."""
+    subtractor = cv2.createBackgroundSubtractorMOG2()
+    background = np.full((120, 160), 200, dtype=np.uint8)
+    for _ in range(60):
+        subtractor.apply(background)
+
+    frame = background.copy()
+    frame[20:60, 20:60] = 100  # shadow: same texture, darker
+    frame[80:110, 80:140] = 20  # object: very different
+    mask = subtractor.apply(frame)
+
+    assert SHADOW_VALUE in np.unique(mask)
+    assert 255 in np.unique(mask)
+
+
+def test_disabling_shadow_detection_does_not_exclude_shadows() -> None:
+    """The tempting fix is a no-op: it relabels shadows 255 rather than dropping
+    them, so countNonZero is unchanged."""
+    counts = []
+    for detect_shadows in (True, False):
+        subtractor = cv2.createBackgroundSubtractorMOG2(detectShadows=detect_shadows)
+        background = np.full((120, 160), 200, dtype=np.uint8)
+        for _ in range(60):
+            subtractor.apply(background)
+        frame = background.copy()
+        frame[20:60, 20:60] = 100
+        frame[80:110, 80:140] = 20
+        counts.append(cv2.countNonZero(subtractor.apply(frame)))
+
+    assert counts[0] == counts[1]
+
+
+def test_shadow_pixels_do_not_count_as_motion(recorder_with_real_mog2: Any) -> None:
+    """Regression: countNonZero counted MOG2's 127s, so a moving shadow read as
+    a cat."""
+    recorder = recorder_with_real_mog2
+    background = frame_with(200, [])
+    for _ in range(60):
+        recorder.detect_motion(background)
+
+    shadow_only = frame_with(200, [(slice(50, 200), slice(50, 300), 100)])
+    recorder.detect_motion(shadow_only)
+    shadow_pixels = recorder.last_motion_pixels
+
+    real_object = frame_with(200, [(slice(50, 200), slice(50, 300), 20)])
+    recorder.detect_motion(real_object)
+    object_pixels = recorder.last_motion_pixels
+
+    assert shadow_pixels == 0
+    assert object_pixels > 1000
+
+
+# --- largest_blob -----------------------------------------------------------
+
+
+def test_largest_blob_finds_the_biggest_region() -> None:
+    mask = np.zeros(LORES_SIZE, dtype=np.uint8)
+    mask[10:20, 10:20] = 255  # small
+    mask[100:200, 100:250] = 255  # large
+
+    blob = largest_blob(mask)
+
+    assert blob is not None
+    assert blob.area > 10_000
+    assert (blob.x, blob.y) == (100, 100)
+    assert blob.centroid == (175, 150)
+
+
+def test_largest_blob_on_an_empty_mask_is_none() -> None:
+    assert largest_blob(np.zeros(LORES_SIZE, dtype=np.uint8)) is None
+
+
+# --- MetricsLog -------------------------------------------------------------
+
+
+def read_rows(path: Path) -> list[dict[str, str]]:
+    with path.open(newline="") as handle:
+        return list(csv.DictReader(handle))
+
+
+def test_records_rows_with_a_header(tmp_path: Path) -> None:
+    log = MetricsLog(tmp_path / "metrics.csv")
+    log.record(1234, Blob(area=500, x=1, y=2, w=10, h=20), recording=True)
+    log.record(7, None, recording=False)
+    log.close()
+
+    rows = read_rows(tmp_path / "metrics.csv")
+    assert len(rows) == 2
+    assert rows[0]["foreground_px"] == "1234"
+    assert rows[0]["blob_area"] == "500"
+    assert rows[0]["cx"] == "6"
+    assert rows[0]["recording"] == "1"
+    assert rows[1]["blob_area"] == "0"
+    assert rows[1]["x"] == ""
+
+
+def test_appends_without_repeating_the_header(tmp_path: Path) -> None:
+    path = tmp_path / "metrics.csv"
+    first = MetricsLog(path)
+    first.record(1, None, recording=False)
+    first.close()
+
+    second = MetricsLog(path)
+    second.record(2, None, recording=False)
+    second.close()
+
+    assert len(read_rows(path)) == 2
+    assert path.read_text().count("foreground_px") == 1
+
+
+def test_record_does_not_block_when_the_writer_falls_behind(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """The capture thread must never wait on the metrics log."""
+    log = MetricsLog(tmp_path / "metrics.csv")
+    log._queue.maxsize = 1
+    for _ in range(5000):
+        log.record(1, None, recording=False)
+
+    assert log.dropped > 0
+    with caplog.at_level(logging.WARNING):
+        log.close()
+    assert "Dropped" in caplog.text
+
+
+def test_creates_the_parent_directory(tmp_path: Path) -> None:
+    log = MetricsLog(tmp_path / "nested" / "deeper" / "metrics.csv")
+    log.close()
+    assert (tmp_path / "nested" / "deeper").is_dir()
+
+
+def test_recorder_runs_without_metrics(recorder: Any) -> None:
+    assert recorder.metrics is None
+    recorder.detect_motion(make_frame(LORES_SIZE))
+
+
+def test_recorder_feeds_the_metrics_log(
+    camera_manager: Any, fake_encoders: None, tmp_path: Path
+) -> None:
+    from src.motion_recorder import MotionRecorder
+
+    log = MetricsLog(tmp_path / "metrics.csv")
+    rec = MotionRecorder(
+        camera_manager=camera_manager,
+        video_directory=tmp_path / "clips",
+        metrics=log,
+        warmup_frames=2,
+    )
+    for _ in range(5):
+        rec.detect_motion(make_frame(LORES_SIZE))
+    rec.cleanup()
+
+    rows = read_rows(tmp_path / "metrics.csv")
+    assert len(rows) == 5

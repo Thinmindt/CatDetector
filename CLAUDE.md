@@ -54,7 +54,14 @@ uv run ruff format .                         # format
 uv run mypy .                                # type-check (strict, must stay clean)
 
 uv run python tests/manual/check_camera.py   # hardware smoke test; writes test_images/test_image.jpg
+
+METRICS_CSV=/home/butler/metrics.csv uv run python main.py   # + per-frame detection metrics
 ```
+
+`METRICS_CSV` turns on the instrumentation for roadmap A.2. Point it at **local disk**, never at
+the share: one row per frame at 30 fps is the small-write pattern CIFS handles worst. Rows are
+written off the capture thread and dropped rather than queued without bound, so the count of
+dropped rows is reported at shutdown.
 
 **All four gates must pass before every commit** — tests, lint, format check, type check. This is
 a standing instruction from the repo owner, not a nicety. Run them and report the result.
@@ -258,10 +265,9 @@ Each of these was a real bug. The reasoning is in `docs/DESIGN.md`.
 
 Not bugs, but do not mistake them for correct:
 
-- MOG2 runs with `detectShadows=True`, which writes shadow pixels as 127, and `countNonZero`
-  counts them as motion. A moving shadow reads as a cat.
-- Detection is a **global pixel count** with no spatial coherence: scattered noise and one solid
-  cat-sized blob are indistinguishable.
+- Detection is a **global pixel count**, so the shadow fix does not make it good — only honest.
+- No spatial coherence: scattered noise and one solid cat-sized blob are indistinguishable.
+  `largest_blob()` exists and is logged, but nothing yet *triggers* on it — that is A.3.
 - A cat that settles is absorbed into the background in roughly `history` frames (~17 s), so
   recording can stop mid-visit.
 - The web stream has **no authentication** and runs on Flask's dev server. LAN-only by design;
