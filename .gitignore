@@ -21,3 +21,6 @@ docs/
 # Review database and frame cache (local, per-Pi)
 captures.db*
 .review_cache/
+
+# Clips staged on local disk before they reach the share
+.clip_cache/

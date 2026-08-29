@@ -49,6 +49,9 @@ class FakeCircularOutput:
             if self.fail_on_fileoutput:
                 raise OSError("network share went away")
             self.files.append(value)
+            if value is not None:
+                # The real setter open()s the path, so the file exists from here.
+                Path(value).write_bytes(b"fake clip")
         super().__setattr__(name, value)
 
     def is_abandoned(self) -> bool:

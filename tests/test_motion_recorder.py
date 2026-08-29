@@ -10,6 +10,8 @@ from typing import Any
 import pytest
 from conftest import LORES_SIZE, MAIN_SIZE, FakePicamera2, make_frame
 
+from src.motion_recorder import partial_name
+
 # Handing the drain to a thread should be effectively instant; the fake's
 # stop_delay is 1.0s, so anything near that means the caller waited on it.
 HANDOFF_BUDGET_SECONDS = 0.5
@@ -87,8 +89,10 @@ def test_start_saving_attaches_a_file_and_starts_the_buffer(recorder: Any) -> No
     assert recorder.recording
     assert recorder.current_filename == path
     # The real setter stores an opened handle, not the path, so assert on what
-    # was assigned rather than on what the attribute holds afterwards.
-    assert recorder.circular_output.files[-1] == path
+    # was assigned rather than on what the attribute holds afterwards. Clips are
+    # written under the partial name and promoted once closed.
+    assert recorder.circular_output.files[-1] == partial_name(path)
+    assert not path.exists()
     assert recorder.circular_output.start_calls == 1
 
 
@@ -366,6 +370,34 @@ def test_storage_errors_never_escape_to_picamera2() -> None:
 
     output._write(b"another")  # and must stop hammering a dead share
     assert handle.writes == 1
+
+
+def test_a_finished_clip_is_promoted_from_its_partial_name(recorder: Any) -> None:
+    """The final name is what tells ClipTransfer a clip is complete."""
+    path = recorder._start_saving()
+    assert partial_name(path).exists()
+
+    recorder._stop_saving()
+    recorder._drain_thread.join(timeout=5)
+
+    assert path.exists()
+    assert not partial_name(path).exists()
+
+
+def test_an_empty_clip_is_discarded_rather_than_promoted(
+    recorder: Any, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A clip that never got any bytes must not become a 0-byte capture event."""
+    path = recorder._start_saving()
+    partial_name(path).write_bytes(b"")
+
+    with caplog.at_level(logging.WARNING):
+        recorder._stop_saving()
+        recorder._drain_thread.join(timeout=5)
+
+    assert not path.exists()
+    assert not partial_name(path).exists()
+    assert "Discarded empty clip" in caplog.text
 
 
 def test_outputframe_survives_the_ring_draining_mid_frame() -> None:

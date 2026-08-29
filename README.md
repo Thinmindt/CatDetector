@@ -87,9 +87,18 @@ Copy the settings you need into a `.env` file at the repo root (gitignored):
 
 ```
 NETWORK_SHARE_DIR=/mnt/nas
+LOCAL_CLIP_DIR=.clip_cache
 ```
 
-Recordings are written to `$NETWORK_SHARE_DIR/captures/`.
+Clips are recorded to `LOCAL_CLIP_DIR` on local disk, then moved to
+`$NETWORK_SHARE_DIR/captures/` once each clip is complete. Recording therefore does not depend
+on the share being reachable: if it goes away, clips queue locally and are shipped when it comes
+back. A clip only appears on the share under its final `.h264` name once every byte has arrived,
+so the review server never samples a half-written file.
+
+If the share is mounted from `/etc/fstab`, pin the `soft` option explicitly. It is the CIFS
+default, so it is easy to lose by accident — and on a `hard` mount an unreachable NAS blocks
+writes indefinitely instead of failing with an error.
 
 Optional, for tuning detection:
 
