@@ -368,6 +368,46 @@ def test_storage_errors_never_escape_to_picamera2() -> None:
     assert handle.writes == 1
 
 
+def test_outputframe_survives_the_ring_draining_mid_frame() -> None:
+    """stop() can empty the ring between a frame's append and its popleft.
+
+    The exception would otherwise kill the encoder's poll thread, which is the
+    only one that returns camera buffers.
+    """
+    import collections
+    import io
+
+    from src.motion_recorder import _ResilientCircularOutput
+
+    class DrainedRing:
+        """A ring that stop() drains the instant a frame lands in it."""
+
+        def __init__(self) -> None:
+            self.frames: collections.deque[Any] = collections.deque()
+
+        def __iadd__(self, frames: Any) -> DrainedRing:
+            self.frames.extend(frames)
+            self.frames.clear()
+            return self
+
+        def popleft(self) -> Any:
+            return self.frames.popleft()
+
+    sink = io.BytesIO()
+    output = _ResilientCircularOutput(buffersize=4)
+    output._fileoutput = sink
+    output.recording = True
+    output._firstframe = False
+
+    output._circular = DrainedRing()
+    output.outputframe(b"lost", keyframe=True)  # must not raise
+    assert sink.getvalue() == b""
+
+    output._circular = collections.deque(maxlen=4)
+    output.outputframe(b"kept", keyframe=True)
+    assert sink.getvalue() == b"kept"
+
+
 def test_recorder_is_inert_after_cleanup(
     recorder: Any, caplog: pytest.LogCaptureFixture
 ) -> None:
