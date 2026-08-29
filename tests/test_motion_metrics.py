@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import csv
 import logging
+import threading
 from pathlib import Path
 from typing import Any
 
@@ -182,3 +183,34 @@ def test_recorder_feeds_the_metrics_log(
 
     rows = read_rows(tmp_path / "metrics.csv")
     assert len(rows) == 5
+
+
+def test_close_returns_when_the_writer_thread_has_died(tmp_path: Path) -> None:
+    """A dead writer plus a full queue must not wedge shutdown.
+
+    close() runs on the main thread during cleanup(), so a blocking enqueue
+    there hangs the process.
+    """
+    directory = tmp_path / "readonly"
+    directory.mkdir()
+    directory.chmod(0o500)
+    try:
+        log = MetricsLog(directory / "metrics.csv")
+        log._thread.join(timeout=5)
+        assert not log._thread.is_alive()
+
+        log._queue.maxsize = 2
+        for _ in range(10):
+            log.record(1, None, recording=False)
+        assert log._queue.full()
+
+        finished = threading.Event()
+
+        def close_it() -> None:
+            log.close()
+            finished.set()
+
+        threading.Thread(target=close_it, daemon=True).start()
+        assert finished.wait(timeout=20)
+    finally:
+        directory.chmod(0o700)

@@ -153,4 +153,4 @@ class WebStreamer:
             time.sleep(STREAM_INTERVAL_SECONDS)
 
     def start(self) -> None:
-        self.app.run(host="0.0.0.0", port=self.port, debug=False, threaded=True)  # noqa: S104
+        self.app.run(host="0.0.0.0", port=self.port, debug=False, threaded=True)  # noqa: S104 -- LAN-only by design, see the README

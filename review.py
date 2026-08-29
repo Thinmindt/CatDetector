@@ -32,4 +32,4 @@ if __name__ == "__main__":
     configure_logging(__name__)
     app = build_app()
     log.info("Review UI at http://<pi-ip>:%d/review", REVIEW_PORT)
-    app.run(host="0.0.0.0", port=REVIEW_PORT, debug=False)  # noqa: S104
+    app.run(host="0.0.0.0", port=REVIEW_PORT, debug=False)  # noqa: S104 -- LAN-only by design, see the README

@@ -38,11 +38,14 @@ class Event:
 
 
 def _clip_started_at(name: str) -> str | None:
-    """ISO timestamp parsed from a clip filename, or None."""
+    """ISO timestamp parsed from a clip filename, or None if it has none."""
     match = CLIP_TIMESTAMP.search(name)
     if match is None:
         return None
-    stamp = datetime.datetime.strptime(match[1] + match[2], "%Y%m%d%H%M%S")
+    try:
+        stamp = datetime.datetime.strptime(match[1] + match[2], "%Y%m%d%H%M%S")
+    except ValueError:
+        return None
     return stamp.isoformat()
 
 
@@ -81,10 +84,17 @@ class CaptureDB:
         return added
 
     def _insert_new(self, clip: Path, now: str) -> int:
+        """Register one clip. Returns 0 if it is already known or unreadable."""
+        try:
+            size = clip.stat().st_size
+        except OSError as error:
+            log.warning("Skipping %s: %s", clip, error)
+            return 0
+
         cursor = self._conn.execute(
             "INSERT OR IGNORE INTO event"
             " (clip_path, started_at, size_bytes, created_at) VALUES (?, ?, ?, ?)",
-            (str(clip), _clip_started_at(clip.name), clip.stat().st_size, now),
+            (str(clip), _clip_started_at(clip.name), size, now),
         )
         return cursor.rowcount
 

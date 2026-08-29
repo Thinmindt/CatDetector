@@ -9,7 +9,7 @@ from flask import Blueprint, Response, jsonify, request, send_file
 
 from config import Config
 from src.capture_db import CaptureDB, Event
-from src.clip_frames import THUMB_COUNT, ClipFrames
+from src.clip_frames import THUMB_WIDTH, ClipFrames
 
 log = logging.getLogger(__name__)
 
@@ -89,7 +89,9 @@ async function rescan() {
 }
 
 document.getElementById('strip').onclick = (e) => {
-  const slot = Math.floor(e.offsetX / e.target.clientWidth * %THUMBS%);
+  const img = e.target;
+  const slots = Math.max(1, Math.round(img.naturalWidth / %THUMB_WIDTH%));
+  const slot = Math.min(slots - 1, Math.floor(e.offsetX / img.clientWidth * slots));
   if (current) window.open(`/review/${current.id}/frame/${slot}.jpg`);
 };
 document.addEventListener('keydown', (e) => {
@@ -110,7 +112,8 @@ class ReviewPages:
         self.frames = frames
 
     def page(self) -> str:
-        return _PAGE.replace("%THUMBS%", str(THUMB_COUNT))
+        """The review page, with the strip's thumbnail width baked in."""
+        return _PAGE.replace("%THUMB_WIDTH%", str(THUMB_WIDTH))
 
     def next_event(self) -> Any:
         return self._event_payload(self.db.next_unlabeled())

@@ -57,6 +57,24 @@ def test_ingest_accepts_unparseable_names(db: Any, tmp_path: Path) -> None:
     assert db.next_unlabeled().started_at is None
 
 
+def test_ingest_survives_an_impossible_timestamp(db: Any, tmp_path: Path) -> None:
+    """Digits matching the pattern but not a real date must not abort the scan."""
+    directory = tmp_path / "captures"
+    make_clip_file(directory / "cat_video_99999999_999999.h264")
+    make_clip_file(directory / "cat_video_20260826_090000.h264")
+
+    assert db.ingest(directory) == 2
+    assert db.counts()["total"] == 2
+
+
+def test_ingest_skips_a_clip_it_cannot_stat(db: Any, clip_dir: Path) -> None:
+    """A clip removed from the share between the glob and the stat is skipped."""
+    (clip_dir / "cat_video_20260827_120000.h264").symlink_to(clip_dir / "gone.h264")
+
+    assert db.ingest(clip_dir) == 2
+    assert db.counts()["total"] == 2
+
+
 def test_ingest_of_a_missing_directory_is_zero(db: Any, tmp_path: Path) -> None:
     assert db.ingest(tmp_path / "nope") == 0
 

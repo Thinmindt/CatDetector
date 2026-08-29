@@ -87,14 +87,14 @@ class ClipFrames:
             str(out),
         ]
         try:
-            done = subprocess.run(  # noqa: S603
+            done = subprocess.run(  # noqa: S603 -- fixed argv, no shell
                 command,
                 capture_output=True,
                 timeout=FFMPEG_TIMEOUT_SECONDS,
                 check=False,
             )
         except subprocess.TimeoutExpired:
-            log.error("ffmpeg timed out on %s", clip)  # noqa: TRY400
+            log.error("ffmpeg timed out on %s", clip)  # noqa: TRY400 -- no traceback worth printing
             return None
         if done.returncode != 0:
             log.error(

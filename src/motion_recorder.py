@@ -24,13 +24,14 @@ CLIP_SUFFIX = ".h264"  # raw elementary stream, not a container
 SHADOW_PIXEL_VALUE = 127
 
 CLIP_FLUSH_TIMEOUT_SECONDS = 30
+DISK_CHECK_INTERVAL_SECONDS = 5
 
 
 class _ResilientCircularOutput(CircularOutput):  # type: ignore[misc]
-    """CircularOutput that abandons the clip on a storage error instead of raising.
+    """CircularOutput that drops frames instead of raising into picamera2.
 
-    Writes run on picamera2's camera event-loop thread, which must not see an
-    exception.
+    Both methods run on the encoder's poll thread. That thread is the only one
+    that returns camera buffers, so an exception escaping it starves the camera.
     """
 
     def _write(self, frame: Any, timestamp: Any = None) -> None:
@@ -40,7 +41,21 @@ class _ResilientCircularOutput(CircularOutput):  # type: ignore[misc]
             super()._write(frame, timestamp)
         except OSError as error:
             self.dead = True
-            log.error("Clip write failed, abandoning clip: %s", error)  # noqa: TRY400
+            log.error("Clip write failed, abandoning clip: %s", error)  # noqa: TRY400 -- the message is the whole story
+
+    def outputframe(
+        self,
+        frame: Any,
+        keyframe: bool = True,
+        timestamp: Any = None,
+        packet: Any = None,
+        audio: bool = False,
+    ) -> None:
+        # stop() can drain the ring between this frame's append and its popleft.
+        try:
+            super().outputframe(frame, keyframe, timestamp, packet, audio)
+        except IndexError:
+            log.debug("Dropped a frame racing the end of a clip")
 
     def is_abandoned(self) -> bool:
         """Whether a write failed and the current clip has been given up on."""
@@ -94,6 +109,8 @@ class MotionRecorder:
         self.max_clip_seconds = max_clip_seconds
         self.min_free_bytes = min_free_bytes
         self._clip_started = 0.0
+        self._disk_checked_at: float | None = None
+        self._had_room = True
 
         self.buffer_seconds = buffer_seconds
         self.circular_output: Any = None
@@ -257,10 +274,27 @@ class MotionRecorder:
         return path
 
     def _has_room(self) -> bool:
+        """Whether the share has space, rechecked at most every few seconds.
+
+        statvfs on the share can block, and this is called on the capture thread
+        for every motion frame.
+        """
+        now = time.monotonic()
+        if (
+            self._disk_checked_at is not None
+            and now - self._disk_checked_at < DISK_CHECK_INTERVAL_SECONDS
+        ):
+            return self._had_room
+
+        self._disk_checked_at = now
+        self._had_room = self._measure_room()
+        return self._had_room
+
+    def _measure_room(self) -> bool:
         try:
             free = shutil.disk_usage(self.video_directory).free
         except OSError as error:
-            log.error(  # noqa: TRY400
+            log.error(  # noqa: TRY400 -- the message is the whole story
                 "Cannot check free space on %s: %s", self.video_directory, error
             )
             return False

@@ -31,6 +31,7 @@ FIELDS = [
 QUEUE_LIMIT = 2000
 FLUSH_EVERY_ROWS = 150
 WRITER_JOIN_SECONDS = 10
+SENTINEL_TIMEOUT_SECONDS = 2
 
 
 @dataclass(frozen=True)
@@ -90,7 +91,11 @@ class MetricsLog:
             self.dropped += 1
 
     def close(self) -> None:
-        self._queue.put(None)
+        """Stop the writer and report the totals. Never blocks indefinitely."""
+        try:
+            self._queue.put(None, timeout=SENTINEL_TIMEOUT_SECONDS)
+        except queue.Full:
+            log.warning("Metrics writer is not draining; closing without it")
         self._thread.join(timeout=WRITER_JOIN_SECONDS)
         if self.dropped:
             log.warning("Dropped %d metrics rows; the writer fell behind", self.dropped)
