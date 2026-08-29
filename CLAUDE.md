@@ -43,6 +43,17 @@ The recordings directory is a **CIFS** network share mounted at `/mnt/nas`. That
 than it sounds: writes can fail with a plain `OSError`, the mount can be absent at boot, and
 SQLite must never live there (see the roadmap's storage section).
 
+**Clips are no longer written to the share directly.** `MotionRecorder` writes to
+`LOCAL_CLIP_DIR` (`.clip_cache`) and `ClipTransfer` ships finished clips across on its own
+thread. So the capture and encoder threads never touch the network, recording keeps working
+through a NAS outage, and a clip only appears on the share once it is complete.
+
+**The share is mounted `soft`, and nothing in fstab says so** — it is the CIFS default. On a
+soft mount an unreachable server fails writes after ~1–2 minutes instead of blocking forever.
+Since clips are staged locally, a `hard` mount would now only stall the transfer thread rather
+than freeze the camera, but pin `soft` explicitly if you touch that fstab line: switching it
+reads like a robustness improvement and is the exact opposite.
+
 ## Commands
 
 ```bash
@@ -82,15 +93,15 @@ any hardware script will fail to open the camera, and vice versa. Check with
 `ps aux | grep main.py` before wondering why initialisation failed.
 
 **Testing the recorder without polluting the NAS.** `config.py` calls `load_dotenv()`, which does
-*not* override variables already in the environment, so this works:
+*not* override variables already in the environment, so pointing both directories at scratch
+exercises the whole path:
 
 ```bash
-NETWORK_SHARE_DIR=/some/scratch/dir uv run python main.py
+LOCAL_CLIP_DIR=/some/scratch/clips NETWORK_SHARE_DIR=/some/scratch/share uv run python main.py
 ```
 
-Caveat: `main.py` refuses to record unless the target is a real mountpoint, so a scratch path
-makes it start *without* the recorder. To exercise recording, construct `MotionRecorder`
-directly in a throwaway script with `video_directory=` pointing at scratch. Do not leave test
+`ClipTransfer` refuses to write to a path that is not a real mountpoint, so a scratch share
+leaves the clips on local disk rather than scattering them across the SD card. Do not leave test
 clips on the share — the owner has had to clear them twice.
 
 **Verify on hardware, not just in the test suite.** The suite fakes the entire camera layer, so
@@ -228,12 +239,21 @@ stopping the loop.
 [src/motion_recorder.py](src/motion_recorder.py) reaches through `camera_manager.get_camera()` and
 drives picamera2's own encoder pipeline: an `H264Encoder` writes continuously into a
 `CircularOutput`. Recording is diverted to a file when motion starts
-(`circular_output.fileoutput = path` then `.start()`, which flushes from the buffer's **oldest**
-keyframe) and back to buffering only when it stops (`.stop()`).
+(`circular_output.fileoutput = <local .part path>` then `.start()`, which flushes from the
+buffer's **oldest** keyframe) and back to buffering only when it stops (`.stop()`).
 
 So the recorder uses the consumer callback only for *detection* (MOG2 on the `lores` frame,
 thresholded on `countNonZero`), while the bytes flow through picamera2's encoder. Changing frame
 distribution does not change what is recorded, and vice versa.
+
+**Clips reach the share in two stages.** The recorder writes `<clip>.h264.part` to local disk
+and renames it to `<clip>.h264` when the file closes. [src/clip_transfer.py](src/clip_transfer.py)
+scans for those finished names every 60 s, copies each to `<clip>.h264.part` on the share, then
+renames *within* the share. Both renames are same-filesystem and therefore atomic, so no reader
+ever sees a final-named clip that is still growing — which is what keeps the review server from
+ingesting a half-written file. Do not replace either step with `shutil.move`: across filesystems
+it degrades to copy-then-delete and exposes the final name immediately. The scan is stateless,
+so clips stranded by a crash ship on the next pass with no recovery code.
 
 **Web stream.** [src/web_streamer.py](src/web_streamer.py) is another consumer: it keeps the
 newest `main` frame under a lock, optionally annotates it with recorder status via OpenCV, and
@@ -249,10 +269,13 @@ Each of these was a real bug. The reasoning is in `docs/DESIGN.md`.
 - **The camera is shared, so the recorder must not stop it.** `Picamera2.stop_recording()` calls
   `stop()` on the camera itself, cutting off every other consumer. `MotionRecorder.cleanup()`
   calls `stop_encoder(self.encoder)` — only the encoder is the recorder's to stop.
-- **Storage errors must never reach picamera2.** Clip bytes are written inline on picamera2's
-  camera event-loop thread, and `FileOutput._write` catches only connection errors. An `OSError`
-  from the share would kill that thread and leave every `capture_arrays()` blocked forever — a
-  silent, total freeze. `_ResilientCircularOutput` contains it.
+- **Nothing may raise out of the encoder's poll thread.** Clip bytes are written on
+  `V4L2Encoder.thread_poll`, **not** the camera event-loop thread — earlier revisions of this
+  file said otherwise. That thread is the only one that returns camera buffers and refills
+  `buf_available`, so killing it makes `_encode` block forever on the camera event loop and
+  every `capture_arrays()` with it — a silent, total freeze. `_ResilientCircularOutput` contains
+  both known ways out: `OSError` from `_write`, and the `IndexError` from `outputframe` when
+  `stop()` drains the ring between a frame's append and its `popleft`.
 - **Never yield while holding a lock the capture thread needs.** A suspended generator keeps its
   context manager, so one slow MJPEG viewer used to block frame distribution — and therefore
   motion detection — indefinitely.

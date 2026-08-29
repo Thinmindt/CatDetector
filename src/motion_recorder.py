@@ -19,12 +19,18 @@ CAMERA_FPS = 30
 H264_BITRATE = 10_000_000
 
 CLIP_SUFFIX = ".h264"  # raw elementary stream, not a container
+PARTIAL_SUFFIX = ".part"
 
 # MOG2 marks shadow pixels with this value; only 255 is real foreground.
 SHADOW_PIXEL_VALUE = 127
 
 CLIP_FLUSH_TIMEOUT_SECONDS = 30
 DISK_CHECK_INTERVAL_SECONDS = 5
+
+
+def partial_name(clip: Path) -> Path:
+    """The name a clip is written under. Only the final name means "complete"."""
+    return clip.with_name(clip.name + PARTIAL_SUFFIX)
 
 
 class _ResilientCircularOutput(CircularOutput):  # type: ignore[misc]
@@ -116,6 +122,7 @@ class MotionRecorder:
         self.circular_output: Any = None
         self.encoder: Any = None
         self.current_filename: Path | None = None
+        self._writing_path: Path | None = None
         self._drain_thread: threading.Thread | None = None
         self._closed = False
 
@@ -211,15 +218,17 @@ class MotionRecorder:
             return None
 
         path = self._next_clip_path()
+        writing = partial_name(path)
         try:
             self.circular_output.dead = False
-            self.circular_output.fileoutput = path
+            self.circular_output.fileoutput = writing
             self.circular_output.start()
         except Exception:
             log.exception("Failed to start saving to %s", path)
             return None
 
         self.current_filename = path
+        self._writing_path = writing
         self.recording = True
         self._clip_started = time.monotonic()
         log.info(
@@ -236,17 +245,21 @@ class MotionRecorder:
             return None
 
         saved = self.current_filename
+        writing = self._writing_path
         output = self.circular_output
         self.recording = False
         self.current_filename = None
+        self._writing_path = None
 
         self._drain_thread = threading.Thread(
-            target=self._finish_clip, args=(output, saved), daemon=True
+            target=self._finish_clip, args=(output, writing, saved), daemon=True
         )
         self._drain_thread.start()
         return saved
 
-    def _finish_clip(self, output: Any, path: Path | None) -> None:
+    def _finish_clip(
+        self, output: Any, writing: Path | None, path: Path | None
+    ) -> None:
         """Drain the ring buffer into the clip and close it. Runs off-thread."""
         try:
             output.stop()
@@ -254,10 +267,26 @@ class MotionRecorder:
             log.exception("Error finishing %s", path)
             return
 
+        promoted = self._promote(writing, path)
         if output.is_abandoned():
             log.warning("Clip %s is incomplete: writes failed partway through", path)
-        else:
+        elif promoted:
             log.info("Stopped saving %s", path)
+
+    def _promote(self, writing: Path | None, path: Path | None) -> bool:
+        """Give the clip its final name, which is what marks it ready to ship."""
+        if writing is None or path is None:
+            return False
+        try:
+            if writing.stat().st_size == 0:
+                writing.unlink()
+                log.warning("Discarded empty clip %s", path.name)
+                return False
+            writing.replace(path)
+        except OSError:
+            log.exception("Could not finish %s", path)
+            return False
+        return True
 
     def _previous_clip_is_still_flushing(self) -> bool:
         return self._drain_thread is not None and self._drain_thread.is_alive()
@@ -267,17 +296,17 @@ class MotionRecorder:
         stamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
         path = self.video_directory / f"{self.file_prefix}_{stamp}{CLIP_SUFFIX}"
         attempt = 1
-        while path.exists():
+        while path.exists() or partial_name(path).exists():
             name = f"{self.file_prefix}_{stamp}_{attempt}{CLIP_SUFFIX}"
             path = self.video_directory / name
             attempt += 1
         return path
 
     def _has_room(self) -> bool:
-        """Whether the share has space, rechecked at most every few seconds.
+        """Whether the clip directory has space, rechecked every few seconds.
 
-        statvfs on the share can block, and this is called on the capture thread
-        for every motion frame.
+        Called on the capture thread for every motion frame, so the check is
+        throttled rather than run per frame.
         """
         now = time.monotonic()
         if (

@@ -1,11 +1,11 @@
 import logging
-import os
 import pathlib
 import threading
 import time
 
 from config import Config
 from src.camera_manager import CameraManager
+from src.clip_transfer import ClipTransfer
 from src.logging_setup import configure_logging
 from src.motion_metrics import MetricsLog
 from src.motion_recorder import MotionRecorder
@@ -15,7 +15,9 @@ log = logging.getLogger(__name__)
 
 
 def monitor(
-    camera_manager: CameraManager, motion_recorder: MotionRecorder | None = None
+    camera_manager: CameraManager,
+    motion_recorder: MotionRecorder | None = None,
+    clip_transfer: ClipTransfer | None = None,
 ) -> None:
     """Start monitoring by starting frame distribution"""
     log.info("Starting motion monitoring with circular buffer...")
@@ -32,6 +34,8 @@ def monitor(
         camera_manager.stop_frame_distribution()
         if motion_recorder:
             motion_recorder.cleanup()
+        if clip_transfer:
+            clip_transfer.stop()
 
 
 def build_metrics() -> MetricsLog | None:
@@ -42,17 +46,17 @@ def build_metrics() -> MetricsLog | None:
 
 
 def build_recorder(
-    camera_manager: CameraManager, share: pathlib.Path
+    camera_manager: CameraManager, local_clips: pathlib.Path
 ) -> MotionRecorder | None:
-    """Build the recorder, or return None if the share is missing or it fails."""
-    if not os.path.ismount(share):
-        log.info("%s is not mounted - starting without recording", share)
-        return None
+    """Build the recorder against local disk, or return None if it fails.
 
+    Recording does not wait on the share: ClipTransfer moves finished clips
+    across whenever it is reachable.
+    """
     try:
         return MotionRecorder(
             camera_manager=camera_manager,
-            video_directory=share / "captures",
+            video_directory=local_clips,
             file_prefix="cat_video",
             metrics=build_metrics(),
         )
@@ -63,12 +67,24 @@ def build_recorder(
         return None
 
 
+def build_transfer(local_clips: pathlib.Path, share: pathlib.Path) -> ClipTransfer:
+    transfer = ClipTransfer(
+        local_directory=local_clips,
+        destination=share / "captures",
+        share_root=share,
+    )
+    transfer.start()
+    return transfer
+
+
 if __name__ == "__main__":
     configure_logging(__name__)
     share = pathlib.Path(Config.NETWORK_SHARE_DIR)
+    local_clips = pathlib.Path(Config.LOCAL_CLIP_DIR)
 
     camera_manager = CameraManager()
-    recorder = build_recorder(camera_manager, share)
+    recorder = build_recorder(camera_manager, local_clips)
+    transfer = build_transfer(local_clips, share) if recorder else None
 
     web_streamer = WebStreamer(
         camera_manager=camera_manager,
@@ -82,4 +98,4 @@ if __name__ == "__main__":
     log.info("Starting cat detector with shared camera")
     log.info("Web stream available at http://<pi-ip>:5000")
 
-    monitor(camera_manager, recorder)
+    monitor(camera_manager, recorder, transfer)
