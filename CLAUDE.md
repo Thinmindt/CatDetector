@@ -259,7 +259,10 @@ renames *within* the share. Both renames are same-filesystem and therefore atomi
 ever sees a final-named clip that is still growing — which is what keeps the review server from
 ingesting a half-written file. Do not replace either step with `shutil.move`: across filesystems
 it degrades to copy-then-delete and exposes the final name immediately. The scan is stateless,
-so clips stranded by a crash ship on the next pass with no recovery code.
+so finished clips stranded by a crash ship on the next pass. A clip cut off mid-write, by a crash
+or a power cut, is left as `<clip>.h264.part`. The recorder gives it its final name at startup so
+it ships too. It decodes up to the cut, and ffmpeg's error about its last, partial frame is
+expected.
 
 **Web stream.** [src/web_streamer.py](src/web_streamer.py) is another consumer: it keeps the
 newest `main` frame under a lock, optionally annotates it with recorder status via OpenCV, and
