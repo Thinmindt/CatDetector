@@ -400,6 +400,50 @@ def test_an_empty_clip_is_discarded_rather_than_promoted(
     assert "Discarded empty clip" in caplog.text
 
 
+def build_recorder_over(camera_manager: Any, directory: Path) -> Any:
+    from src.motion_recorder import MotionRecorder
+
+    return MotionRecorder(camera_manager=camera_manager, video_directory=directory)
+
+
+def test_a_clip_cut_off_mid_write_is_recovered_at_startup(
+    camera_manager: Any, fake_encoders: None, tmp_path: Path
+) -> None:
+    """A power cut leaves the partial name, and only final names ever ship."""
+    clip = tmp_path / "cat_video_20260910_080413.h264"
+    partial_name(clip).write_bytes(b"half a visit")
+
+    build_recorder_over(camera_manager, tmp_path)
+
+    assert clip.read_bytes() == b"half a visit"
+    assert not partial_name(clip).exists()
+
+
+def test_an_empty_partial_clip_is_discarded_at_startup(
+    camera_manager: Any, fake_encoders: None, tmp_path: Path
+) -> None:
+    clip = tmp_path / "cat_video_20260910_080413.h264"
+    partial_name(clip).write_bytes(b"")
+
+    build_recorder_over(camera_manager, tmp_path)
+
+    assert not clip.exists()
+    assert not partial_name(clip).exists()
+
+
+def test_recovery_never_overwrites_a_finished_clip(
+    camera_manager: Any, fake_encoders: None, tmp_path: Path
+) -> None:
+    clip = tmp_path / "cat_video_20260910_080413.h264"
+    clip.write_bytes(b"the whole visit")
+    partial_name(clip).write_bytes(b"something else")
+
+    build_recorder_over(camera_manager, tmp_path)
+
+    assert clip.read_bytes() == b"the whole visit"
+    assert partial_name(clip).read_bytes() == b"something else"
+
+
 def test_outputframe_survives_the_ring_draining_mid_frame() -> None:
     """stop() can empty the ring between a frame's append and its popleft.
 

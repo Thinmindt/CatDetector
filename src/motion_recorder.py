@@ -129,8 +129,19 @@ class MotionRecorder:
         self._drain_thread: threading.Thread | None = None
         self._closed = False
 
+        self._recover_interrupted_clips()
         self._setup_circular_recording()
         self.camera_manager.add_consumer(self._process_frames)
+
+    def _recover_interrupted_clips(self) -> None:
+        """Give clips cut off by an unclean shutdown their final name, so they ship."""
+        pattern = f"*{CLIP_SUFFIX}{PARTIAL_SUFFIX}"
+        for writing in sorted(self.video_directory.glob(pattern)):
+            clip = writing.with_name(writing.name.removesuffix(PARTIAL_SUFFIX))
+            if clip.exists():
+                log.warning("Left %s alone: %s already exists", writing.name, clip.name)
+            elif self._promote(writing, clip):
+                log.warning("Recovered %s, cut off by an unclean shutdown", clip.name)
 
     def _setup_circular_recording(self) -> None:
         """Run the encoder continuously into an in-memory ring buffer.
