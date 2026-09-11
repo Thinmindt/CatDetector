@@ -1,4 +1,4 @@
-"""Shadow exclusion and the per-frame metrics log."""
+"""Shadow exclusion, mask cleanup and the per-frame metrics log."""
 
 from __future__ import annotations
 
@@ -13,9 +13,18 @@ import numpy as np
 import pytest
 from conftest import LORES_SIZE, make_frame
 
-from src.motion_metrics import Blob, MetricsLog, largest_blob
+from src.motion_metrics import (
+    Blob,
+    FrameMetrics,
+    MetricsLog,
+    clean_mask,
+    largest_blob,
+    measure,
+)
 
 SHADOW_VALUE = 127
+
+EMPTY = FrameMetrics(foreground_px=1, blob=None, clean_blob=None, brightness=0.0)
 
 
 def frame_with(background: int, patches: list[tuple[slice, slice, int]]) -> Any:
@@ -23,6 +32,14 @@ def frame_with(background: int, patches: list[tuple[slice, slice, int]]) -> Any:
     for rows, cols, value in patches:
         img[rows, cols] = value
     return img
+
+
+def two_fragments() -> Any:
+    """One object split by a 4 px gap, as MOG2 splits a cat that matches the floor."""
+    mask = np.zeros(LORES_SIZE, dtype=np.uint8)
+    mask[100:140, 100:160] = 255
+    mask[144:200, 100:160] = 255
+    return mask
 
 
 # --- shadow handling --------------------------------------------------------
@@ -101,6 +118,41 @@ def test_largest_blob_on_an_empty_mask_is_none() -> None:
     assert largest_blob(np.zeros(LORES_SIZE, dtype=np.uint8)) is None
 
 
+# --- mask cleanup -----------------------------------------------------------
+
+
+def test_cleanup_removes_speckle() -> None:
+    mask = np.zeros(LORES_SIZE, dtype=np.uint8)
+    mask[::20, ::20] = 255
+
+    assert largest_blob(mask) is not None
+    assert largest_blob(clean_mask(mask)) is None
+
+
+def test_cleanup_joins_nearby_fragments() -> None:
+    raw = largest_blob(two_fragments())
+    cleaned = largest_blob(clean_mask(two_fragments()))
+
+    assert raw is not None
+    assert cleaned is not None
+    assert raw.h < 60
+    assert cleaned.y <= 100
+    assert cleaned.y + cleaned.h >= 200
+
+
+def test_measure_reports_both_blobs_and_the_brightness() -> None:
+    gray = np.full(LORES_SIZE, 100, dtype=np.uint8)
+    mask = two_fragments()
+
+    result = measure(gray, mask)
+
+    assert result.foreground_px == np.count_nonzero(mask)
+    assert result.brightness == 100.0
+    assert result.blob is not None
+    assert result.clean_blob is not None
+    assert result.clean_blob.area > result.blob.area
+
+
 # --- MetricsLog -------------------------------------------------------------
 
 
@@ -111,8 +163,16 @@ def read_rows(path: Path) -> list[dict[str, str]]:
 
 def test_records_rows_with_a_header(tmp_path: Path) -> None:
     log = MetricsLog(tmp_path / "metrics.csv")
-    log.record(1234, Blob(area=500, x=1, y=2, w=10, h=20), recording=True)
-    log.record(7, None, recording=False)
+    log.record(
+        FrameMetrics(
+            foreground_px=1234,
+            blob=Blob(area=500, x=1, y=2, w=10, h=20),
+            clean_blob=Blob(area=900, x=0, y=0, w=30, h=30),
+            brightness=87.46,
+        ),
+        recording=True,
+    )
+    log.record(EMPTY, recording=False)
     log.close()
 
     rows = read_rows(tmp_path / "metrics.csv")
@@ -121,22 +181,46 @@ def test_records_rows_with_a_header(tmp_path: Path) -> None:
     assert rows[0]["blob_area"] == "500"
     assert rows[0]["cx"] == "6"
     assert rows[0]["recording"] == "1"
+    assert rows[0]["clean_area"] == "900"
+    assert rows[0]["clean_w"] == "30"
+    assert rows[0]["brightness"] == "87.5"
     assert rows[1]["blob_area"] == "0"
     assert rows[1]["x"] == ""
+    assert rows[1]["clean_area"] == "0"
+    assert rows[1]["clean_x"] == ""
 
 
 def test_appends_without_repeating_the_header(tmp_path: Path) -> None:
     path = tmp_path / "metrics.csv"
     first = MetricsLog(path)
-    first.record(1, None, recording=False)
+    first.record(EMPTY, recording=False)
     first.close()
 
     second = MetricsLog(path)
-    second.record(2, None, recording=False)
+    second.record(EMPTY, recording=False)
     second.close()
 
     assert len(read_rows(path)) == 2
     assert path.read_text().count("foreground_px") == 1
+
+
+def test_a_file_with_another_column_layout_is_left_alone(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Appending rows under an older header would misalign every column."""
+    path = tmp_path / "metrics.csv"
+    old = "timestamp,foreground_px,recording\n2026-09-10T12:00:00.000,5,0\n"
+    path.write_text(old)
+
+    with caplog.at_level(logging.WARNING):
+        log = MetricsLog(path)
+    log.record(EMPTY, recording=False)
+    log.close()
+
+    assert path.read_text() == old
+    assert log.path != path
+    assert read_rows(log.path)[0]["brightness"] == "0.0"
+    assert "column layout" in caplog.text
 
 
 def test_record_does_not_block_when_the_writer_falls_behind(
@@ -146,7 +230,7 @@ def test_record_does_not_block_when_the_writer_falls_behind(
     log = MetricsLog(tmp_path / "metrics.csv")
     log._queue.maxsize = 1
     for _ in range(5000):
-        log.record(1, None, recording=False)
+        log.record(EMPTY, recording=False)
 
     assert log.dropped > 0
     with caplog.at_level(logging.WARNING):
@@ -178,11 +262,12 @@ def test_recorder_feeds_the_metrics_log(
         warmup_frames=2,
     )
     for _ in range(5):
-        rec.detect_motion(make_frame(LORES_SIZE))
+        rec.detect_motion(make_frame(LORES_SIZE, 100))
     rec.cleanup()
 
     rows = read_rows(tmp_path / "metrics.csv")
     assert len(rows) == 5
+    assert {row["brightness"] for row in rows} == {"100.0"}
 
 
 def test_close_returns_when_the_writer_thread_has_died(tmp_path: Path) -> None:
@@ -201,7 +286,7 @@ def test_close_returns_when_the_writer_thread_has_died(tmp_path: Path) -> None:
 
         log._queue.maxsize = 2
         for _ in range(10):
-            log.record(1, None, recording=False)
+            log.record(EMPTY, recording=False)
         assert log._queue.full()
 
         finished = threading.Event()
