@@ -21,15 +21,21 @@ design doc carries the full reasoning behind each one.
 
 ## What this actually is
 
-A Raspberry Pi camera pointed **down at a litter box**. It records motion-triggered clips and
-serves a live MJPEG stream. The end goal is not "detect a cat" but **identify which cat** used
-the box, which is why the roadmap is split into triggering reliably (part A) and building a
-labelled dataset plus classifier (part B).
+A Raspberry Pi camera pointed **down at the litter boxes**; three are in frame. It records
+motion-triggered clips and serves a live MJPEG stream. The end goal is **catching bowel or urinary
+trouble in a particular cat**. That needs every visit recorded and attributed to **which cat**
+made it, which is why the roadmap is split into triggering reliably (part A) and building a
+labelled dataset plus classifier (part B). Telling poop from pee may be tried later; nothing
+should depend on it.
 
-Two consequences worth holding onto:
+Three consequences worth holding onto:
 
-- **Recall beats precision.** A missed visit is a failure; an extra clip is an annoyance. Do not
-  "improve" detection by making it stricter without checking that against the roadmap.
+- **Recall beats precision.** A missed visit is a failure; an extra clip is an annoyance. A gap
+  in a cat's record can look like the very change the project exists to flag. Do not "improve"
+  detection by making it stricter without checking that against the roadmap.
+- **A visit may span several clips.** Recording may stop while a cat sits still, as long as the
+  clips on either side end up linked to one litter-box event (roadmap A.4; this linking is not
+  built yet). Do not "fix" a clip ending mid-visit by holding recording open.
 - The camera is fixed and overhead, so a cat's apparent size in pixels is roughly constant. That
   fact is the basis of the planned detection work — do not design around a moving camera.
 
@@ -298,8 +304,10 @@ Not bugs, but do not mistake them for correct:
 - Detection is a **global pixel count**, so the shadow fix does not make it good — only honest.
 - No spatial coherence: scattered noise and one solid cat-sized blob are indistinguishable.
   `largest_blob()` exists and is logged, but nothing yet *triggers* on it — that is A.3.
-- A cat that settles is absorbed into the background in roughly `history` frames (~17 s), so
-  recording can stop mid-visit.
+- A cat that settles is absorbed into the background in roughly `history` frames (~17 s at the
+  default), so recording can stop mid-visit. That is acceptable once clips are linked into one
+  event (roadmap A.4). The linking is not built yet, so for now one visit can be several separate
+  clips.
 - The web stream has **no authentication** and runs on Flask's dev server. LAN-only by design;
   see the README's Security section.
 
