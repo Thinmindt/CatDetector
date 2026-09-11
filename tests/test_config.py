@@ -5,8 +5,14 @@ from __future__ import annotations
 import importlib
 import os
 from collections.abc import Iterator
+from types import ModuleType
 
 import pytest
+
+DETECTION_SETTINGS = ("MOTION_THRESHOLD", "MOTION_TIMEOUT", "MOG2_HISTORY")
+
+# Foreground pixels of a cat walking into the full-sensor view; see DESIGN.md.
+WALKING_CAT_PX = 400
 
 
 @pytest.fixture(autouse=True)
@@ -25,6 +31,20 @@ def restore_config() -> Iterator[None]:
     import config
 
     importlib.reload(config)
+
+
+def reload_with_default_detection(monkeypatch: pytest.MonkeyPatch) -> ModuleType:
+    """Reload config with no detection settings in the environment or .env."""
+
+    def skip_dotenv(*args: object, **kwargs: object) -> bool:
+        return False
+
+    monkeypatch.setattr("dotenv.load_dotenv", skip_dotenv)
+    for name in DETECTION_SETTINGS:
+        monkeypatch.delenv(name, raising=False)
+    import config
+
+    return importlib.reload(config)
 
 
 def test_env_var_overrides_dotenv(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -80,20 +100,17 @@ def test_detection_settings_come_from_the_environment(
     assert config.Config.MOG2_HISTORY == 1500
 
 
-def test_detection_settings_keep_their_old_defaults(
+def test_default_threshold_is_below_a_walking_cat(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A run that sets none of them must behave as it did before they existed."""
+    """A run that forgets MOTION_THRESHOLD must still record a visit."""
+    config = reload_with_default_detection(monkeypatch)
+    assert config.Config.MOTION_THRESHOLD < WALKING_CAT_PX
 
-    def skip_dotenv(*args: object, **kwargs: object) -> bool:
-        return False
 
-    monkeypatch.setattr("dotenv.load_dotenv", skip_dotenv)
-    for name in ("MOTION_THRESHOLD", "MOTION_TIMEOUT", "MOG2_HISTORY"):
-        monkeypatch.delenv(name, raising=False)
-    import config
-
-    importlib.reload(config)
-    assert config.Config.MOTION_THRESHOLD == 5000
+def test_timeout_and_history_keep_their_old_defaults(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config = reload_with_default_detection(monkeypatch)
     assert config.Config.MOTION_TIMEOUT == 10
     assert config.Config.MOG2_HISTORY == 500
