@@ -1,7 +1,9 @@
 import logging
 import pathlib
+import signal
 import threading
 import time
+from types import FrameType
 
 from config import Config
 from src.camera_manager import CameraManager
@@ -14,6 +16,13 @@ from src.web_streamer import WebStreamer
 log = logging.getLogger(__name__)
 
 
+def _exit_on_sigterm(signum: int, frame: FrameType | None) -> None:  # noqa: ARG001 -- signature fixed by signal.signal
+    """Leave through monitor()'s cleanup, as Ctrl-C does. Later SIGTERMs are ignored."""
+    signal.signal(signal.SIGTERM, signal.SIG_IGN)
+    log.info("Received SIGTERM, shutting down")
+    raise SystemExit(0)
+
+
 def monitor(
     camera_manager: CameraManager,
     motion_recorder: MotionRecorder | None = None,
@@ -21,6 +30,7 @@ def monitor(
 ) -> None:
     """Start monitoring by starting frame distribution"""
     log.info("Starting motion monitoring with circular buffer...")
+    signal.signal(signal.SIGTERM, _exit_on_sigterm)
     try:
         camera_manager.start_frame_distribution()
 

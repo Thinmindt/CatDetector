@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import logging
+import os
+import signal
+import threading
 from pathlib import Path
 from typing import Any
 
@@ -66,3 +69,50 @@ def test_detection_settings_reach_the_recorder(
     assert recorder.motion_threshold == 200
     assert recorder.motion_timeout == 30.0
     assert recorder.background_subtractor.getHistory() == 1500
+
+
+class MonitorSpy:
+    """Plays camera manager, recorder and transfer, noting each call in order."""
+
+    def __init__(self) -> None:
+        self.calls: list[str] = []
+
+    def start_frame_distribution(self) -> None:
+        self.calls.append("start")
+
+    def stop_frame_distribution(self) -> None:
+        self.calls.append("stop distribution")
+
+    def cleanup(self) -> None:
+        self.calls.append("recorder cleanup")
+
+    def stop(self) -> None:
+        self.calls.append("transfer stop")
+
+
+def fail_if_not_replaced(*args: object) -> None:
+    raise AssertionError("monitor() did not install its SIGTERM handler")
+
+
+def test_sigterm_runs_the_same_cleanup_as_ctrl_c() -> None:
+    """systemd and kill stop a process with SIGTERM. Without a handler the
+    process dies on the spot and the clip being written is never finished."""
+    import main
+
+    spy: Any = MonitorSpy()
+    previous = signal.signal(signal.SIGTERM, fail_if_not_replaced)
+    timer = threading.Timer(0.2, os.kill, args=(os.getpid(), signal.SIGTERM))
+    try:
+        timer.start()
+        with pytest.raises(SystemExit):
+            main.monitor(spy, spy, spy)
+    finally:
+        timer.cancel()
+        signal.signal(signal.SIGTERM, previous)
+
+    assert spy.calls == [
+        "start",
+        "stop distribution",
+        "recorder cleanup",
+        "transfer stop",
+    ]
