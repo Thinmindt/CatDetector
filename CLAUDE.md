@@ -303,7 +303,8 @@ Not bugs, but do not mistake them for correct:
 
 - Detection is a **global pixel count**, so the shadow fix does not make it good — only honest.
 - No spatial coherence: scattered noise and one solid cat-sized blob are indistinguishable.
-  `largest_blob()` exists and is logged, but nothing yet *triggers* on it — that is A.3.
+  The largest blob is logged, both raw and after cleanup, but nothing yet *triggers* on it —
+  that is A.3.
 - A cat that settles is absorbed into the background in roughly `history` frames (~17 s at the
   default), so recording can stop mid-visit. That is acceptable once clips are linked into one
   event (roadmap A.4). The linking is not built yet, so for now one visit can be several separate

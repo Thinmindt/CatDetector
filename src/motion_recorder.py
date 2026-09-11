@@ -11,7 +11,7 @@ from picamera2.encoders import H264Encoder
 from picamera2.outputs import CircularOutput
 
 from src.camera_manager import CameraManager, Frame
-from src.motion_metrics import MetricsLog, largest_blob
+from src.motion_metrics import MetricsLog, measure
 
 log = logging.getLogger(__name__)
 
@@ -167,26 +167,24 @@ class MotionRecorder:
             self._stop_saving()
 
     def detect_motion(self, frame: Frame) -> bool:
-        mask = self._foreground_mask(frame)
+        # RGB -> BGR followed by BGR -> GRAY is the same as one RGB -> GRAY pass.
+        gray = cast(Frame, cv2.cvtColor(frame, cv2.COLOR_RGB2GRAY))
+        mask = self._foreground_mask(gray)
         self.last_motion_pixels = int(cv2.countNonZero(mask))
 
         if self.metrics is not None:
-            self.metrics.record(
-                self.last_motion_pixels, largest_blob(mask), self.recording
-            )
+            self.metrics.record(measure(gray, mask), self.recording)
 
         if self._is_warming_up():
             return False
         return self.last_motion_pixels > self.motion_threshold
 
-    def _foreground_mask(self, frame: Frame) -> Frame:
+    def _foreground_mask(self, gray: Frame) -> Frame:
         """Binary foreground mask, with MOG2's shadow pixels excluded.
 
         Shadow detection stays on: disabling it relabels shadows as foreground
         rather than removing them.
         """
-        # RGB -> BGR followed by BGR -> GRAY is the same as one RGB -> GRAY pass.
-        gray = cv2.cvtColor(frame, cv2.COLOR_RGB2GRAY)
         mask = self.background_subtractor.apply(gray)
         _, binary = cv2.threshold(mask, SHADOW_PIXEL_VALUE, 255, cv2.THRESH_BINARY)
         return cast(Frame, binary)
