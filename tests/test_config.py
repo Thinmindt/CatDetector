@@ -64,3 +64,36 @@ def test_falls_back_when_the_environment_is_empty(
 
     importlib.reload(config)
     assert config.Config.NETWORK_SHARE_DIR
+
+
+def test_detection_settings_come_from_the_environment(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("MOTION_THRESHOLD", "200")
+    monkeypatch.setenv("MOTION_TIMEOUT", "30.5")
+    monkeypatch.setenv("MOG2_HISTORY", "1500")
+    import config
+
+    importlib.reload(config)
+    assert config.Config.MOTION_THRESHOLD == 200
+    assert config.Config.MOTION_TIMEOUT == 30.5
+    assert config.Config.MOG2_HISTORY == 1500
+
+
+def test_detection_settings_keep_their_old_defaults(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A run that sets none of them must behave as it did before they existed."""
+
+    def skip_dotenv(*args: object, **kwargs: object) -> bool:
+        return False
+
+    monkeypatch.setattr("dotenv.load_dotenv", skip_dotenv)
+    for name in ("MOTION_THRESHOLD", "MOTION_TIMEOUT", "MOG2_HISTORY"):
+        monkeypatch.delenv(name, raising=False)
+    import config
+
+    importlib.reload(config)
+    assert config.Config.MOTION_THRESHOLD == 5000
+    assert config.Config.MOTION_TIMEOUT == 10
+    assert config.Config.MOG2_HISTORY == 500

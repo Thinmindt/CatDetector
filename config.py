@@ -17,6 +17,16 @@ class Config:
     # Set to a local path to log per-frame detection metrics. Off when unset.
     METRICS_CSV = os.getenv("METRICS_CSV")
 
+    # Foreground pixels in the 640x480 analysis frame needed to start recording.
+    MOTION_THRESHOLD = int(os.getenv("MOTION_THRESHOLD", "5000"))
+
+    # Seconds without motion before a clip closes.
+    MOTION_TIMEOUT = float(os.getenv("MOTION_TIMEOUT", "10"))
+
+    # MOG2 frames of history. A still subject fades into the background over
+    # roughly this many frames.
+    MOG2_HISTORY = int(os.getenv("MOG2_HISTORY", "500"))
+
     # Local disk, never the share: SQLite locking is unreliable over CIFS.
     DB_PATH = os.getenv("DB_PATH", "captures.db")
     REVIEW_CACHE_DIR = os.getenv("REVIEW_CACHE_DIR", ".review_cache")

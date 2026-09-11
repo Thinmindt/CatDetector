@@ -46,3 +46,23 @@ def test_a_broken_recorder_still_leaves_the_stream(
     with caplog.at_level(logging.INFO):
         assert main.build_recorder(camera_manager, tmp_path) is None
     assert "stream only" in caplog.text
+
+
+def test_detection_settings_reach_the_recorder(
+    camera_manager: Any,
+    fake_encoders: None,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import main
+
+    monkeypatch.setattr("main.Config.MOTION_THRESHOLD", 200)
+    monkeypatch.setattr("main.Config.MOTION_TIMEOUT", 30.0)
+    monkeypatch.setattr("main.Config.MOG2_HISTORY", 1500)
+
+    recorder = main.build_recorder(camera_manager, tmp_path / "clip_cache")
+
+    assert recorder is not None
+    assert recorder.motion_threshold == 200
+    assert recorder.motion_timeout == 30.0
+    assert recorder.background_subtractor.getHistory() == 1500

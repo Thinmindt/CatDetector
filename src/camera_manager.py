@@ -28,6 +28,9 @@ class CameraManager:
             self.picam2.create_video_configuration(
                 main={"size": (1280, 720), "format": "RGB888"},
                 lores={"size": (640, 480), "format": "RGB888"},
+                # The full sensor. Chosen by size alone, picamera2 picks a mode
+                # that crops the edges off.
+                sensor={"output_size": (2304, 1296), "bit_depth": 10},
             )
         )
         self.picam2.start()
