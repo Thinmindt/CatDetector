@@ -18,7 +18,7 @@ class Config:
     METRICS_CSV = os.getenv("METRICS_CSV")
 
     # Foreground pixels in the 640x480 analysis frame needed to start recording.
-    MOTION_THRESHOLD = int(os.getenv("MOTION_THRESHOLD", "5000"))
+    MOTION_THRESHOLD = int(os.getenv("MOTION_THRESHOLD", "300"))
 
     # Seconds without motion before a clip closes.
     MOTION_TIMEOUT = float(os.getenv("MOTION_TIMEOUT", "10"))

@@ -79,7 +79,7 @@ class MotionRecorder:
         camera_manager: CameraManager,
         video_directory: str | Path = "videos",
         file_prefix: str = "cat_video",
-        motion_threshold: int = 5000,
+        motion_threshold: int = 300,
         motion_timeout: float = 10,
         mog2_history: int = 500,
         buffer_seconds: int = 5,
