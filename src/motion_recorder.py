@@ -81,6 +81,7 @@ class MotionRecorder:
         file_prefix: str = "cat_video",
         motion_threshold: int = 5000,
         motion_timeout: float = 10,
+        mog2_history: int = 500,
         buffer_seconds: int = 5,
         warmup_frames: int = 30,
         max_clip_seconds: float = 300,
@@ -98,7 +99,9 @@ class MotionRecorder:
         self.recording = False
 
         self.motion_threshold = motion_threshold
-        self.background_subtractor = cv2.createBackgroundSubtractorMOG2()
+        self.background_subtractor = cv2.createBackgroundSubtractorMOG2(
+            history=mog2_history
+        )
         self.last_motion_pixels = 0
         self.metrics = metrics
         self.warmup_frames = warmup_frames

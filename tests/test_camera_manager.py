@@ -32,6 +32,11 @@ def test_configures_both_streams_and_starts(
     assert fake_camera.started
 
 
+def test_uses_the_full_sensor(fake_camera: FakePicamera2, camera_manager: Any) -> None:
+    """The whole array binned 2x2, not the cropped mode picamera2 picks by size."""
+    assert fake_camera.configured["sensor"]["output_size"] == (2304, 1296)
+
+
 def test_both_streams_come_from_one_request(
     fake_camera: FakePicamera2, camera_manager: Any
 ) -> None:

@@ -58,6 +58,9 @@ def build_recorder(
             camera_manager=camera_manager,
             video_directory=local_clips,
             file_prefix="cat_video",
+            motion_threshold=Config.MOTION_THRESHOLD,
+            motion_timeout=Config.MOTION_TIMEOUT,
+            mog2_history=Config.MOG2_HISTORY,
             metrics=build_metrics(),
         )
     except Exception as error:
