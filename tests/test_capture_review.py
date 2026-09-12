@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import datetime
 import sqlite3
+import subprocess
 from pathlib import Path
 from typing import Any
 
@@ -305,6 +306,89 @@ def test_the_regroup_command_uses_the_current_thresholds(
     assert review.regroup_events()["total"] == 1
 
 
+def visit(directory: Path, start: int, *offsets: int) -> None:
+    """Clips at start and each offset, close enough to group as one visit."""
+    for offset in (0, *offsets):
+        make_clip_with_facts(directory, at(start + offset), seconds=15)
+
+
+def test_split_starts_a_new_unlabeled_event_and_the_first_half_keeps_its_id(
+    db: Any, tmp_path: Path
+) -> None:
+    directory = tmp_path / "captures"
+    visit(directory, 0, 40, 80)
+    db.ingest(directory)
+    event = db.next_unlabeled()
+    db.set_label(event.id, "cat")
+
+    db.split(event.clips[1].id)
+
+    first = db.get(event.id)
+    assert [c.started_at[11:19] for c in first.clips] == ["08:00:00"]
+    assert first.label == "cat"
+    second = db.next_unlabeled()
+    assert second.id != first.id
+    assert [c.started_at[11:19] for c in second.clips] == ["08:00:40", "08:01:20"]
+    assert db.counts() == {"total": 2, "labeled": 1, "multi_clip": 1, "cat": 1}
+
+
+def test_a_split_survives_regroup(db: Any, tmp_path: Path) -> None:
+    directory = tmp_path / "captures"
+    visit(directory, 0, 40)
+    db.ingest(directory)
+    db.split(db.next_unlabeled().clips[1].id)
+
+    db.gap_seconds = 10_000
+    db.regroup()
+
+    assert db.counts()["total"] == 2
+
+
+def test_join_merges_with_the_next_event_and_survives_regroup(
+    db: Any, tmp_path: Path
+) -> None:
+    directory = tmp_path / "captures"
+    visit(directory, 0)
+    visit(directory, 500)
+    db.ingest(directory)
+    first = db.next_unlabeled()
+    db.set_label(first.id, "cat")
+    db.set_label(db.next_unlabeled().id, "cat")
+
+    merged = db.join(first.id)
+
+    assert merged.id == first.id
+    assert len(merged.clips) == 2
+    assert merged.label == "cat"
+    db.gap_seconds = 1
+    db.regroup()
+    assert db.counts()["total"] == 1
+
+
+def test_join_with_no_later_event_is_none(db: Any, tmp_path: Path) -> None:
+    directory = tmp_path / "captures"
+    visit(directory, 0)
+    db.ingest(directory)
+    assert db.join(db.next_unlabeled().id) is None
+
+
+def test_next_multi_walks_the_multi_clip_events_in_order(
+    db: Any, tmp_path: Path
+) -> None:
+    directory = tmp_path / "captures"
+    visit(directory, 0, 40)
+    visit(directory, 500)
+    visit(directory, 1000, 40)
+    db.ingest(directory)
+
+    first = db.next_multi(None)
+    second = db.next_multi(first.id)
+
+    assert first.started_at[11:19] == "08:00:00"
+    assert second.started_at[11:19] == "08:16:40"
+    assert db.next_multi(second.id) is None
+
+
 def test_a_database_from_before_grouping_is_refused(tmp_path: Path) -> None:
     old = tmp_path / "captures.db"
     with sqlite3.connect(old) as conn:
@@ -359,6 +443,41 @@ def test_unreadable_clip_yields_none(tmp_path: Path) -> None:
     bad = make_clip_file(tmp_path / "garbage.h264", b"not video at all")
     frames = ClipFrames(tmp_path / "cache")
     assert frames.strip(1, bad) is None
+
+
+def test_video_is_a_playable_cached_copy(tmp_path: Path) -> None:
+    clip = write_test_video(tmp_path / "clip.mp4")
+    frames = ClipFrames(tmp_path / "cache")
+
+    video = frames.video(1, clip)
+
+    assert video is not None and video.suffix == ".mp4"
+    capture = cv2.VideoCapture(str(video))
+    ok, _ = capture.read()
+    capture.release()
+    assert ok
+    first_mtime = video.stat().st_mtime_ns
+    again = frames.video(1, clip)
+    assert again is not None
+    assert again.stat().st_mtime_ns == first_mtime  # cache hit
+
+
+def test_a_failed_remux_leaves_nothing_for_the_cache_to_serve(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """ffmpeg writes its output as it goes, so a failure can leave a partial
+    file under the cache name; the next request must not be served that."""
+    clip = write_test_video(tmp_path / "clip.mp4")
+    frames = ClipFrames(tmp_path / "cache")
+
+    def half_written_then_error(command: list[str], **kwargs: Any) -> Any:
+        Path(command[-1]).write_bytes(b"partial")
+        return subprocess.CompletedProcess(command, 1, b"", b"boom")
+
+    monkeypatch.setattr(subprocess, "run", half_written_then_error)
+
+    assert frames.video(1, clip) is None
+    assert not (tmp_path / "cache" / "clip1.mp4").exists()
 
 
 # --- review API -------------------------------------------------------------
@@ -431,6 +550,90 @@ def test_the_payload_lists_every_clip_of_the_event(client: Any) -> None:
 def test_a_clip_index_past_the_end_404s(client: Any) -> None:
     event = client.get("/api/review/next").get_json()["event"]
     assert client.get(f"/review/{event['id']}/clip/5/strip.jpg").status_code == 404
+
+
+# --- review API: grouping ---------------------------------------------------
+
+
+@pytest.fixture
+def grouped_client(db: Any, tmp_path: Path) -> Any:
+    """One two-clip visit and, later, a one-clip visit."""
+    from flask import Flask
+
+    directory = tmp_path / "captures"
+    visit(directory, 0, 40)
+    visit(directory, 500)
+    db.ingest(directory)
+    app = Flask(__name__)
+    app.register_blueprint(create_review_blueprint(db, ClipFrames(tmp_path / "cache")))
+    return app.test_client()
+
+
+def test_the_page_walks_multi_clip_events_on_request(grouped_client: Any) -> None:
+    first = grouped_client.get("/api/review/multi/next").get_json()["event"]
+    assert len(first["clips"]) == 2
+
+    after = grouped_client.get(f"/api/review/multi/next?after={first['id']}")
+    assert after.get_json()["event"] is None
+
+
+def test_split_and_join_from_the_api(grouped_client: Any) -> None:
+    event = grouped_client.get("/api/review/next").get_json()["event"]
+
+    split = grouped_client.post(f"/api/review/{event['id']}/split", json={"index": 1})
+    assert split.status_code == 200
+    assert len(split.get_json()["event"]["clips"]) == 1
+    assert split.get_json()["counts"]["total"] == 3
+
+    joined = grouped_client.post(f"/api/review/{event['id']}/join")
+    assert joined.status_code == 200
+    assert len(joined.get_json()["event"]["clips"]) == 2
+    assert joined.get_json()["event"]["clips"][1]["boundary"] == "join"
+
+
+def test_split_rejects_the_first_clip_and_bad_input(grouped_client: Any) -> None:
+    event = grouped_client.get("/api/review/next").get_json()["event"]
+    for body in ({"index": 0}, {"index": 9}, {"index": "1"}, {}):
+        response = grouped_client.post(f"/api/review/{event['id']}/split", json=body)
+        assert response.status_code == 400, body
+    assert (
+        grouped_client.post("/api/review/999/split", json={"index": 1}).status_code
+        == 404
+    )
+    assert grouped_client.post("/api/review/999/join").status_code == 404
+
+
+def test_the_video_route_serves_a_playable_clip(db: Any, tmp_path: Path) -> None:
+    from flask import Flask
+
+    directory = tmp_path / "captures"
+    directory.mkdir()
+    # OpenCV picks the muxer from the extension, so write as mp4 and rename:
+    # ffmpeg probes by content, as it does for the raw clips.
+    write_test_video(directory / "clip.mp4").rename(
+        directory / "cat_video_20260912_080000.h264"
+    )
+    db.ingest(directory)
+    app = Flask(__name__)
+    app.register_blueprint(create_review_blueprint(db, ClipFrames(tmp_path / "cache")))
+    client = app.test_client()
+    event = client.get("/api/review/next").get_json()["event"]
+
+    response = client.get(f"/review/{event['id']}/clip/0/video.mp4")
+    assert response.status_code == 200
+    assert response.mimetype == "video/mp4"
+
+    # Seeking in the player needs byte ranges honoured, not just advertised.
+    partial = client.get(
+        f"/review/{event['id']}/clip/0/video.mp4", headers={"Range": "bytes=0-9"}
+    )
+    assert partial.status_code == 206
+    assert len(partial.data) == 10
+
+
+def test_the_video_route_404s_for_an_unreadable_clip(client: Any) -> None:
+    event = client.get("/api/review/next").get_json()["event"]
+    assert client.get(f"/review/{event['id']}/clip/0/video.mp4").status_code == 404
 
 
 def test_undo_fetch_shows_the_existing_label(client: Any) -> None:

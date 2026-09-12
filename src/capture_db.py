@@ -49,6 +49,14 @@ CREATE TABLE IF NOT EXISTS label (
 );
 """
 
+EVENTS_IN_ORDER = (
+    "SELECT e.id FROM event e JOIN clip c ON c.event_id = e.id GROUP BY e.id"
+    " ORDER BY MIN(c.started_at) IS NULL, MIN(c.started_at), e.id"
+)
+EVENTS_WITH_SEVERAL_CLIPS = EVENTS_IN_ORDER.replace(
+    " ORDER BY", " HAVING COUNT(*) > 1 ORDER BY"
+)
+
 Remembered = dict[str, tuple[str, str, str]]  # clip path -> (value, labeled_at, source)
 
 
@@ -237,12 +245,64 @@ class CaptureDB:
         self._place_clips(keep_events=False)
         self._conn.commit()
 
+    # --- reviewer overrides -------------------------------------------------
+
+    def split(self, clip_id: int) -> None:
+        """A new visit starts at this clip. The new event starts unlabeled."""
+        row = self._conn.execute(
+            "SELECT event_id FROM clip WHERE id = ?", (clip_id,)
+        ).fetchone()
+        if row is None:
+            return
+        self._conn.execute(
+            "UPDATE clip SET boundary = 'split', joins = NULL WHERE id = ?", (clip_id,)
+        )
+        self._place_clips(keep_events=True)
+        moved = self._conn.execute(
+            "SELECT event_id FROM clip WHERE id = ?", (clip_id,)
+        ).fetchone()
+        if moved["event_id"] != row["event_id"]:
+            self._conn.execute(
+                "DELETE FROM label WHERE event_id = ?", (moved["event_id"],)
+            )
+        self._conn.commit()
+
+    def join(self, event_id: int) -> Event | None:
+        """Merge this event with the next one in time. Returns the merged event."""
+        ordered = self._event_ids_in_order()
+        if event_id not in ordered or ordered.index(event_id) + 1 >= len(ordered):
+            return None
+        next_id = ordered[ordered.index(event_id) + 1]
+        this, following = self.get(event_id), self.get(next_id)
+        if this is None or following is None:
+            return None
+        self._conn.execute(
+            "UPDATE clip SET boundary = 'join', joins = ? WHERE id = ?",
+            (this.clips[-1].path, following.clips[0].id),
+        )
+        self._place_clips(keep_events=True)
+        self._conn.commit()
+        return self.get(min(event_id, next_id))
+
+    def next_multi(self, after_id: int | None) -> Event | None:
+        """The next multi-clip event in time order, for auditing the grouping."""
+        multi = self._event_ids_in_order(multi_only=True)
+        if after_id in multi:
+            multi = multi[multi.index(after_id) + 1 :]
+        return self.get(multi[0]) if multi else None
+
+    def _event_ids_in_order(self, multi_only: bool = False) -> list[int]:
+        query = EVENTS_WITH_SEVERAL_CLIPS if multi_only else EVENTS_IN_ORDER
+        return [int(row["id"]) for row in self._conn.execute(query)]
+
     def _place_clips(self, keep_events: bool) -> None:
         remembered = self._labels_by_clip()
         if not keep_events:
             self._conn.execute("UPDATE clip SET event_id = NULL")
+        claimed: set[int] = set()
         for paths in self._grouped_paths():
-            event_id = self._event_for(paths)
+            event_id = self._event_for(paths, claimed)
+            claimed.add(event_id)
             self._conn.executemany(
                 "UPDATE clip SET event_id = ? WHERE path = ?",
                 [(event_id, path) for path in paths],
@@ -262,8 +322,11 @@ class CaptureDB:
         paths += [[row["path"]] for row in rows if row["started_at"] is None]
         return paths
 
-    def _event_for(self, paths: list[str]) -> int:
-        """The lowest event id already among these clips, or a new event."""
+    def _event_for(self, paths: list[str], claimed: set[int]) -> int:
+        """The lowest unclaimed event id already among these clips, or a new event.
+
+        An id can go to one group per pass, so the older half of a split keeps it.
+        """
         ids = {
             row["event_id"]
             for path in paths
@@ -272,6 +335,7 @@ class CaptureDB:
             )
         }
         ids.discard(None)
+        ids -= claimed
         if ids:
             return int(min(ids))
         cursor = self._conn.execute(

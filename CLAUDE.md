@@ -88,6 +88,12 @@ with the rule in `src/event_grouping.py`, tuned by `EVENT_GAP_SECONDS` and
 rebuilds every event from the current thresholds: ids change, labels follow their clips. A
 `captures.db` from before grouping is refused at startup; move it aside and re-ingest.
 
+The review page shows every clip of an event and lets the reviewer split an event at a clip or
+join it with the next; those are stored as overrides on the clips (`boundary`, `joins`) and
+survive a `regroup`. `/review?filter=multi` walks the multi-clip events. "Watch" remuxes the
+clip to MP4 on demand into `.review_cache`; that cache is keyed by **clip** id (`clip<id>_...`),
+never by event id, because event ids change on a regroup.
+
 `METRICS_CSV` turns on the instrumentation for roadmap A.2. Point it at **local disk**, never at
 the share: one row per frame at 30 fps is the small-write pattern CIFS handles worst. Rows are
 written off the capture thread and dropped rather than queued without bound, so the count of
