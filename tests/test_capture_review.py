@@ -493,12 +493,6 @@ def client(db: Any, clip_dir: Path, tmp_path: Path) -> Any:
     return app.test_client()
 
 
-def test_page_serves(client: Any) -> None:
-    response = client.get("/review")
-    assert response.status_code == 200
-    assert b"Capture review" in response.data
-
-
 def test_next_returns_the_oldest_event(client: Any) -> None:
     data = client.get("/api/review/next").get_json()
     assert data["event"]["started_at"] == "2026-08-25T07:24:52"

@@ -136,6 +136,16 @@ class FakePicamera2:
         self.closed = True
 
 
+class StubRecorder:
+    """Only the attributes the web layer reads from a MotionRecorder."""
+
+    def __init__(self, recording: bool = False, filename: Path | None = None) -> None:
+        self.recording = recording
+        self.current_filename = filename
+        self.motion_threshold = 300
+        self.motion_timeout = 10
+
+
 class StubSubtractor:
     """Replaces MOG2 so tests set the foreground pixel count exactly."""
 

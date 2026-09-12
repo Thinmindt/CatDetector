@@ -7,10 +7,13 @@ from types import FrameType
 
 from config import Config
 from src.camera_manager import CameraManager
+from src.capture_db import CaptureDB
+from src.clip_frames import ClipFrames
 from src.clip_transfer import ClipTransfer
 from src.logging_setup import configure_logging
 from src.motion_metrics import MetricsLog
 from src.motion_recorder import MotionRecorder
+from src.web_app import WEB_PORT, create_app, run
 from src.web_streamer import WebStreamer
 
 log = logging.getLogger(__name__)
@@ -90,6 +93,17 @@ def build_transfer(local_clips: pathlib.Path, share: pathlib.Path) -> ClipTransf
     return transfer
 
 
+def build_review(share: pathlib.Path) -> tuple[CaptureDB, ClipFrames] | None:
+    """Open the capture database, or return None so the live feed still comes up."""
+    try:
+        db = CaptureDB(Config.DB_PATH)
+        log.info("Ingest found %d new clip(s)", db.ingest(share / "captures"))
+        return db, ClipFrames(Config.REVIEW_CACHE_DIR)
+    except Exception as error:
+        log.warning("Review unavailable (%s) - continuing with the live feed", error)
+        return None
+
+
 if __name__ == "__main__":
     configure_logging(__name__)
     share = pathlib.Path(Config.NETWORK_SHARE_DIR)
@@ -98,17 +112,13 @@ if __name__ == "__main__":
     camera_manager = CameraManager()
     recorder = build_recorder(camera_manager, local_clips)
     transfer = build_transfer(local_clips, share) if recorder else None
+    streamer = WebStreamer(camera_manager=camera_manager, motion_recorder=recorder)
+    review = build_review(share)
 
-    web_streamer = WebStreamer(
-        camera_manager=camera_manager,
-        motion_recorder=recorder,
-        port=5000,
-    )
-
-    stream_thread = threading.Thread(target=web_streamer.start, daemon=True)
-    stream_thread.start()
+    app = create_app(streamer, *(review or (None, None)))
+    threading.Thread(target=run, args=(app,), daemon=True).start()
 
     log.info("Starting cat detector with shared camera")
-    log.info("Web stream available at http://<pi-ip>:5000")
+    log.info("Live feed and review at http://<pi-ip>:%d", WEB_PORT)
 
     monitor(camera_manager, recorder, transfer)

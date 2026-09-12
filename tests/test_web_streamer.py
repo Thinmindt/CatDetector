@@ -1,4 +1,4 @@
-"""WebStreamer serves the MJPEG feed and degrades without a recorder."""
+"""WebStreamer keeps the newest frame, serves it as MJPEG, and reports status."""
 
 from __future__ import annotations
 
@@ -8,17 +8,7 @@ from typing import Any
 
 import numpy as np
 import pytest
-from conftest import LORES_SIZE, MAIN_SIZE, make_frame
-
-
-class StubRecorder:
-    """Only the attributes WebStreamer actually reads."""
-
-    def __init__(self, recording: bool = False, filename: Path | None = None) -> None:
-        self.recording = recording
-        self.current_filename = filename
-        self.motion_threshold = 5000
-        self.motion_timeout = 10
+from conftest import LORES_SIZE, MAIN_SIZE, StubRecorder, make_frame
 
 
 @pytest.fixture
@@ -26,48 +16,24 @@ def make_streamer(camera_manager: Any) -> Any:
     from src.web_streamer import WebStreamer
 
     def build(recorder: Any = None) -> Any:
-        return WebStreamer(
-            camera_manager=camera_manager, motion_recorder=recorder, port=5000
-        )
+        return WebStreamer(camera_manager=camera_manager, motion_recorder=recorder)
 
     return build
 
 
-def test_status_page_renders_without_a_recorder(make_streamer: Any) -> None:
-    streamer = make_streamer(None)
-    client = streamer.app.test_client()
-
-    response = client.get("/")
-
-    assert response.status_code == 200
-    assert b"Cat Detector Live Feed" in response.data
-    assert b"Recording:" not in response.data
+def test_status_without_a_recorder_says_stream_only(make_streamer: Any) -> None:
+    assert make_streamer(None).status() == {"detector": True, "recorder": False}
 
 
-def test_status_page_shows_recorder_state(make_streamer: Any) -> None:
-    streamer = make_streamer(StubRecorder(recording=True))
-    client = streamer.app.test_client()
+def test_status_reports_the_recorder_state(make_streamer: Any, tmp_path: Path) -> None:
+    clip = tmp_path / "cat_video_20260912_080000.h264"
+    streamer = make_streamer(StubRecorder(recording=True, filename=clip))
 
-    response = client.get("/")
+    status = streamer.status()
 
-    assert b"Recording:" in response.data
-    assert b"Yes" in response.data
-    assert b"5000" in response.data
-
-
-def test_video_feed_is_multipart(make_streamer: Any) -> None:
-    """Built via the view function, not the test client.
-
-    The client buffers the response, and generate_frames() never ends, so a
-    plain client.get("/video_feed") hangs forever.
-    """
-    streamer = make_streamer(None)
-
-    with streamer.app.test_request_context("/video_feed"):
-        response = streamer.app.view_functions["video_feed"]()
-
-    assert response.status_code == 200
-    assert "multipart/x-mixed-replace" in response.content_type
+    assert status["recording"] is True
+    assert status["clip"] == "cat_video_20260912_080000.h264"
+    assert status["motion_threshold"] == 300
 
 
 def test_generate_frames_yields_jpeg_parts(make_streamer: Any) -> None:

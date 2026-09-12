@@ -63,7 +63,7 @@ reads like a robustness improvement and is the exact opposite.
 ## Commands
 
 ```bash
-uv run python main.py                        # run the detector (camera + web stream on :5000)
+uv run python main.py                        # run the detector (camera, live feed and review on :5000)
 
 uv run pytest                                # unit tests (no hardware needed, ~8s)
 uv run ruff check .                          # lint
@@ -74,12 +74,15 @@ uv run python tests/manual/check_camera.py   # hardware smoke test; writes test_
 
 METRICS_CSV=/home/butler/metrics.csv uv run python main.py   # + per-frame detection metrics
 
-uv run python review.py                      # label-review UI on :5001 (no camera needed)
+uv run python review.py                      # the same web UI without the camera, on :5000
 ```
 
-The review server ingests `$NETWORK_SHARE_DIR/captures/*.h264` into a local SQLite DB
-(`DB_PATH`, default `captures.db` — local disk, never the share) and serves a keyboard-driven
-cat/not-cat labeler at `/review`. It runs alongside main.py or on its own; frame extraction
+The web UI is **one Flask app on one port** ([src/web_app.py](src/web_app.py)): a page with a
+Live tab and a Review tab, built from `src/templates/app.html`. `main.py` serves it with the
+camera; `review.py` serves the same app without one, for when the detector is off. Only one of
+them can hold port 5000, which is the point. The review half ingests
+`$NETWORK_SHARE_DIR/captures/*.h264` into a local SQLite DB (`DB_PATH`, default `captures.db` —
+local disk, never the share) and serves a keyboard-driven cat/not-cat labeler; frame extraction
 shells out to ffmpeg because cv2.VideoCapture cannot seek raw elementary streams.
 
 Ingest reads each clip's sidecar and groups clips into **events** (one visit, one or more clips)
@@ -182,7 +185,7 @@ Traps when adding tests here:
 
 - **Never fetch `/video_feed` with the Flask test client.** It buffers the whole response and
   `generate_frames()` is an infinite generator, so the suite hangs with no failure at all. Build
-  the response through `app.view_functions["video_feed"]()` inside a `test_request_context`.
+  the response by calling `streamer.video_feed()` inside `app.test_request_context(...)`.
 - `pythonpath = ["."]` in `pyproject.toml` is load-bearing: `src/` and `config.py` are top-level
   modules of an application, not an installed package, so without it every import fails.
 - **Join with a timeout and assert something that can fail.** `assert not thread.is_alive()`
@@ -285,8 +288,11 @@ by a crash; that is expected, not a bug.
 
 **Web stream.** [src/web_streamer.py](src/web_streamer.py) is another consumer: it keeps the
 newest `main` frame under a lock, optionally annotates it with recorder status via OpenCV, and
-serves it as MJPEG at `/video_feed`, with a status page at `/`. Flask runs in a daemon thread from
-[main.py](main.py); `monitor()` on the main thread starts frame distribution and blocks until
+serves it as MJPEG at `/video_feed` with JSON status at `/api/status`, as a blueprint on the one
+Flask app from [src/web_app.py](src/web_app.py). The page at `/` and `/review` is the same
+template with a different tab active; leaving the Live tab drops the `<img>` source so a hidden
+tab does not hold an MJPEG connection open. [main.py](main.py) runs the app in a daemon thread;
+`monitor()` on the main thread starts frame distribution and blocks until
 Ctrl-C. `WebStreamer` takes `motion_recorder` as an optional dependency and degrades to a bare
 feed when it is `None`.
 
