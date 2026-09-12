@@ -1,7 +1,11 @@
-"""Standalone label-review server. Runs without the camera, alongside main.py."""
+"""Standalone label-review server. Runs without the camera, alongside main.py.
+
+`--regroup` rebuilds every event from the current thresholds and exits.
+"""
 
 import logging
 import pathlib
+import sys
 
 from flask import Flask
 
@@ -28,8 +32,21 @@ def build_app() -> Flask:
     return app
 
 
+def regroup_events() -> dict[str, int]:
+    """Rebuild every event from the current thresholds. Event ids change."""
+    db = CaptureDB(Config.DB_PATH)
+    try:
+        db.regroup()
+        return db.counts()
+    finally:
+        db.close()
+
+
 if __name__ == "__main__":
     configure_logging(__name__)
+    if "--regroup" in sys.argv[1:]:
+        log.info("Regrouped: %s", regroup_events())
+        sys.exit(0)
     app = build_app()
     log.info("Review UI at http://<pi-ip>:%d/review", REVIEW_PORT)
     app.run(host="0.0.0.0", port=REVIEW_PORT, debug=False)  # noqa: S104 -- LAN-only by design, see the README

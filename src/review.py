@@ -8,7 +8,7 @@ from typing import Any
 from flask import Blueprint, Response, jsonify, request, send_file
 
 from config import Config
-from src.capture_db import CaptureDB, Event
+from src.capture_db import CaptureDB, Clip, Event
 from src.clip_frames import THUMB_WIDTH, ClipFrames
 
 log = logging.getLogger(__name__)
@@ -56,7 +56,7 @@ async function show(data) {
   const badge = current.label ? ` <span class="label">${current.label}</span>` : '';
   document.getElementById('meta').innerHTML =
     `#${current.id} — ${current.started_at || 'unknown time'}${badge}`;
-  document.getElementById('strip').src = `/review/${current.id}/strip.jpg`;
+  document.getElementById('strip').src = `/review/${current.id}/clip/0/strip.jpg`;
 }
 
 function renderCounts(c) {
@@ -92,7 +92,7 @@ document.getElementById('strip').onclick = (e) => {
   const img = e.target;
   const slots = Math.max(1, Math.round(img.naturalWidth / %THUMB_WIDTH%));
   const slot = Math.min(slots - 1, Math.floor(e.offsetX / img.clientWidth * slots));
-  if (current) window.open(`/review/${current.id}/frame/${slot}.jpg`);
+  if (current) window.open(`/review/${current.id}/clip/0/frame/${slot}.jpg`);
 };
 document.addEventListener('keydown', (e) => {
   if (e.key === 'c') label('cat');
@@ -137,19 +137,21 @@ class ReviewPages:
         added = self.db.ingest(Path(Config.NETWORK_SHARE_DIR) / "captures")
         return jsonify({"added": added, "counts": self.db.counts()})
 
-    def strip(self, event_id: int) -> Response:
-        return self._image(event_id, lambda e: self.frames.strip(e.id, e.clip_path))
+    def strip(self, event_id: int, index: int) -> Response:
+        return self._image(event_id, index, lambda c: self.frames.strip(c.id, c.path))
 
-    def frame(self, event_id: int, slot: int) -> Response:
+    def frame(self, event_id: int, index: int, slot: int) -> Response:
         return self._image(
-            event_id, lambda e: self.frames.frame(e.id, e.clip_path, slot)
+            event_id, index, lambda c: self.frames.frame(c.id, c.path, slot)
         )
 
     def _image(
-        self, event_id: int, produce: Callable[[Event], Path | None]
+        self, event_id: int, index: int, produce: Callable[[Clip], Path | None]
     ) -> Response:
+        """An image for the index-th clip of an event, or 404."""
         event = self.db.get(event_id)
-        path = produce(event) if event is not None else None
+        clip = event.clips[index] if event and 0 <= index < len(event.clips) else None
+        path = produce(clip) if clip is not None else None
         if path is None:
             return Response("unavailable", status=404)
         return send_file(path, mimetype="image/jpeg")
@@ -160,7 +162,18 @@ class ReviewPages:
             body = {
                 "id": event.id,
                 "started_at": event.started_at,
+                "ended_at": event.ended_at,
                 "label": event.label,
+                "clips": [
+                    {
+                        "index": index,
+                        "started_at": clip.started_at,
+                        "ended_at": clip.ended_at,
+                        "close_reason": clip.close_reason,
+                        "boundary": clip.boundary,
+                    }
+                    for index, clip in enumerate(event.clips)
+                ],
             }
         return jsonify({"event": body, "counts": self.db.counts()})
 
@@ -177,8 +190,11 @@ def create_review_blueprint(db: CaptureDB, frames: ClipFrames) -> Blueprint:
         methods=["POST"],
     )
     bp.add_url_rule("/api/review/rescan", view_func=pages.rescan, methods=["POST"])
-    bp.add_url_rule("/review/<int:event_id>/strip.jpg", view_func=pages.strip)
     bp.add_url_rule(
-        "/review/<int:event_id>/frame/<int:slot>.jpg", view_func=pages.frame
+        "/review/<int:event_id>/clip/<int:index>/strip.jpg", view_func=pages.strip
+    )
+    bp.add_url_rule(
+        "/review/<int:event_id>/clip/<int:index>/frame/<int:slot>.jpg",
+        view_func=pages.frame,
     )
     return bp

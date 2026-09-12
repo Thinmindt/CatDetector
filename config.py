@@ -27,6 +27,13 @@ class Config:
     # roughly this many frames.
     MOG2_HISTORY = int(os.getenv("MOG2_HISTORY", "500"))
 
+    # A clip continues the previous visit if it starts within this many seconds
+    # of that visit's last clip ending, in the same box.
+    EVENT_GAP_SECONDS = float(os.getenv("EVENT_GAP_SECONDS", "180"))
+
+    # "Same box": centroids this close, in the 640x480 analysis frame.
+    EVENT_BOX_DISTANCE_PX = float(os.getenv("EVENT_BOX_DISTANCE_PX", "120"))
+
     # Local disk, never the share: SQLite locking is unreliable over CIFS.
     DB_PATH = os.getenv("DB_PATH", "captures.db")
     REVIEW_CACHE_DIR = os.getenv("REVIEW_CACHE_DIR", ".review_cache")
