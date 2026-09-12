@@ -4,7 +4,7 @@ import time
 from collections.abc import Iterator
 
 import cv2
-from flask import Flask, Response
+from flask import Blueprint, Response, jsonify
 
 from src.camera_manager import CameraManager, Frame
 from src.motion_recorder import MotionRecorder
@@ -14,50 +14,27 @@ log = logging.getLogger(__name__)
 JPEG_QUALITY = 70
 STREAM_INTERVAL_SECONDS = 1 / 30
 
-# Kept out of the page f-string below so the CSS braces need no escaping.
-_PAGE_CSS = """
-body { font-family: Arial, sans-serif; margin: 20px; }
-.status {
-    background-color: #f0f0f0;
-    padding: 10px;
-    margin: 10px 0;
-    border-radius: 5px;
-}
-img { max-width: 100%; height: auto; }
-"""
-
 
 class WebStreamer:
-    """
-    Web streaming component that consumes frames from CameraManager
-    """
+    """Keeps the newest annotated frame and serves it as MJPEG, with a status feed."""
 
     def __init__(
         self,
         camera_manager: CameraManager,
         motion_recorder: MotionRecorder | None = None,
-        port: int = 5000,
     ) -> None:
         self.camera_manager = camera_manager
         self.motion_recorder = motion_recorder
-        self.port = port
-        self.app = Flask(__name__)
         self.latest_frame: Frame | None = None
         self.frame_lock = threading.Lock()
-
-        self.setup_routes()
-
-        # Register as consumer
         self.camera_manager.add_consumer(self._consume_frames)
 
     def _consume_frames(self, main_frame: Frame, lores_frame: Frame) -> None:  # noqa: ARG002 -- signature fixed by FrameConsumer
-        """Consume frames from camera manager"""
-        # Use lores frame for streaming (more efficient)
+        """Consumer callback: annotate a copy of the main frame and keep it."""
         frame_rgb = main_frame.copy()
 
         recorder = self.motion_recorder
         if recorder:
-            # Check if currently recording
             if recorder.recording:
                 cv2.putText(
                     frame_rgb,
@@ -65,74 +42,60 @@ class WebStreamer:
                     (10, 30),
                     cv2.FONT_HERSHEY_SIMPLEX,
                     1.0,
-                    (0, 0, 255),  # Red
+                    (0, 0, 255),
                     2,
                 )
-                # Add recording filename if available
                 if recorder.current_filename:
-                    filename = recorder.current_filename.name
                     cv2.putText(
                         frame_rgb,
-                        f"File: {filename}",
+                        f"File: {recorder.current_filename.name}",
                         (10, 70),
                         cv2.FONT_HERSHEY_SIMPLEX,
                         0.6,
-                        (0, 0, 255),  # Red
+                        (0, 0, 255),
                         2,
                     )
-
-            # Add motion threshold info
             cv2.putText(
                 frame_rgb,
                 f"Motion Threshold: {recorder.motion_threshold}",
                 (10, frame_rgb.shape[0] - 20),
                 cv2.FONT_HERSHEY_SIMPLEX,
                 0.5,
-                (255, 255, 255),  # White
+                (255, 255, 255),
                 1,
             )
 
         with self.frame_lock:
             self.latest_frame = frame_rgb
 
-    def setup_routes(self) -> None:
-        @self.app.route("/")
-        def index() -> str:
-            status_info = ""
-            recorder = self.motion_recorder
-            if recorder:
-                recording = "Yes" if recorder.recording else "No"
-                status_info = f"""
-                <p><strong>Motion Threshold:</strong>
-                    {recorder.motion_threshold}</p>
-                <p><strong>Recording:</strong> {recording}</p>
-                <p><strong>Timeout:</strong>
-                    {recorder.motion_timeout} seconds</p>
-                """
+    def status(self) -> dict[str, object]:
+        """What the Live tab shows beside the feed."""
+        recorder = self.motion_recorder
+        if recorder is None:
+            return {"detector": True, "recorder": False}
+        clip = recorder.current_filename
+        return {
+            "detector": True,
+            "recorder": True,
+            "recording": recorder.recording,
+            "clip": clip.name if clip else None,
+            "motion_threshold": recorder.motion_threshold,
+            "motion_timeout": recorder.motion_timeout,
+        }
 
-            return f"""
-            <!DOCTYPE html>
-            <html>
-            <head>
-                <title>Cat Detector Live Feed</title>
-                <style>{_PAGE_CSS}</style>
-            </head>
-            <body>
-                <h1>Cat Detector Live Feed</h1>
-                <div class="status">
-                    {status_info}
-                </div>
-                <img src="/video_feed" style="width:100%; max-width:800px;">
-            </body>
-            </html>
-            """
+    def blueprint(self) -> Blueprint:
+        bp = Blueprint("live", __name__)
+        bp.add_url_rule("/video_feed", view_func=self.video_feed)
+        bp.add_url_rule("/api/status", view_func=self.api_status)
+        return bp
 
-        @self.app.route("/video_feed")
-        def video_feed() -> Response:
-            return Response(
-                self.generate_frames(),
-                mimetype="multipart/x-mixed-replace; boundary=frame",
-            )
+    def video_feed(self) -> Response:
+        return Response(
+            self.generate_frames(), mimetype="multipart/x-mixed-replace; boundary=frame"
+        )
+
+    def api_status(self) -> Response:
+        return jsonify(self.status())
 
     def generate_frames(self) -> Iterator[bytes]:
         while True:
@@ -151,6 +114,3 @@ class WebStreamer:
                         b"Content-Type: image/jpeg\r\n\r\n" + frame_bytes + b"\r\n"
                     )
             time.sleep(STREAM_INTERVAL_SECONDS)
-
-    def start(self) -> None:
-        self.app.run(host="0.0.0.0", port=self.port, debug=False, threaded=True)  # noqa: S104 -- LAN-only by design, see the README

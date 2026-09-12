@@ -1,4 +1,4 @@
-"""Label review UI: is there a cat in this visit, and is the grouping right?"""
+"""Review API: events to label, their clips' media, and grouping corrections."""
 
 import logging
 from collections.abc import Callable
@@ -9,173 +9,11 @@ from flask import Blueprint, Response, jsonify, request, send_file
 
 from config import Config
 from src.capture_db import CaptureDB, Clip, Event
-from src.clip_frames import THUMB_WIDTH, ClipFrames
+from src.clip_frames import ClipFrames
 
 log = logging.getLogger(__name__)
 
 VALID_LABELS = ("cat", "not_cat", "unsure")
-
-_PAGE = """<!DOCTYPE html>
-<html><head><title>Capture review</title><style>
-body { font-family: system-ui, sans-serif; margin: 24px;
-       background: #141414; color: #eee; }
-h1 { font-size: 1.2rem; }
-#meta, #counts, .clipmeta { color: #aaa; }
-#meta { margin: 8px 0; }
-#counts { margin-top: 16px; }
-.clip { margin: 12px 0; padding: 10px; background: #1e1e1e; border-radius: 6px; }
-.clipmeta { margin-bottom: 6px; }
-.strip { width: 100%; max-width: 1280px; cursor: zoom-in; border-radius: 4px;
-         display: block; }
-video { width: 100%; max-width: 1280px; margin-top: 8px; display: none; }
-.boundary { margin: 4px 0 4px 12px; }
-.boundary button, .clipmeta button { font-size: 0.85rem; padding: 3px 10px; }
-.label { display: inline-block; padding: 2px 10px;
-         border-radius: 10px; background: #333; }
-.warn { color: #f0b429; }
-button { font-size: 1rem; margin-right: 8px; padding: 6px 14px; cursor: pointer; }
-kbd { background: #333; border-radius: 3px; padding: 1px 5px; }
-#done, #skip { display: none; }
-</style></head><body>
-<h1>Capture review <span id="mode"></span></h1>
-<div id="viewer">
-  <div id="meta"></div>
-  <div id="clips"></div>
-  <p>
-    <button onclick="label('cat')">cat <kbd>c</kbd></button>
-    <button onclick="label('not_cat')">not a cat <kbd>n</kbd></button>
-    <button onclick="label('unsure')">unsure <kbd>u</kbd></button>
-    <button onclick="undo()">undo <kbd>z</kbd></button>
-    <button id="skip" onclick="load()">next <kbd>&rarr;</kbd></button>
-    <button onclick="join()">same visit as the next event</button>
-  </p>
-</div>
-<div id="done"><p>Nothing left to review.</p>
-  <button onclick="rescan()">rescan clip directory</button></div>
-<div id="counts"></div>
-<script>
-const MULTI = new URLSearchParams(location.search).get('filter') === 'multi';
-const THUMB_WIDTH = %THUMB_WIDTH%;
-let current = null;
-const history = [];
-
-function hms(iso) { return iso ? iso.slice(11, 19) : '?'; }
-function secs(a, b) { return Math.round((new Date(b) - new Date(a)) / 1000); }
-
-function clipBlock(c, prev) {
-  const length = c.started_at && c.ended_at
-    ? `${secs(c.started_at, c.ended_at)} s` : '?';
-  const gap = prev && c.started_at && prev.ended_at
-    ? `, ${secs(prev.ended_at, c.started_at)} s after the previous clip` : '';
-  const override = c.boundary
-    ? ` <span class="warn">reviewer: ${c.boundary}</span>` : '';
-  const boundary = c.index > 0
-    ? `<div class="boundary"><button onclick="split(${c.index})">` +
-      `a new visit starts here</button></div>`
-    : '';
-  return `${boundary}<div class="clip">
-    <div class="clipmeta">clip ${c.index + 1}:
-      ${hms(c.started_at)} &rarr; ${hms(c.ended_at)}
-      (${length}, closed: ${c.close_reason}${gap})${override}
-      <button onclick="watch(${c.index})">watch</button></div>
-    <img class="strip" data-index="${c.index}"
-         src="/review/${current.id}/clip/${c.index}/strip.jpg"
-         alt="frame strip unavailable (clip unreadable?)">
-    <video id="v${c.index}" controls preload="none"></video>
-  </div>`;
-}
-
-function show(data) {
-  current = data.event;
-  document.getElementById('viewer').style.display = current ? 'block' : 'none';
-  document.getElementById('done').style.display = current ? 'none' : 'block';
-  renderCounts(data.counts);
-  if (!current) return;
-  const badge = current.label ? ` <span class="label">${current.label}</span>` : '';
-  const n = current.clips.length;
-  const grouped = n > 1
-    ? ` <span class="warn">${n} clips grouped as one visit</span>` : '';
-  document.getElementById('meta').innerHTML =
-    `#${current.id} &mdash; ${current.started_at || 'unknown time'} &rarr; ` +
-    `${hms(current.ended_at)}${badge}${grouped}`;
-  document.getElementById('clips').innerHTML =
-    current.clips.map((c, i) => clipBlock(c, i ? current.clips[i - 1] : null)).join('');
-}
-
-function renderCounts(c) {
-  const parts = Object.entries(c).filter(([k]) => !['total','labeled'].includes(k))
-    .map(([k, v]) => `${k}: ${v}`).join(', ');
-  document.getElementById('counts').textContent =
-    `${c.labeled} of ${c.total} labeled` + (parts ? ` (${parts})` : '');
-}
-
-async function get(url) { return (await fetch(url)).json(); }
-async function post(url, body) {
-  return (await fetch(url, {method: 'POST',
-    headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify(body || {})})).json();
-}
-
-async function load() {
-  const after = current ? `?after=${current.id}` : '';
-  if (MULTI) show(await get(`/api/review/multi/next${after}`));
-  else show(await get('/api/review/next'));
-}
-
-async function label(value) {
-  if (!current) return;
-  await post(`/api/review/${current.id}/label`, {value});
-  history.push(current.id);
-  load();
-}
-
-async function undo() {
-  const id = history.pop();
-  if (id === undefined) return;
-  show(await get(`/api/review/event/${id}`));
-}
-
-async function split(index) {
-  if (!current) return;
-  show(await post(`/api/review/${current.id}/split`, {index}));
-}
-
-async function join() {
-  if (!current) return;
-  const data = await post(`/api/review/${current.id}/join`);
-  if (data.event) show(data); else alert('There is no later event to join.');
-}
-
-function watch(index) {
-  const video = document.getElementById(`v${index}`);
-  if (!video.src) video.src = `/review/${current.id}/clip/${index}/video.mp4`;
-  video.style.display = 'block';
-  video.play();
-}
-
-async function rescan() { await post('/api/review/rescan'); load(); }
-
-document.getElementById('clips').addEventListener('click', (e) => {
-  if (!e.target.classList.contains('strip')) return;
-  const img = e.target;
-  const slots = Math.max(1, Math.round(img.naturalWidth / THUMB_WIDTH));
-  const slot = Math.min(slots - 1, Math.floor(e.offsetX / img.clientWidth * slots));
-  window.open(`/review/${current.id}/clip/${img.dataset.index}/frame/${slot}.jpg`);
-});
-document.addEventListener('keydown', (e) => {
-  if (e.target.tagName === 'VIDEO') return;
-  if (e.key === 'c') label('cat');
-  else if (e.key === 'n') label('not_cat');
-  else if (e.key === 'u') label('unsure');
-  else if (e.key === 'z') undo();
-  else if (e.key === 'ArrowRight' && MULTI) load();
-});
-if (MULTI) {
-  document.getElementById('mode').textContent = '— multi-clip events';
-  document.getElementById('skip').style.display = 'inline-block';
-}
-load();
-</script></body></html>"""
 
 
 class ReviewPages:
@@ -184,10 +22,6 @@ class ReviewPages:
     def __init__(self, db: CaptureDB, frames: ClipFrames) -> None:
         self.db = db
         self.frames = frames
-
-    def page(self) -> str:
-        """The review page, with the strip's thumbnail width baked in."""
-        return _PAGE.replace("%THUMB_WIDTH%", str(THUMB_WIDTH))
 
     def next_event(self) -> Any:
         return self._event_payload(self.db.next_unlabeled())
@@ -290,9 +124,9 @@ class ReviewPages:
 
 
 def create_review_blueprint(db: CaptureDB, frames: ClipFrames) -> Blueprint:
+    """The review API and media routes. The page itself is served by web_app."""
     pages = ReviewPages(db, frames)
     bp = Blueprint("review", __name__)
-    bp.add_url_rule("/review", view_func=pages.page)
     bp.add_url_rule("/api/review/next", view_func=pages.next_event)
     bp.add_url_rule("/api/review/multi/next", view_func=pages.next_multi)
     bp.add_url_rule("/api/review/event/<int:event_id>", view_func=pages.one_event)

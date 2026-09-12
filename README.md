@@ -43,7 +43,7 @@ uv sync
 ## Run
 
 ```
-uv run python main.py                        # camera + web stream on :5000
+uv run python main.py                        # camera, live feed and review on :5000
 uv run python tests/manual/check_camera.py    # camera smoke test (needs the camera)
 ```
 
@@ -52,13 +52,14 @@ uv run python tests/manual/check_camera.py    # camera smoke test (needs the cam
 ## Reviewing captures
 
 ```
-uv run python review.py      # label-review UI on :5001
+uv run python review.py      # the same web UI without the camera, on :5000
 ```
 
-Scans the captures directory into a local database and serves a keyboard-driven review page at
-`http://<pi-ip>:5001/review` — `c` cat, `n` not a cat, `u` unsure, `z` undo, click the frame
-strip to zoom. Works with or without the detector running. Requires `ffmpeg` (`sudo apt install
-ffmpeg`).
+The Review tab of the web UI (`http://<pi-ip>:5000/review`) scans the captures directory into
+a local database and serves a keyboard-driven labeler — `c` cat, `n` not a cat, `u` unsure, `z`
+undo, click a frame strip to zoom, "watch" to play the clip. `main.py` serves it beside the live
+feed; when the detector is not running, `review.py` serves the same page on the same port.
+Requires `ffmpeg` (`sudo apt install ffmpeg`).
 
 ## Test, lint, format, type-check
 
@@ -72,9 +73,9 @@ uv run mypy .                # type-check (strict)
 
 ## Security
 
-**The web stream has no authentication.** `/` and `/video_feed` are served to anyone who can
-reach port 5000, over plain HTTP, by Flask's development server. Anyone on the same network
-can watch the camera.
+**The web UI has no authentication.** The live feed, every recorded clip and the review tools
+are served to anyone who can reach port 5000, over plain HTTP, by Flask's development server.
+Anyone on the same network can watch the camera and relabel events.
 
 Run this only on a network you trust, and **do not forward port 5000 through your router** or
 let UPnP open it. If you ever need it reachable from outside, put authentication and a real
@@ -94,7 +95,7 @@ Clips are recorded to `LOCAL_CLIP_DIR` on local disk, then moved to
 `$NETWORK_SHARE_DIR/captures/` once each clip is complete. Recording therefore does not depend
 on the share being reachable: if it goes away, clips queue locally and are shipped when it comes
 back. A clip only appears on the share under its final `.h264` name once every byte has arrived,
-so the review server never samples a half-written file.
+so the review UI never samples a half-written file.
 
 If the share is mounted from `/etc/fstab`, pin the `soft` option explicitly. It is the CIFS
 default, so it is easy to lose by accident — and on a `hard` mount an unreachable NAS blocks

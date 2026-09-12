@@ -1,6 +1,7 @@
-"""Standalone label-review server. Runs without the camera, alongside main.py.
+"""The web app without the camera: review only, on the same port as main.py.
 
-`--regroup` rebuilds every event from the current thresholds and exits.
+Use it when the detector is not running. `--regroup` rebuilds every event
+from the current thresholds and exits.
 """
 
 import logging
@@ -13,23 +14,16 @@ from config import Config
 from src.capture_db import CaptureDB
 from src.clip_frames import ClipFrames
 from src.logging_setup import configure_logging
-from src.review import create_review_blueprint
+from src.web_app import WEB_PORT, create_app, run
 
 log = logging.getLogger(__name__)
-
-REVIEW_PORT = 5001
 
 
 def build_app() -> Flask:
     db = CaptureDB(Config.DB_PATH)
     added = db.ingest(pathlib.Path(Config.NETWORK_SHARE_DIR) / "captures")
     log.info("Ingest found %d new clip(s)", added)
-
-    app = Flask(__name__)
-    app.register_blueprint(
-        create_review_blueprint(db, ClipFrames(Config.REVIEW_CACHE_DIR))
-    )
-    return app
+    return create_app(None, db, ClipFrames(Config.REVIEW_CACHE_DIR))
 
 
 def regroup_events() -> dict[str, int]:
@@ -47,6 +41,5 @@ if __name__ == "__main__":
     if "--regroup" in sys.argv[1:]:
         log.info("Regrouped: %s", regroup_events())
         sys.exit(0)
-    app = build_app()
-    log.info("Review UI at http://<pi-ip>:%d/review", REVIEW_PORT)
-    app.run(host="0.0.0.0", port=REVIEW_PORT, debug=False)  # noqa: S104 -- LAN-only by design, see the README
+    log.info("Review UI at http://<pi-ip>:%d/review (no camera)", WEB_PORT)
+    run(build_app())
