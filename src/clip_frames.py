@@ -21,7 +21,7 @@ class ClipFrames:
     """Extracts a thumbnail strip and full-size frames from clips.
 
     OpenCV's VideoCapture cannot seek raw elementary streams, so extraction
-    shells out to ffmpeg. Results are cached under cache_dir keyed by event id;
+    shells out to ffmpeg. Results are cached under cache_dir keyed by clip id;
     clips are immutable once closed, so the cache never needs invalidating.
     """
 
@@ -32,18 +32,18 @@ class ClipFrames:
         if self._ffmpeg is None:
             log.warning("ffmpeg not found; frame extraction is disabled")
 
-    def strip(self, event_id: int, clip_path: str | Path) -> Path | None:
+    def strip(self, clip_id: int, clip_path: str | Path) -> Path | None:
         """A horizontal montage of THUMB_COUNT frames, one per second."""
-        cached = self.cache_dir / f"{event_id}_strip.jpg"
+        cached = self.cache_dir / f"clip{clip_id}_strip.jpg"
         if cached.exists():
             return cached
         return self._build_strip(Path(clip_path), cached)
 
-    def frame(self, event_id: int, clip_path: str | Path, slot: int) -> Path | None:
+    def frame(self, clip_id: int, clip_path: str | Path, slot: int) -> Path | None:
         """The full-resolution frame behind one strip slot."""
         if not 0 <= slot < THUMB_COUNT:
             return None
-        cached = self.cache_dir / f"{event_id}_f{slot}.jpg"
+        cached = self.cache_dir / f"clip{clip_id}_f{slot}.jpg"
         if cached.exists():
             return cached
 

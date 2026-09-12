@@ -82,6 +82,12 @@ The review server ingests `$NETWORK_SHARE_DIR/captures/*.h264` into a local SQLi
 cat/not-cat labeler at `/review`. It runs alongside main.py or on its own; frame extraction
 shells out to ffmpeg because cv2.VideoCapture cannot seek raw elementary streams.
 
+Ingest reads each clip's sidecar and groups clips into **events** (one visit, one or more clips)
+with the rule in `src/event_grouping.py`, tuned by `EVENT_GAP_SECONDS` and
+`EVENT_BOX_DISTANCE_PX`. Event ids are stable across rescans. `uv run python review.py --regroup`
+rebuilds every event from the current thresholds: ids change, labels follow their clips. A
+`captures.db` from before grouping is refused at startup; move it aside and re-ingest.
+
 `METRICS_CSV` turns on the instrumentation for roadmap A.2. Point it at **local disk**, never at
 the share: one row per frame at 30 fps is the small-write pattern CIFS handles worst. Rows are
 written off the capture thread and dropped rather than queued without bound, so the count of
