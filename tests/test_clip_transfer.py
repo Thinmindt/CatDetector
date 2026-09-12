@@ -10,6 +10,7 @@ from typing import Any
 
 import pytest
 
+from src.clip_sidecar import sidecar_name
 from src.clip_transfer import ClipTransfer
 from src.motion_recorder import partial_name
 
@@ -142,3 +143,56 @@ def test_the_worker_survives_a_cycle_that_raises(
         transfer.stop()
 
     assert len(calls) >= 3
+
+
+# --- sidecars ---------------------------------------------------------------
+
+
+def test_the_sidecar_ships_before_its_clip_and_both_leave_local_disk(
+    transfer: ClipTransfer, mounted: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The review server ingests on the clip's arrival, so the facts must
+    already be there when it looks."""
+    clip = write_clip(transfer, "cat_video_20260829_120000.h264", b"footage")
+    sidecar = sidecar_name(clip)
+    sidecar.write_text('{"close_reason": "timeout"}')
+    order: list[str] = []
+    real_copy = shutil.copyfile
+
+    def spying(src: Any, dst: Any, **kwargs: Any) -> None:
+        order.append(Path(src).name)
+        real_copy(src, dst)
+
+    monkeypatch.setattr(shutil, "copyfile", spying)
+
+    assert transfer.transfer_once() == 1
+
+    assert order == [sidecar.name, clip.name]
+    landed = transfer.destination / sidecar.name
+    assert landed.read_text() == '{"close_reason": "timeout"}'
+    assert not sidecar.exists()
+    assert not clip.exists()
+
+
+def test_a_failed_sidecar_copy_keeps_the_clip_local_too(
+    transfer: ClipTransfer, mounted: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A clip must never land without its facts, so a sidecar that fails to
+    copy holds the clip back too."""
+    clip = write_clip(transfer, "cat_video_20260829_120000.h264", b"footage")
+    sidecar = sidecar_name(clip)
+    sidecar.write_text("{}")
+    real_copy = shutil.copyfile
+
+    def failing_for_sidecars(src: Any, dst: Any, **kwargs: Any) -> None:
+        if str(src).endswith(".json"):
+            raise OSError("share went away mid-copy")
+        real_copy(src, dst)
+
+    monkeypatch.setattr(shutil, "copyfile", failing_for_sidecars)
+
+    assert transfer.transfer_once() == 0
+    assert sidecar.exists()
+    assert clip.exists()
+    assert not (transfer.destination / clip.name).exists()
+    assert not partial_name(transfer.destination / sidecar.name).exists()

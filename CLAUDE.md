@@ -264,6 +264,13 @@ or a power cut, is left as `<clip>.h264.part`. The recorder gives it its final n
 it ships too. It decodes up to the cut, and ffmpeg's error about its last, partial frame is
 expected.
 
+**Every finished clip has a sidecar**, `<clip>.h264.json`, holding what the raw stream cannot:
+start and end time, the blob that triggered it, the blob on its last motion frame, and why it
+closed. Event grouping (roadmap A.4) is computed from sidecars, so two orderings are load-bearing:
+the recorder writes the sidecar *before* the clip takes its final name, and `ClipTransfer` copies
+the sidecar *before* the clip. Do not reorder either. A clip with no sidecar means it was cut off
+by a crash; that is expected, not a bug.
+
 **Web stream.** [src/web_streamer.py](src/web_streamer.py) is another consumer: it keeps the
 newest `main` frame under a lock, optionally annotates it with recorder status via OpenCV, and
 serves it as MJPEG at `/video_feed`, with a status page at `/`. Flask runs in a daemon thread from
