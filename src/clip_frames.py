@@ -9,16 +9,18 @@ from pathlib import Path
 import cv2
 import numpy as np
 
+from src.motion_recorder import CAMERA_FPS
+
 log = logging.getLogger(__name__)
 
 THUMB_COUNT = 8
 THUMB_WIDTH = 320
-FRAME_STRIDE = 30  # sample once per second at the camera's 30fps
+FRAME_STRIDE = CAMERA_FPS  # sample once per second
 FFMPEG_TIMEOUT_SECONDS = 60
 
 
 class ClipFrames:
-    """Extracts a thumbnail strip and full-size frames from clips.
+    """Extracts a thumbnail strip, full-size frames and a playable copy of a clip.
 
     OpenCV's VideoCapture cannot seek raw elementary streams, so extraction
     shells out to ffmpeg. Results are cached under cache_dir keyed by clip id;
@@ -50,6 +52,34 @@ class ClipFrames:
         frame_number = slot * FRAME_STRIDE
         args = [f"select='eq(n\\,{frame_number})'", "-frames:v", "1"]
         return self._extract(Path(clip_path), args, cached)
+
+    def video(self, clip_id: int, clip_path: str | Path) -> Path | None:
+        """The clip remuxed, not re-encoded, into an MP4 a browser can play and seek.
+
+        The frame rate is pinned: a raw stream has no container to carry it.
+        """
+        cached = self.cache_dir / f"clip{clip_id}.mp4"
+        if cached.exists():
+            return cached
+        clip = Path(clip_path)
+        if self._ffmpeg is None or not clip.exists():
+            return None
+        command = [
+            self._ffmpeg,
+            "-v",
+            "error",
+            "-r",
+            str(CAMERA_FPS),
+            "-i",
+            str(clip),
+            "-c",
+            "copy",
+            "-movflags",
+            "+faststart",
+            "-y",
+            str(cached),
+        ]
+        return self._run(command, clip, cached)
 
     def _build_strip(self, clip: Path, cached: Path) -> Path | None:
         with tempfile.TemporaryDirectory(dir=self.cache_dir) as scratch:
@@ -86,6 +116,11 @@ class ClipFrames:
             "-y",
             str(out),
         ]
+        return self._run(command, clip, out)
+
+    @staticmethod
+    def _run(command: list[str], clip: Path, out: Path) -> Path | None:
+        """Run ffmpeg. A failure leaves nothing behind for a cache hit to serve."""
         try:
             done = subprocess.run(  # noqa: S603 -- fixed argv, no shell
                 command,
@@ -95,10 +130,12 @@ class ClipFrames:
             )
         except subprocess.TimeoutExpired:
             log.error("ffmpeg timed out on %s", clip)  # noqa: TRY400 -- no traceback worth printing
+            out.unlink(missing_ok=True)
             return None
         if done.returncode != 0:
             log.error(
                 "ffmpeg failed on %s: %s", clip, done.stderr.decode(errors="replace")
             )
+            out.unlink(missing_ok=True)
             return None
         return out
