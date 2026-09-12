@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import datetime
 import logging
 import time
 from pathlib import Path
@@ -10,6 +11,7 @@ from typing import Any
 import pytest
 from conftest import LORES_SIZE, MAIN_SIZE, FakePicamera2, make_frame
 
+from src.clip_sidecar import ClipFacts, CloseReason, read_sidecar, sidecar_name
 from src.motion_recorder import partial_name
 
 # Handing the drain to a thread should be effectively instant; the fake's
@@ -113,7 +115,7 @@ def test_start_saving_is_idempotent_while_recording(recorder: Any) -> None:
 def test_stop_saving_stops_the_buffer_and_clears_state(recorder: Any) -> None:
     path = recorder._start_saving()
 
-    saved = recorder._stop_saving()
+    saved = recorder._stop_saving(CloseReason.TIMEOUT)
     recorder._drain_thread.join(timeout=5)
 
     assert saved == path
@@ -123,7 +125,7 @@ def test_stop_saving_stops_the_buffer_and_clears_state(recorder: Any) -> None:
 
 
 def test_stop_saving_when_idle_does_nothing(recorder: Any) -> None:
-    assert recorder._stop_saving() is None
+    assert recorder._stop_saving(CloseReason.TIMEOUT) is None
     assert recorder.circular_output.stop_calls == 0
 
 
@@ -213,7 +215,7 @@ def test_draining_a_clip_does_not_block_the_caller(recorder: Any) -> None:
     recorder.circular_output.stop_delay = 1.0
 
     started = time.monotonic()
-    recorder._stop_saving()
+    recorder._stop_saving(CloseReason.TIMEOUT)
     elapsed = time.monotonic() - started
 
     assert elapsed < HANDOFF_BUDGET_SECONDS
@@ -225,7 +227,7 @@ def test_a_new_clip_waits_for_the_previous_drain(recorder: Any) -> None:
     """Two clips must not share the output while one is still flushing."""
     recorder._start_saving()
     recorder.circular_output.stop_delay = 1.0
-    recorder._stop_saving()
+    recorder._stop_saving(CloseReason.TIMEOUT)
 
     assert recorder._start_saving() is None  # drain still in flight
 
@@ -241,7 +243,7 @@ def test_an_incomplete_clip_is_not_reported_as_saved(
     recorder.circular_output.dead = True
 
     with caplog.at_level(logging.INFO):
-        recorder._stop_saving()
+        recorder._stop_saving(CloseReason.TIMEOUT)
         recorder._drain_thread.join(timeout=5)
 
     assert "incomplete" in caplog.text
@@ -270,10 +272,11 @@ def test_refuses_to_record_without_free_space(recorder: Any) -> None:
 def test_a_second_clip_in_the_same_second_does_not_overwrite(recorder: Any) -> None:
     """Regression: local timestamps repeat across the DST fall-back, and
     picamera2 opens clips "wb", so a collision silently truncated the earlier."""
-    first = recorder._next_clip_path()
+    same_second = datetime.datetime(2026, 11, 1, 1, 30, 0)
+    first = recorder._next_clip_path(same_second)
     first.write_bytes(b"existing clip")
 
-    second = recorder._next_clip_path()
+    second = recorder._next_clip_path(same_second)
 
     assert second != first
     assert first.read_bytes() == b"existing clip"
@@ -377,7 +380,7 @@ def test_a_finished_clip_is_promoted_from_its_partial_name(recorder: Any) -> Non
     path = recorder._start_saving()
     assert partial_name(path).exists()
 
-    recorder._stop_saving()
+    recorder._stop_saving(CloseReason.TIMEOUT)
     recorder._drain_thread.join(timeout=5)
 
     assert path.exists()
@@ -392,7 +395,7 @@ def test_an_empty_clip_is_discarded_rather_than_promoted(
     partial_name(path).write_bytes(b"")
 
     with caplog.at_level(logging.WARNING):
-        recorder._stop_saving()
+        recorder._stop_saving(CloseReason.TIMEOUT)
         recorder._drain_thread.join(timeout=5)
 
     assert not path.exists()
@@ -442,6 +445,104 @@ def test_recovery_never_overwrites_a_finished_clip(
 
     assert clip.read_bytes() == b"the whole visit"
     assert partial_name(clip).read_bytes() == b"something else"
+
+
+# --- sidecars ---------------------------------------------------------------
+
+
+def facts_of(clip: Path) -> ClipFacts:
+    facts = read_sidecar(clip)
+    assert facts is not None, f"{clip.name} has no sidecar"
+    return facts
+
+
+def record_one_clip(recorder: Any) -> Path:
+    """Trigger a clip through the consumer callback and let it time out."""
+    arm(recorder)
+    recorder.background_subtractor.motion_pixels = 5000
+    recorder._process_frames(make_frame(MAIN_SIZE), make_frame(LORES_SIZE))
+    path: Path | None = recorder.current_filename
+    assert path is not None
+
+    recorder.background_subtractor.motion_pixels = 0
+    recorder.last_motion_time = time.monotonic() - (recorder.motion_timeout + 1)
+    recorder._process_frames(make_frame(MAIN_SIZE), make_frame(LORES_SIZE))
+    recorder._drain_thread.join(timeout=5)
+    return path
+
+
+def test_a_finished_clip_gets_a_sidecar_with_its_facts(recorder: Any) -> None:
+    path = record_one_clip(recorder)
+
+    facts = facts_of(path)
+
+    assert facts.close_reason == CloseReason.TIMEOUT
+    assert facts.ended_at >= facts.started_at
+    assert facts.trigger_blob is not None
+    assert facts.trigger_blob.area > 0
+    assert facts.last_blob == facts.trigger_blob
+
+
+def test_last_blob_follows_motion_frames_only(recorder: Any) -> None:
+    """A quiet frame must not wipe the position of the last thing that moved:
+    it is what places the clip in a box once it closes."""
+    arm(recorder)
+    recorder.background_subtractor.motion_pixels = 5000
+    recorder.detect_motion(make_frame(LORES_SIZE))
+    seen = recorder.last_blob
+
+    recorder.background_subtractor.motion_pixels = 0
+    recorder.detect_motion(make_frame(LORES_SIZE))
+
+    assert seen is not None
+    assert recorder.last_blob is seen
+
+
+def test_the_sidecar_is_written_before_the_clip_is_promoted(
+    recorder: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """ClipTransfer keys on the final name, so the facts must already exist."""
+    seen: list[bool] = []
+    real_promote = recorder._promote
+
+    def spy(writing: Path | None, path: Path | None) -> bool:
+        assert path is not None
+        seen.append(sidecar_name(path).exists())
+        return bool(real_promote(writing, path))
+
+    monkeypatch.setattr(recorder, "_promote", spy)
+    path = recorder._start_saving()
+    recorder._stop_saving(CloseReason.TIMEOUT)
+    recorder._drain_thread.join(timeout=5)
+
+    assert seen == [True]
+    assert path.exists()
+
+
+def test_an_empty_clip_leaves_no_sidecar_behind(recorder: Any) -> None:
+    path = recorder._start_saving()
+    partial_name(path).write_bytes(b"")
+
+    recorder._stop_saving(CloseReason.TIMEOUT)
+    recorder._drain_thread.join(timeout=5)
+
+    assert not sidecar_name(path).exists()
+
+
+def test_each_way_a_clip_can_close_is_named(recorder: Any) -> None:
+    arm(recorder)
+    recorder.background_subtractor.motion_pixels = 5000
+    recorder._process_frames(make_frame(MAIN_SIZE), make_frame(LORES_SIZE))
+    by_length = recorder.current_filename
+    recorder._clip_started = time.monotonic() - (recorder.max_clip_seconds + 1)
+    recorder._process_frames(make_frame(MAIN_SIZE), make_frame(LORES_SIZE))
+    recorder._drain_thread.join(timeout=5)
+
+    by_shutdown = recorder._start_saving()
+    recorder.cleanup()
+
+    assert facts_of(by_length).close_reason == CloseReason.MAX_LENGTH
+    assert facts_of(by_shutdown).close_reason == CloseReason.SHUTDOWN
 
 
 def test_outputframe_survives_the_ring_draining_mid_frame() -> None:

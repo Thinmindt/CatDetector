@@ -6,6 +6,7 @@ import shutil
 import threading
 from pathlib import Path
 
+from src.clip_sidecar import sidecar_name
 from src.motion_recorder import CLIP_SUFFIX, partial_name
 
 log = logging.getLogger(__name__)
@@ -91,23 +92,37 @@ class ClipTransfer:
         return ready
 
     def _ship(self, clip: Path) -> bool:
-        staged = partial_name(self.destination / clip.name)
+        """Copy the sidecar, then the clip, so the facts land first."""
+        sidecar = sidecar_name(clip)
         try:
             self.destination.mkdir(parents=True, exist_ok=True)
-            shutil.copyfile(clip, staged)
-            self._check_size(clip, staged)
-            # Renaming within the share is atomic, so the final name never
-            # appears until every byte is there.
-            staged.replace(self.destination / clip.name)
-            clip.unlink()
+            if sidecar.exists():
+                self._copy(sidecar)
+            self._copy(clip)
         except OSError as error:
             log.warning("Could not ship %s, keeping it local: %s", clip.name, error)
-            self._discard(staged)
             return False
 
+        sidecar.unlink(missing_ok=True)
+        clip.unlink()
         self.transferred += 1
         log.info("Shipped %s to %s", clip.name, self.destination)
         return True
+
+    def _copy(self, source: Path) -> None:
+        """Copy under the partial name, then rename within the share.
+
+        The rename is atomic, so the final name never appears until every
+        byte is there.
+        """
+        staged = partial_name(self.destination / source.name)
+        try:
+            shutil.copyfile(source, staged)
+            self._check_size(source, staged)
+            staged.replace(self.destination / source.name)
+        except OSError:
+            self._discard(staged)
+            raise
 
     @staticmethod
     def _check_size(clip: Path, staged: Path) -> None:
