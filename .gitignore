@@ -18,6 +18,9 @@ test_images/
 # Local planning notes
 docs/
 
+# Local agent files (skills, per-Pi state) -- never publish to the public repo
+.claude/
+
 # Review database and frame cache (local, per-Pi)
 captures.db*
 .review_cache/
