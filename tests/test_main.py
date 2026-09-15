@@ -60,6 +60,7 @@ def test_detection_settings_reach_the_recorder(
     import main
 
     monkeypatch.setattr("main.Config.MOTION_THRESHOLD", 200)
+    monkeypatch.setattr("main.Config.DARK_BRIGHTNESS", 12.5)
     monkeypatch.setattr("main.Config.MOTION_TIMEOUT", 30.0)
     monkeypatch.setattr("main.Config.MOG2_HISTORY", 1500)
 
@@ -67,6 +68,7 @@ def test_detection_settings_reach_the_recorder(
 
     assert recorder is not None
     assert recorder.motion_threshold == 200
+    assert recorder.dark_brightness == 12.5
     assert recorder.motion_timeout == 30.0
     assert recorder.background_subtractor.getHistory() == 1500
 

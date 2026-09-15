@@ -20,6 +20,10 @@ class Config:
     # Foreground pixels in the 640x480 analysis frame needed to start recording.
     MOTION_THRESHOLD = int(os.getenv("MOTION_THRESHOLD", "300"))
 
+    # Mean grey level (0-255) of the analysis frame below which the scene counts
+    # as dark and motion is ignored.
+    DARK_BRIGHTNESS = float(os.getenv("DARK_BRIGHTNESS", "10"))
+
     # Seconds without motion before a clip closes.
     MOTION_TIMEOUT = float(os.getenv("MOTION_TIMEOUT", "10"))
 
