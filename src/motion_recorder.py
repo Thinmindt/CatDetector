@@ -88,6 +88,7 @@ class MotionRecorder:
         video_directory: str | Path = "videos",
         file_prefix: str = "cat_video",
         motion_threshold: int = 300,
+        dark_brightness: float = 10,
         motion_timeout: float = 10,
         mog2_history: int = 500,
         buffer_seconds: int = 5,
@@ -107,6 +108,8 @@ class MotionRecorder:
         self.recording = False
 
         self.motion_threshold = motion_threshold
+        self.dark_brightness = dark_brightness
+        self.dark = False
         self.background_subtractor = cv2.createBackgroundSubtractorMOG2(
             history=mog2_history
         )
@@ -197,7 +200,7 @@ class MotionRecorder:
         if self.metrics is not None:
             self.metrics.record(measure(gray, mask), self.recording)
 
-        if self._is_warming_up():
+        if self._is_warming_up() or self._is_dark(gray):
             return False
         moving = self.last_motion_pixels > self.motion_threshold
         if moving:
@@ -223,6 +226,18 @@ class MotionRecorder:
         if self._frames_seen == self.warmup_frames:
             log.info("Motion detection armed after %d frames", self.warmup_frames)
         return True
+
+    def _is_dark(self, gray: Frame) -> bool:
+        """Whether the scene is too dark to see. Logs each change."""
+        dark = float(cv2.mean(gray)[0]) < self.dark_brightness
+        if dark != self.dark:
+            self.dark = dark
+            log.info(
+                "Scene is dark; ignoring motion"
+                if dark
+                else "Scene is lit; detecting motion"
+            )
+        return dark
 
     def _motion_has_stopped(self, now: float) -> bool:
         return self.recording and now - self.last_motion_time > self.motion_timeout

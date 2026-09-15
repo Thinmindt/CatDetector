@@ -198,6 +198,8 @@ def recorder(camera_manager: Any, fake_encoders: None, tmp_path: Path) -> Iterat
         video_directory=tmp_path / "clips",
         file_prefix="test",
         motion_threshold=1000,
+        # make_frame() is black by default; 0 keeps every test frame lit.
+        dark_brightness=0,
         motion_timeout=5,
         buffer_seconds=2,
         warmup_frames=3,

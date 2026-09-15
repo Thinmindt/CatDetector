@@ -18,6 +18,11 @@ from src.motion_recorder import partial_name
 # stop_delay is 1.0s, so anything near that means the caller waited on it.
 HANDOFF_BUDGET_SECONDS = 0.5
 
+# Mean grey levels either side of a dark cutoff of 10, as measured at night and by day.
+DARK_CUTOFF = 10
+NIGHT_GREY = 2
+DAY_GREY = 60
+
 
 def arm(recorder: Any) -> None:
     """Push the detector past its warmup with quiet frames."""
@@ -79,6 +84,35 @@ def test_motion_pixels_are_recorded_for_tuning(recorder: Any) -> None:
     recorder.background_subtractor.motion_pixels = 2500
     recorder.detect_motion(make_frame(LORES_SIZE))
     assert recorder.last_motion_pixels == 2500
+
+
+def test_motion_in_a_dark_scene_does_not_trigger(recorder: Any) -> None:
+    """Regression: in the unlit room, sensor speckle alone crossed the threshold
+    and recorded black video nonstop."""
+    recorder.dark_brightness = DARK_CUTOFF
+    arm(recorder)
+    recorder.background_subtractor.motion_pixels = 10**6
+
+    assert recorder.detect_motion(make_frame(LORES_SIZE, NIGHT_GREY)) is False
+    assert recorder.detect_motion(make_frame(LORES_SIZE, DAY_GREY)) is True
+
+
+def test_logs_each_change_between_dark_and_lit(
+    recorder: Any, caplog: pytest.LogCaptureFixture
+) -> None:
+    recorder.dark_brightness = DARK_CUTOFF
+    arm(recorder)
+
+    with caplog.at_level(logging.INFO, logger="src.motion_recorder"):
+        for grey in (NIGHT_GREY, NIGHT_GREY, DAY_GREY, DAY_GREY, NIGHT_GREY):
+            recorder.detect_motion(make_frame(LORES_SIZE, grey))
+
+    changes = [r.getMessage() for r in caplog.records if "Scene" in r.getMessage()]
+    assert changes == [
+        "Scene is dark; ignoring motion",
+        "Scene is lit; detecting motion",
+        "Scene is dark; ignoring motion",
+    ]
 
 
 # --- clip lifecycle ---------------------------------------------------------

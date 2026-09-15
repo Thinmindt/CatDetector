@@ -337,6 +337,11 @@ Not bugs, but do not mistake them for correct:
   default), so recording can stop mid-visit. That is acceptable once clips are linked into one
   event (roadmap A.4). The linking is not built yet, so for now one visit can be several separate
   clips.
+- **The camera cannot see in the dark.** It is the IR-filtered Camera Module 3 (libcamera reports
+  `imx708`, not `imx708_noir`) and the room is unlit at night. Motion is ignored while the analysis
+  frame's mean grey level is below `DARK_BRIGHTNESS` (default 10), because sensor speckle alone
+  otherwise records black video nonstop. That stops the waste, not the gap: visits in the dark go
+  unrecorded until the boxes are lit. Do not "fix" night recall by tuning the threshold.
 - The web stream has **no authentication** and runs on Flask's dev server. LAN-only by design;
   see the README's Security section.
 

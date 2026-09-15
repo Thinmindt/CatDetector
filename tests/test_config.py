@@ -9,10 +9,20 @@ from types import ModuleType
 
 import pytest
 
-DETECTION_SETTINGS = ("MOTION_THRESHOLD", "MOTION_TIMEOUT", "MOG2_HISTORY")
+DETECTION_SETTINGS = (
+    "MOTION_THRESHOLD",
+    "DARK_BRIGHTNESS",
+    "MOTION_TIMEOUT",
+    "MOG2_HISTORY",
+)
 
 # Foreground pixels of a cat walking into the full-sensor view; see DESIGN.md.
 WALKING_CAT_PX = 400
+
+# Mean grey level of the brightest frame in the unlit room at night, and of the
+# dimmest frame with the room lit; see DESIGN.md.
+BRIGHTEST_NIGHT_FRAME = 2.7
+DIMMEST_LIT_FRAME = 46.1
 
 
 @pytest.fixture(autouse=True)
@@ -90,12 +100,14 @@ def test_detection_settings_come_from_the_environment(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("MOTION_THRESHOLD", "200")
+    monkeypatch.setenv("DARK_BRIGHTNESS", "12.5")
     monkeypatch.setenv("MOTION_TIMEOUT", "30.5")
     monkeypatch.setenv("MOG2_HISTORY", "1500")
     import config
 
     importlib.reload(config)
     assert config.Config.MOTION_THRESHOLD == 200
+    assert config.Config.DARK_BRIGHTNESS == 12.5
     assert config.Config.MOTION_TIMEOUT == 30.5
     assert config.Config.MOG2_HISTORY == 1500
 
@@ -106,6 +118,13 @@ def test_default_threshold_is_below_a_walking_cat(
     """A run that forgets MOTION_THRESHOLD must still record a visit."""
     config = reload_with_default_detection(monkeypatch)
     assert config.Config.MOTION_THRESHOLD < WALKING_CAT_PX
+
+
+def test_default_dark_cutoff_separates_night_from_a_lit_room(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config = reload_with_default_detection(monkeypatch)
+    assert BRIGHTEST_NIGHT_FRAME < config.Config.DARK_BRIGHTNESS < DIMMEST_LIT_FRAME
 
 
 def test_timeout_and_history_keep_their_old_defaults(
