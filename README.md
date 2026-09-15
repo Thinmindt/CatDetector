@@ -49,6 +49,21 @@ uv run python tests/manual/check_camera.py    # camera smoke test (needs the cam
 
 `uv run` uses the project environment directly, so there is no need to activate the venv.
 
+### As a service
+
+`deploy/catdetector.service` runs the detector at boot and restarts it after a crash. Install or
+refresh it with the script below, which also stops a copy started by hand, since the camera takes
+one process at a time:
+
+```
+sudo bash deploy/install-service.sh
+journalctl -u catdetector -f         # logs
+sudo systemctl stop catdetector      # free the camera, e.g. for the smoke test
+```
+
+The unit hard-codes the checkout path and user, and carries the detection settings of the current
+data run in its `Environment=` lines. Edit them to suit, then re-run the script.
+
 ## Reviewing captures
 
 ```

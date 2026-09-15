@@ -65,6 +65,10 @@ reads like a robustness improvement and is the exact opposite.
 ```bash
 uv run python main.py                        # run the detector (camera, live feed and review on :5000)
 
+sudo bash deploy/install-service.sh          # install/refresh the catdetector service and (re)start it
+sudo systemctl stop catdetector              # free the camera for anything else
+journalctl -u catdetector -f                 # the service's logs
+
 uv run pytest                                # unit tests (no hardware needed, ~8s)
 uv run ruff check .                          # lint
 uv run ruff format .                         # format
@@ -112,6 +116,16 @@ a standing instruction from the repo owner, not a nicety. Run them and report th
 **The camera is exclusive.** One process at a time. If `main.py` is running, the smoke test and
 any hardware script will fail to open the camera, and vice versa. Check with
 `ps aux | grep main.py` before wondering why initialisation failed.
+
+**The detector normally runs as the `catdetector` systemd service** (`deploy/catdetector.service`,
+installed 2026-09-14), so the camera is usually taken. Anything else that needs it, including a
+hand-run `main.py`, needs `sudo systemctl stop catdetector` first and a `start` afterwards. Every
+minute it is stopped is a gap in the cats' record, so say so and restart it. **You cannot sudo on
+this Pi**: it asks for a password, and the `!` prefix has no terminal to ask on. The owner has to
+run those commands from a terminal of their own. The service's output goes to the journal
+(`journalctl -u catdetector`). When matching its process with `pgrep -f`, anchor the pattern
+(`'^/home/butler/sw/CatDetector/\.venv/bin/python3? main\.py'`): an unanchored one also matches
+the shell running your own command, and a `kill` then takes that shell down with it.
 
 **Testing the recorder without polluting the NAS.** `config.py` calls `load_dotenv()`, which does
 *not* override variables already in the environment, so pointing both directories at scratch
