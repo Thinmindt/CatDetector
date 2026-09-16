@@ -13,7 +13,22 @@ from src.clip_frames import ClipFrames
 
 log = logging.getLogger(__name__)
 
-VALID_LABELS = ("cat", "not_cat", "unsure")
+VALID_LABELS = ("cat", "not_cat", "unsure", "clean")
+
+# Litter boxes by position in frame, left to right; the camera knows no more.
+BOXES = (1, 2, 3)
+
+
+def validated_counts(raw: Any) -> dict[int, int] | None:
+    """{box: poops} for boxes 1-3 with counts of 0 or more, or None if it is not."""
+    if not isinstance(raw, dict) or not raw:
+        return None
+    by_box = {str(box): count for box, count in raw.items()}
+    if not all(box.isdigit() and int(box) in BOXES for box in by_box):
+        return None
+    if not all(isinstance(count, int) and count >= 0 for count in by_box.values()):
+        return None
+    return {int(box): count for box, count in by_box.items()}
 
 
 class ReviewPages:
@@ -44,6 +59,16 @@ class ReviewPages:
             return jsonify({"error": "no such event"}), 404
         self.db.set_label(event_id, value)
         return jsonify({"ok": True, "counts": self.db.counts()})
+
+    def set_counts(self, event_id: int) -> Any:
+        """Poops found per box at a cleaning, signalled by hand in the clip."""
+        if self.db.get(event_id) is None:
+            return jsonify({"error": "no such event"}), 404
+        counts = validated_counts((request.get_json(silent=True) or {}).get("counts"))
+        if counts is None:
+            return jsonify({"error": f"counts must be {{box: n}} for {BOXES}"}), 400
+        self.db.set_poop_counts(event_id, counts)
+        return self._event_payload(self.db.get(event_id))
 
     def split(self, event_id: int) -> Any:
         """A new visit starts at the index-th clip; the rest stay in this event."""
@@ -109,6 +134,7 @@ class ReviewPages:
                 "started_at": event.started_at,
                 "ended_at": event.ended_at,
                 "label": event.label,
+                "poops": event.poops,
                 "clips": [
                     {
                         "index": index,
@@ -132,6 +158,7 @@ def create_review_blueprint(db: CaptureDB, frames: ClipFrames) -> Blueprint:
     bp.add_url_rule("/api/review/event/<int:event_id>", view_func=pages.one_event)
     for action, view in (
         ("label", pages.set_label),
+        ("counts", pages.set_counts),
         ("split", pages.split),
         ("join", pages.join),
     ):
