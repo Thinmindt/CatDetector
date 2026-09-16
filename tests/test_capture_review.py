@@ -431,6 +431,35 @@ def test_next_multi_carries_on_after_a_split_leaves_one_clip(
     assert third.started_at[11:19] == "08:16:40"
 
 
+def test_poop_counts_survive_a_regroup(db: Any, tmp_path: Path) -> None:
+    """They hang off a clip, not an event: regroup renumbers every event."""
+    directory = tmp_path / "captures"
+    visit(directory, 0, 40)
+    db.ingest(directory)
+    event = db.next_unlabeled()
+    db.set_label(event.id, "clean")
+    db.set_poop_counts(event.id, {1: 2, 3: 0})
+
+    db.gap_seconds = 10_000
+    db.regroup()
+
+    after = db.next_multi(None)
+    assert after.id != event.id
+    assert after.poops == {1: 2, 3: 0}
+
+
+def test_setting_poop_counts_again_replaces_them(db: Any, tmp_path: Path) -> None:
+    directory = tmp_path / "captures"
+    visit(directory, 0)
+    db.ingest(directory)
+    event = db.next_unlabeled()
+
+    db.set_poop_counts(event.id, {1: 2, 2: 1})
+    db.set_poop_counts(event.id, {1: 3})
+
+    assert db.get(event.id).poops == {1: 3}
+
+
 def test_a_database_from_before_grouping_is_refused(tmp_path: Path) -> None:
     old = tmp_path / "captures.db"
     with sqlite3.connect(old) as conn:
@@ -592,6 +621,37 @@ def test_invalid_label_is_rejected(client: Any) -> None:
     assert response.status_code == 400
     response = client.post(f"/api/review/{event['id']}/label", json={})
     assert response.status_code == 400
+
+
+def test_a_cleaning_is_labeled_and_carries_its_poop_counts(client: Any) -> None:
+    event = client.get("/api/review/next").get_json()["event"]
+
+    labeled = client.post(f"/api/review/{event['id']}/label", json={"value": "clean"})
+    assert labeled.status_code == 200
+    assert labeled.get_json()["counts"]["clean"] == 1
+
+    counted = client.post(
+        f"/api/review/{event['id']}/counts", json={"counts": {"1": 2, "3": 0}}
+    )
+    assert counted.status_code == 200
+    assert counted.get_json()["event"]["poops"] == {"1": 2, "3": 0}
+
+
+def test_poop_counts_reject_unknown_boxes_and_impossible_counts(client: Any) -> None:
+    event = client.get("/api/review/next").get_json()["event"]
+    bodies: tuple[dict[str, Any], ...] = (
+        {"counts": {"4": 1}},
+        {"counts": {"1": -1}},
+        {"counts": {}},
+        {},
+    )
+    for body in bodies:
+        response = client.post(f"/api/review/{event['id']}/counts", json=body)
+        assert response.status_code == 400, body
+    assert (
+        client.post("/api/review/999/counts", json={"counts": {"1": 1}}).status_code
+        == 404
+    )
 
 
 def test_unknown_event_404s(client: Any) -> None:

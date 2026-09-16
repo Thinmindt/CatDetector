@@ -4,7 +4,7 @@ import datetime
 import logging
 import re
 import sqlite3
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from config import Config
@@ -47,6 +47,13 @@ CREATE TABLE IF NOT EXISTS label (
     labeled_at TEXT NOT NULL,
     source     TEXT NOT NULL DEFAULT 'human'
 );
+CREATE TABLE IF NOT EXISTS poop_count (
+    clip_id  INTEGER NOT NULL REFERENCES clip(id),
+    box      INTEGER NOT NULL,          -- position in frame, 1 = leftmost
+    count    INTEGER NOT NULL,
+    noted_at TEXT NOT NULL,
+    PRIMARY KEY (clip_id, box)
+);
 """
 
 EVENTS_IN_ORDER = (
@@ -78,6 +85,8 @@ class Event:
     id: int
     label: str | None
     clips: tuple[Clip, ...]
+    # Poops found per box at a cleaning, from the reviewer's hand signal.
+    poops: dict[int, int] = field(default_factory=dict)
 
     @property
     def started_at(self) -> str | None:
@@ -434,15 +443,17 @@ class CaptureDB:
         ).fetchone()
         if row is None:
             return None
-        clips = self._conn.execute(
+        rows = self._conn.execute(
             "SELECT * FROM clip WHERE event_id = ?"
             " ORDER BY started_at IS NULL, started_at, id",
             (event_id,),
         )
+        clips = tuple(self._to_clip(row) for row in rows)
         return Event(
             id=int(row["id"]),
             label=row["label"],
-            clips=tuple(self._to_clip(clip) for clip in clips),
+            clips=clips,
+            poops=self._poop_counts([clip.id for clip in clips]),
         )
 
     def set_label(self, event_id: int, value: str, source: str = "human") -> None:
@@ -451,6 +462,43 @@ class CaptureDB:
             event_id, (value, datetime.datetime.now().isoformat(), source)
         )
         self._conn.commit()
+
+    def set_poop_counts(self, event_id: int, counts: dict[int, int]) -> None:
+        """Record poops found per box at a cleaning, replacing any earlier count.
+
+        Stored against the event's first clip: clip ids never change, while a
+        regroup renumbers events.
+        """
+        event = self.get(event_id)
+        if event is None or not event.clips:
+            return
+        clip_ids = [clip.id for clip in event.clips]
+        self._conn.execute(
+            f"DELETE FROM poop_count WHERE clip_id IN ({self._marks(clip_ids)})",  # noqa: S608 -- placeholders, not values
+            clip_ids,
+        )
+        noted_at = datetime.datetime.now().isoformat()
+        self._conn.executemany(
+            "INSERT INTO poop_count (clip_id, box, count, noted_at)"
+            " VALUES (?, ?, ?, ?)",
+            [(clip_ids[0], box, count, noted_at) for box, count in counts.items()],
+        )
+        self._conn.commit()
+
+    def _poop_counts(self, clip_ids: list[int]) -> dict[int, int]:
+        """Poops per box for an event, from whichever of its clips carries them."""
+        if not clip_ids:
+            return {}
+        marks = self._marks(clip_ids)
+        rows = self._conn.execute(
+            f"SELECT box, count FROM poop_count WHERE clip_id IN ({marks})",  # noqa: S608 -- placeholders, not values
+            clip_ids,
+        )
+        return {int(row["box"]): int(row["count"]) for row in rows}
+
+    @staticmethod
+    def _marks(values: list[int]) -> str:
+        return ",".join("?" * len(values))
 
     def counts(self) -> dict[str, int]:
         """Totals for the progress line: events, labeled, multi-clip, per label."""

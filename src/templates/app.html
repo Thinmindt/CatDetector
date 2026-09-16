@@ -25,6 +25,8 @@ video { width: 100%; max-width: 1280px; margin-top: 8px; display: none; }
 button { font-size: 1rem; margin-right: 8px; padding: 6px 14px; cursor: pointer; }
 kbd { background: #333; border-radius: 3px; padding: 1px 5px; }
 #done, #skip { display: none; }
+#clean { margin: 12px 0; padding: 10px; background: #1e1e1e; border-radius: 6px; }
+#clean input { width: 4rem; font-size: 1rem; margin: 0 16px 0 4px; }
 </style></head><body>
 <h1>Cat Detector</h1>
 <nav>
@@ -46,10 +48,19 @@ kbd { background: #333; border-radius: 3px; padding: 1px 5px; }
     <button onclick="label('cat')">cat <kbd>c</kbd></button>
     <button onclick="label('not_cat')">not a cat <kbd>n</kbd></button>
     <button onclick="label('unsure')">unsure <kbd>u</kbd></button>
+    <button onclick="startClean()">cleaning <kbd>l</kbd></button>
     <button onclick="undo()">undo <kbd>z</kbd></button>
     <button id="skip" onclick="load()">next <kbd>&rarr;</kbd></button>
     <button onclick="join()">same visit as the next event</button>
   </p>
+  <div id="clean" hidden>
+    <p>Poops found, per box, left to right as in frame &mdash; the hand signal in
+      the clip. <kbd>Enter</kbd> saves and moves on.</p>
+    <label>box 1<input id="box1" type="number" min="0" value="0"></label>
+    <label>box 2<input id="box2" type="number" min="0" value="0"></label>
+    <label>box 3<input id="box3" type="number" min="0" value="0"></label>
+    <button onclick="saveCounts()">save counts</button>
+  </div>
 </div>
 <div id="done"><p>Nothing left to review.</p>
   <button onclick="rescan()">rescan clip directory</button></div>
@@ -152,8 +163,14 @@ function show(data) {
   document.getElementById('viewer').style.display = current ? 'block' : 'none';
   document.getElementById('done').style.display = current ? 'none' : 'block';
   renderCounts(data.counts);
+  document.getElementById('clean').hidden = true;
   if (!current) return;
-  const badge = current.label ? ` <span class="label">${current.label}</span>` : '';
+  const poops = Object.entries(current.poops || {});
+  const found = poops.length
+    ? ` <span class="label">poops ${poops.map(([b, n]) => `box${b}: ${n}`).join(', ')}</span>`
+    : '';
+  const badge = current.label
+    ? ` <span class="label">${current.label}</span>${found}` : '';
   const n = current.clips.length;
   const grouped = n > 1
     ? ` <span class="warn">${n} clips grouped as one visit</span>` : '';
@@ -187,6 +204,31 @@ async function load() {
 async function label(value) {
   if (!current) return;
   await post(`/api/review/${current.id}/label`, {value});
+  history_.push(current.id);
+  load();
+}
+
+async function startClean() {
+  if (!current) return;
+  const poops = current.poops || {};
+  await post(`/api/review/${current.id}/label`, {value: 'clean'});
+  const form = document.getElementById('clean');
+  form.hidden = false;
+  for (const box of [1, 2, 3]) {
+    document.getElementById(`box${box}`).value = poops[box] ?? 0;
+  }
+  document.getElementById('box1').focus();
+  document.getElementById('box1').select();
+}
+
+async function saveCounts() {
+  if (!current) return;
+  const counts = {};
+  for (const box of [1, 2, 3]) {
+    counts[box] = Number(document.getElementById(`box${box}`).value) || 0;
+  }
+  await post(`/api/review/${current.id}/counts`, {counts});
+  document.getElementById('clean').hidden = true;
   history_.push(current.id);
   load();
 }
@@ -227,7 +269,12 @@ if (REVIEW) {
   });
   document.addEventListener('keydown', (e) => {
     if (document.getElementById('review').hidden || e.target.tagName === 'VIDEO') return;
+    if (e.target.tagName === 'INPUT') {
+      if (e.key === 'Enter') saveCounts();
+      return;  // digits belong in the field, not to the shortcuts
+    }
     if (e.key === 'c') label('cat');
+    else if (e.key === 'l') startClean();
     else if (e.key === 'n') label('not_cat');
     else if (e.key === 'u') label('unsure');
     else if (e.key === 'z') undo();
