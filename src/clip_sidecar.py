@@ -15,6 +15,8 @@ class CloseReason(StrEnum):
     TIMEOUT = "timeout"
     MAX_LENGTH = "max_length"
     SHUTDOWN = "shutdown"
+    # Writes failed partway through, so the clip stops short of its end time.
+    ABANDONED = "abandoned"
 
 
 @dataclass(frozen=True)

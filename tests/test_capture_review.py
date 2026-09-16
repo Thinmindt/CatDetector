@@ -13,8 +13,8 @@ import numpy as np
 import pytest
 
 from src.capture_db import CaptureDB
-from src.clip_frames import THUMB_COUNT, ClipFrames
-from src.clip_sidecar import ClipFacts, CloseReason, write_sidecar
+from src.clip_frames import STAGING_SUFFIX, THUMB_COUNT, ClipFrames
+from src.clip_sidecar import ClipFacts, CloseReason, read_sidecar, write_sidecar
 from src.motion_metrics import Blob
 from src.review import create_review_blueprint
 
@@ -156,6 +156,28 @@ def test_ingest_takes_the_facts_from_the_sidecar(db: Any, tmp_path: Path) -> Non
     assert clip.started_at == "2026-09-12T08:00:00.000"
     assert clip.ended_at == "2026-09-12T08:00:25.000"
     assert clip.close_reason == "max_length"
+
+
+def test_a_rescan_does_not_re_read_the_sidecars_it_already_has(
+    db: Any, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Sidecars live on the CIFS share and ingest runs at every startup, so a
+    growing archive must not add a round trip per clip to it."""
+    directory = tmp_path / "captures"
+    make_clip_with_facts(directory, at(0), seconds=20)
+    db.ingest(directory)
+
+    read: list[str] = []
+
+    def spy(clip: Path) -> Any:
+        read.append(clip.name)
+        return read_sidecar(clip)
+
+    monkeypatch.setattr("src.capture_db.read_sidecar", spy)
+    make_clip_with_facts(directory, at(200), seconds=15)
+
+    assert db.ingest(directory) == 1
+    assert read == ["cat_video_20260912_080320.h264"]
 
 
 def test_a_clip_without_a_sidecar_is_recovered_with_an_estimated_end(
@@ -389,6 +411,26 @@ def test_next_multi_walks_the_multi_clip_events_in_order(
     assert db.next_multi(second.id) is None
 
 
+def test_next_multi_carries_on_after_a_split_leaves_one_clip(
+    db: Any, tmp_path: Path
+) -> None:
+    """Regression: splitting the event under the walker sent it back to the
+    oldest multi-clip event, so the audit looped over the same events."""
+    directory = tmp_path / "captures"
+    visit(directory, 0, 40)
+    visit(directory, 500, 40)
+    visit(directory, 1000, 40)
+    db.ingest(directory)
+    first = db.next_multi(None)
+    second = db.next_multi(first.id)
+
+    db.split(second.clips[1].id)
+
+    third = db.next_multi(second.id)
+    assert third is not None
+    assert third.started_at[11:19] == "08:16:40"
+
+
 def test_a_database_from_before_grouping_is_refused(tmp_path: Path) -> None:
     old = tmp_path / "captures.db"
     with sqlite3.connect(old) as conn:
@@ -478,6 +520,32 @@ def test_a_failed_remux_leaves_nothing_for_the_cache_to_serve(
 
     assert frames.video(1, clip) is None
     assert not (tmp_path / "cache" / "clip1.mp4").exists()
+
+
+def test_a_cache_entry_appears_only_once_it_is_complete(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Flask serves these threaded, and ffmpeg creates its output up front: a
+    second request for the same clip must never be handed the file being written."""
+    clip = write_test_video(tmp_path / "clip.mp4")
+    cache = tmp_path / "cache"
+    frames = ClipFrames(cache)
+    cached = cache / "clip1.mp4"
+    visible_midway: list[bool] = []
+
+    def write_then_finish(command: list[str], **kwargs: Any) -> Any:
+        out = Path(command[-1])
+        out.write_bytes(b"half")
+        visible_midway.append(cached.exists())
+        out.write_bytes(b"complete")
+        return subprocess.CompletedProcess(command, 0, b"", b"")
+
+    monkeypatch.setattr(subprocess, "run", write_then_finish)
+
+    assert frames.video(1, clip) == cached
+    assert visible_midway == [False]
+    assert cached.read_bytes() == b"complete"
+    assert list(cache.glob(f"*{STAGING_SUFFIX}*")) == []
 
 
 # --- review API -------------------------------------------------------------

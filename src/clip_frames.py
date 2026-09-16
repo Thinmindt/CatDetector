@@ -5,6 +5,7 @@ import shutil
 import subprocess
 import tempfile
 from pathlib import Path
+from uuid import uuid4
 
 import cv2
 import numpy as np
@@ -17,6 +18,7 @@ THUMB_COUNT = 8
 THUMB_WIDTH = 320
 FRAME_STRIDE = CAMERA_FPS  # sample once per second
 FFMPEG_TIMEOUT_SECONDS = 60
+STAGING_SUFFIX = ".part"
 
 
 class ClipFrames:
@@ -51,7 +53,10 @@ class ClipFrames:
 
         frame_number = slot * FRAME_STRIDE
         args = [f"select='eq(n\\,{frame_number})'", "-frames:v", "1"]
-        return self._extract(Path(clip_path), args, cached)
+        staging = self._staged(cached)
+        if self._extract(Path(clip_path), args, staging) is None:
+            return None
+        return self._publish(staging, cached)
 
     def video(self, clip_id: int, clip_path: str | Path) -> Path | None:
         """The clip remuxed, not re-encoded, into an MP4 a browser can play and seek.
@@ -64,6 +69,7 @@ class ClipFrames:
         clip = Path(clip_path)
         if self._ffmpeg is None or not clip.exists():
             return None
+        staging = self._staged(cached)
         command = [
             self._ffmpeg,
             "-v",
@@ -77,9 +83,27 @@ class ClipFrames:
             "-movflags",
             "+faststart",
             "-y",
-            str(cached),
+            str(staging),
         ]
-        return self._run(command, clip, cached)
+        if self._run(command, clip, staging) is None:
+            return None
+        return self._publish(staging, cached)
+
+    @staticmethod
+    def _staged(cached: Path) -> Path:
+        """A private path beside the cache entry, unique per writer.
+
+        The real suffix stays last: ffmpeg and cv2 pick the format from it.
+        """
+        return cached.with_name(
+            f"{cached.stem}.{uuid4().hex}{STAGING_SUFFIX}{cached.suffix}"
+        )
+
+    @staticmethod
+    def _publish(staging: Path, cached: Path) -> Path:
+        """Rename within the cache, so no reader is served a half-written entry."""
+        staging.replace(cached)
+        return cached
 
     def _build_strip(self, clip: Path, cached: Path) -> Path | None:
         with tempfile.TemporaryDirectory(dir=self.cache_dir) as scratch:
@@ -95,8 +119,10 @@ class ClipFrames:
 
         if not thumbs:
             return None
-        cv2.imwrite(str(cached), np.hstack(thumbs))
-        return cached
+        staging = self._staged(cached)
+        if not cv2.imwrite(str(staging), np.hstack(thumbs)):
+            return None
+        return self._publish(staging, cached)
 
     def _extract(self, clip: Path, filter_args: list[str], out: Path) -> Path | None:
         """Run one ffmpeg extraction. Returns out on success, None otherwise."""

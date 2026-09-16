@@ -3,6 +3,7 @@ import logging
 import shutil
 import threading
 import time
+from dataclasses import replace
 from pathlib import Path
 from typing import Any, cast
 
@@ -329,9 +330,12 @@ class MotionRecorder:
             log.exception("Error finishing %s", path)
             return
 
+        abandoned = output.is_abandoned()
+        if abandoned and facts is not None:
+            facts = replace(facts, close_reason=CloseReason.ABANDONED)
         self._record_facts(writing, path, facts)
         promoted = self._promote(writing, path)
-        if output.is_abandoned():
+        if abandoned:
             log.warning("Clip %s is incomplete: writes failed partway through", path)
         elif promoted:
             log.info("Stopped saving %s", path)

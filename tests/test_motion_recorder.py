@@ -115,6 +115,21 @@ def test_logs_each_change_between_dark_and_lit(
     ]
 
 
+def test_a_clip_abandoned_mid_write_says_so_in_its_sidecar(recorder: Any) -> None:
+    """Regression: a clip whose writes failed shipped with close_reason 'timeout',
+    so review and grouping read a truncated clip as an ordinary visit."""
+    saved = recorder._start_saving()
+    recorder.circular_output.dead = True
+
+    recorder._stop_saving(CloseReason.TIMEOUT)
+    recorder.cleanup()
+
+    facts = read_sidecar(saved)
+    assert facts is not None
+    assert facts.close_reason is CloseReason.ABANDONED
+    assert saved.exists()  # still promoted: a truncated clip beats no clip
+
+
 # --- clip lifecycle ---------------------------------------------------------
 
 
