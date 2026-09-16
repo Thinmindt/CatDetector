@@ -197,16 +197,29 @@ class CaptureDB:
             log.warning("Clip directory %s does not exist; nothing ingested", directory)
             return 0
 
-        now = datetime.datetime.now().isoformat()
-        added = 0
-        for clip in sorted(directory.glob(f"*{CLIP_SUFFIX}")):
-            added += self._insert_new(clip, now)
+        added = self._insert_unknown(directory)
         if added:
             self._place_clips(keep_events=True)
         self._conn.commit()
         if added:
             log.info("Ingested %d new clip(s) from %s", added, directory)
         return added
+
+    def _insert_unknown(self, directory: Path) -> int:
+        """Register every clip in the directory that is not already known."""
+        now = datetime.datetime.now().isoformat()
+        known = self._known_paths()
+        clips = sorted(directory.glob(f"*{CLIP_SUFFIX}"))
+        return sum(
+            self._insert_new(clip, now) for clip in clips if str(clip) not in known
+        )
+
+    def _known_paths(self) -> set[str]:
+        """Clips already registered, whose sidecars a rescan must not re-read.
+
+        Sidecars live on the CIFS share and ingest runs at every startup.
+        """
+        return {str(row["path"]) for row in self._conn.execute("SELECT path FROM clip")}
 
     def _insert_new(self, clip: Path, now: str) -> int:
         """Register one clip. Returns 0 if it is already known or unreadable."""
@@ -285,11 +298,18 @@ class CaptureDB:
         return self.get(min(event_id, next_id))
 
     def next_multi(self, after_id: int | None) -> Event | None:
-        """The next multi-clip event in time order, for auditing the grouping."""
-        multi = self._event_ids_in_order(multi_only=True)
-        if after_id in multi:
-            multi = multi[multi.index(after_id) + 1 :]
-        return self.get(multi[0]) if multi else None
+        """The next multi-clip event in time order, for auditing the grouping.
+
+        after_id need not still hold several clips: a split can leave it single,
+        and the walk carries on from its place rather than starting over.
+        """
+        order = self._event_ids_in_order()
+        multi = set(self._event_ids_in_order(multi_only=True))
+        if after_id in order:
+            order = order[order.index(after_id) + 1 :]
+        return next(
+            (self.get(event_id) for event_id in order if event_id in multi), None
+        )
 
     def _event_ids_in_order(self, multi_only: bool = False) -> list[int]:
         query = EVENTS_WITH_SEVERAL_CLIPS if multi_only else EVENTS_IN_ORDER
