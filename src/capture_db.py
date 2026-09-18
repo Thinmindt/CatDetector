@@ -4,8 +4,12 @@ import datetime
 import logging
 import re
 import sqlite3
+import threading
+from collections.abc import Callable
 from dataclasses import dataclass, field
+from functools import wraps
 from pathlib import Path
+from typing import Any
 
 from config import Config
 from src.clip_sidecar import ClipFacts, read_sidecar
@@ -65,6 +69,18 @@ EVENTS_WITH_SEVERAL_CLIPS = EVENTS_IN_ORDER.replace(
 )
 
 Remembered = dict[str, tuple[str, str, str]]  # clip path -> (value, labeled_at, source)
+
+
+def serialized[**P, R](method: Callable[P, R]) -> Callable[P, R]:
+    """Runs the method under the database's lock: one connection, many threads."""
+
+    @wraps(method)
+    def locked(*args: P.args, **kwargs: P.kwargs) -> R:
+        db: Any = args[0]
+        with db._lock:
+            return method(*args, **kwargs)
+
+    return locked
 
 
 @dataclass(frozen=True)
@@ -176,12 +192,14 @@ class CaptureDB:
             Config.EVENT_BOX_DISTANCE_PX if box_distance_px is None else box_distance_px
         )
         self.path.parent.mkdir(parents=True, exist_ok=True)
+        self._lock = threading.RLock()
         self._conn = sqlite3.connect(self.path, check_same_thread=False)
         self._conn.row_factory = sqlite3.Row
         self._refuse_old_layout()
         self._conn.executescript(SCHEMA)
         self._conn.commit()
 
+    @serialized
     def close(self) -> None:
         self._conn.close()
 
@@ -196,6 +214,7 @@ class CaptureDB:
 
     # --- ingest -------------------------------------------------------------
 
+    @serialized
     def ingest(self, clip_directory: str | Path) -> int:
         """Register clips not yet known and place them in events.
 
@@ -262,6 +281,7 @@ class CaptureDB:
 
     # --- grouping -----------------------------------------------------------
 
+    @serialized
     def regroup(self) -> None:
         """Rebuild every event from the rule. Event ids change; labels follow clips."""
         self._place_clips(keep_events=False)
@@ -269,6 +289,7 @@ class CaptureDB:
 
     # --- reviewer overrides -------------------------------------------------
 
+    @serialized
     def split(self, clip_id: int) -> None:
         """A new visit starts at this clip. The new event starts unlabeled."""
         row = self._conn.execute(
@@ -289,6 +310,7 @@ class CaptureDB:
             )
         self._conn.commit()
 
+    @serialized
     def join(self, event_id: int) -> Event | None:
         """Merge this event with the next one in time. Returns the merged event."""
         ordered = self._event_ids_in_order()
@@ -306,6 +328,7 @@ class CaptureDB:
         self._conn.commit()
         return self.get(min(event_id, next_id))
 
+    @serialized
     def next_multi(self, after_id: int | None) -> Event | None:
         """The next multi-clip event in time order, for auditing the grouping.
 
@@ -320,6 +343,7 @@ class CaptureDB:
             (self.get(event_id) for event_id in order if event_id in multi), None
         )
 
+    @serialized
     def next_labeled(self, after_id: int | None, value: str | None) -> Event | None:
         """The next labeled event in time order, or the next with this label."""
         order = self._event_ids_in_order()
@@ -441,6 +465,7 @@ class CaptureDB:
 
     # --- review -------------------------------------------------------------
 
+    @serialized
     def next_unlabeled(self) -> Event | None:
         """Oldest event with no label yet."""
         row = self._conn.execute(
@@ -453,6 +478,7 @@ class CaptureDB:
         ).fetchone()
         return None if row is None else self.get(int(row["id"]))
 
+    @serialized
     def get(self, event_id: int) -> Event | None:
         row = self._conn.execute(
             "SELECT e.id, l.value AS label FROM event e"
@@ -474,6 +500,7 @@ class CaptureDB:
             poops=self._poop_counts([clip.id for clip in clips]),
         )
 
+    @serialized
     def set_label(self, event_id: int, value: str, source: str = "human") -> None:
         """Write or overwrite the label for one event."""
         self._write_label(
@@ -481,6 +508,7 @@ class CaptureDB:
         )
         self._conn.commit()
 
+    @serialized
     def set_poop_counts(self, event_id: int, counts: dict[int, int]) -> None:
         """Record poops found per box at a cleaning, replacing any earlier count.
 
@@ -518,6 +546,7 @@ class CaptureDB:
     def _marks(values: list[int]) -> str:
         return ",".join("?" * len(values))
 
+    @serialized
     def counts(self) -> dict[str, int]:
         """Totals for the progress line: events, labeled, multi-clip, per label."""
         result = {"total": 0, "labeled": 0, "multi_clip": 0}
