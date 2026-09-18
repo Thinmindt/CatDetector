@@ -320,6 +320,24 @@ class CaptureDB:
             (self.get(event_id) for event_id in order if event_id in multi), None
         )
 
+    def next_labeled(self, after_id: int | None, value: str | None) -> Event | None:
+        """The next labeled event in time order, or the next with this label."""
+        order = self._event_ids_in_order()
+        if after_id in order:
+            order = order[order.index(after_id) + 1 :]
+        wanted = self._labeled_event_ids(value)
+        return next(
+            (self.get(event_id) for event_id in order if event_id in wanted), None
+        )
+
+    def _labeled_event_ids(self, value: str | None) -> set[int]:
+        query = "SELECT event_id FROM label"
+        params: tuple[str, ...] = ()
+        if value is not None:
+            query += " WHERE value = ?"
+            params = (value,)
+        return {int(row["event_id"]) for row in self._conn.execute(query, params)}
+
     def _event_ids_in_order(self, multi_only: bool = False) -> list[int]:
         query = EVENTS_WITH_SEVERAL_CLIPS if multi_only else EVENTS_IN_ORDER
         return [int(row["id"]) for row in self._conn.execute(query)]

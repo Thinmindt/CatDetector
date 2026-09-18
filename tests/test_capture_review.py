@@ -411,6 +411,32 @@ def test_next_multi_walks_the_multi_clip_events_in_order(
     assert db.next_multi(second.id) is None
 
 
+def test_next_labeled_walks_labeled_events_in_order_or_one_label(
+    db: Any, tmp_path: Path
+) -> None:
+    directory = tmp_path / "captures"
+    for start in (0, 500, 1000, 1500):
+        visit(directory, start)
+    db.ingest(directory)
+    first = db.next_unlabeled()
+    db.set_label(first.id, "cat")
+    second = db.next_unlabeled()
+    db.set_label(second.id, "not_cat")
+    third = db.next_unlabeled()
+    db.set_label(third.id, "cat")
+
+    walked = []
+    event = db.next_labeled(None, None)
+    while event is not None:
+        walked.append(event.id)
+        event = db.next_labeled(event.id, None)
+    cats = [db.next_labeled(None, "cat"), db.next_labeled(first.id, "cat")]
+
+    assert walked == [first.id, second.id, third.id]
+    assert [c.id for c in cats] == [first.id, third.id]
+    assert db.next_labeled(third.id, "cat") is None
+
+
 def test_next_multi_carries_on_after_a_split_leaves_one_clip(
     db: Any, tmp_path: Path
 ) -> None:

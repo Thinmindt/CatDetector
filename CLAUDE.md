@@ -97,7 +97,9 @@ rebuilds every event from the current thresholds: ids change, labels follow thei
 
 The review page shows every clip of an event and lets the reviewer split an event at a clip or
 join it with the next; those are stored as overrides on the clips (`boundary`, `joins`) and
-survive a `regroup`. `/review?filter=multi` walks the multi-clip events. "Watch" remuxes the
+survive a `regroup`. `/review?filter=multi` walks the multi-clip events; `?filter=labeled` or
+`?filter=<label>` walks the events already labelled, for auditing and relabelling. Each clip is
+shown as a grid of one-per-second tiles cut client-side from its cached strip image. "Watch" remuxes the
 clip to MP4 on demand into `.review_cache`; that cache is keyed by **clip** id (`clip<id>_...`),
 never by event id, because event ids change on a regroup.
 

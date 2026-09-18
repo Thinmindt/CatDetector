@@ -45,6 +45,13 @@ class ReviewPages:
         after = request.args.get("after", type=int)
         return self._event_payload(self.db.next_multi(after))
 
+    def next_labeled(self) -> Any:
+        after = request.args.get("after", type=int)
+        value = request.args.get("value")
+        if value is not None and value not in VALID_LABELS:
+            return jsonify({"error": f"value must be one of {VALID_LABELS}"}), 400
+        return self._event_payload(self.db.next_labeled(after, value))
+
     def one_event(self, event_id: int) -> Any:
         event = self.db.get(event_id)
         if event is None:
@@ -155,6 +162,7 @@ def create_review_blueprint(db: CaptureDB, frames: ClipFrames) -> Blueprint:
     bp = Blueprint("review", __name__)
     bp.add_url_rule("/api/review/next", view_func=pages.next_event)
     bp.add_url_rule("/api/review/multi/next", view_func=pages.next_multi)
+    bp.add_url_rule("/api/review/labeled/next", view_func=pages.next_labeled)
     bp.add_url_rule("/api/review/event/<int:event_id>", view_func=pages.one_event)
     for action, view in (
         ("label", pages.set_label),
