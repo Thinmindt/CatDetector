@@ -93,6 +93,14 @@ class Clip:
     size_bytes: int
     boundary: str | None
 
+    @property
+    def seconds(self) -> float | None:
+        if self.started_at is None or self.ended_at is None:
+            return None
+        started = datetime.datetime.fromisoformat(self.started_at)
+        ended = datetime.datetime.fromisoformat(self.ended_at)
+        return (ended - started).total_seconds()
+
 
 @dataclass(frozen=True)
 class Event:

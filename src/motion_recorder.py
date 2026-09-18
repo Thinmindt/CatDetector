@@ -164,7 +164,8 @@ class MotionRecorder:
         Nothing reaches disk until _start_saving() attaches a file. Raises if the
         encoder cannot start.
         """
-        self.encoder = H264Encoder(bitrate=H264_BITRATE)
+        # One keyframe per second: the review page samples keyframes.
+        self.encoder = H264Encoder(bitrate=H264_BITRATE, iperiod=CAMERA_FPS)
         self.circular_output = _ResilientCircularOutput(
             buffersize=self.buffer_seconds * CAMERA_FPS
         )

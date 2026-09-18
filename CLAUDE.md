@@ -99,9 +99,12 @@ The review page shows every clip of an event and lets the reviewer split an even
 join it with the next; those are stored as overrides on the clips (`boundary`, `joins`) and
 survive a `regroup`. `/review?filter=multi` walks the multi-clip events; `?filter=labeled` or
 `?filter=<label>` walks the events already labelled, for auditing and relabelling. Each clip is
-shown as a grid of one-per-second tiles cut client-side from its cached strip image. "Watch" remuxes the
-clip to MP4 on demand into `.review_cache`; that cache is keyed by **clip** id (`clip<id>_...`),
-never by event id, because event ids change on a regroup.
+shown as a grid of tiles spanning the whole clip, cut client-side from its cached strip image:
+one per second up to `MAX_TILES`, sparser beyond that (`tile_seconds`). Extraction decodes
+**keyframes only**, and the recorder pins one keyframe per second (`iperiod=CAMERA_FPS`): change
+either and the tiles land on the wrong seconds. "Watch" remuxes the clip to MP4 on demand into
+`.review_cache`; that cache is keyed by **clip** id (`clip<id>_...`), never by event id, because
+event ids change on a regroup.
 
 `METRICS_CSV` turns on the instrumentation for roadmap A.2. Point it at **local disk**, never at
 the share: one row per frame at 30 fps is the small-write pattern CIFS handles worst. Rows are

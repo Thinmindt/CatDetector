@@ -14,7 +14,13 @@ import numpy as np
 import pytest
 
 from src.capture_db import CaptureDB
-from src.clip_frames import STAGING_SUFFIX, THUMB_COUNT, ClipFrames
+from src.clip_frames import (
+    MAX_TILES,
+    STAGING_SUFFIX,
+    THUMB_WIDTH,
+    ClipFrames,
+    tile_seconds,
+)
 from src.clip_sidecar import ClipFacts, CloseReason, read_sidecar, write_sidecar
 from src.motion_metrics import Blob
 from src.review import create_review_blueprint
@@ -499,22 +505,42 @@ def test_a_database_from_before_grouping_is_refused(tmp_path: Path) -> None:
 # --- ClipFrames -------------------------------------------------------------
 
 
-def write_test_video(path: Path, frames: int = 70) -> Path:
-    """A tiny mp4; ffmpeg reads it the same way it reads the raw clips."""
-    fourcc = cv2.VideoWriter.fourcc(*"mp4v")
-    writer = cv2.VideoWriter(str(path), fourcc, 30, (160, 120))
-    for n in range(frames):
-        img = np.full((120, 160, 3), n % 256, dtype=np.uint8)
-        writer.write(img)
-    writer.release()
+def write_test_video(path: Path, seconds: int = 3) -> Path:
+    """A raw H.264 stream like the recorder's: 30 fps, a keyframe every second.
+
+    Frame n is a flat grey of n // 2, so a decoded frame says where it came from.
+    """
+    raw = b"".join(
+        np.full((120, 160, 3), n // 2, dtype=np.uint8).tobytes()
+        for n in range(seconds * 30)
+    )
+    command = [
+        "ffmpeg",
+        *("-v", "error", "-f", "rawvideo", "-pix_fmt", "bgr24"),
+        *("-s", "160x120", "-r", "30", "-i", "-"),
+        *("-c:v", "libx264", "-x264-params", "keyint=30:min-keyint=30:scenecut=0"),
+        *("-pix_fmt", "yuv420p", "-f", "h264", "-y", str(path)),
+    ]
+    subprocess.run(command, input=raw, check=True)  # noqa: S603 -- fixed argv
     return path
 
 
+def tile_greys(strip: Path) -> list[int]:
+    """The mean grey of each tile, left to right."""
+    image = cv2.imread(str(strip))
+    assert image is not None
+    assert image.shape[1] % THUMB_WIDTH == 0
+    return [
+        round(float(image[:, left : left + THUMB_WIDTH].mean()))
+        for left in range(0, image.shape[1], THUMB_WIDTH)
+    ]
+
+
 def test_strip_is_built_and_cached(tmp_path: Path) -> None:
-    clip = write_test_video(tmp_path / "clip.mp4")
+    clip = write_test_video(tmp_path / "clip.h264")
     frames = ClipFrames(tmp_path / "cache")
 
-    strip = frames.strip(1, clip)
+    strip = frames.strip(1, clip, clip_seconds=3)
 
     assert strip is not None and strip.exists()
     image = cv2.imread(str(strip))
@@ -522,29 +548,83 @@ def test_strip_is_built_and_cached(tmp_path: Path) -> None:
     assert image.shape[1] > image.shape[0]  # wider than tall: a montage
 
     first_mtime = strip.stat().st_mtime_ns
-    again = frames.strip(1, clip)
+    again = frames.strip(1, clip, clip_seconds=3)
     assert again is not None
     assert again.stat().st_mtime_ns == first_mtime  # cache hit
 
 
-def test_full_frame_extraction(tmp_path: Path) -> None:
-    clip = write_test_video(tmp_path / "clip.mp4")
+def test_strip_spans_the_whole_clip_one_tile_a_second(tmp_path: Path) -> None:
+    clip = write_test_video(tmp_path / "clip.h264", seconds=12)
     frames = ClipFrames(tmp_path / "cache")
 
-    frame = frames.frame(1, clip, slot=1)
+    strip = frames.strip(1, clip, clip_seconds=12)
 
-    assert frame is not None and cv2.imread(str(frame)) is not None
-    assert frames.frame(1, clip, slot=THUMB_COUNT) is None  # out of range
+    assert strip is not None
+    greys = tile_greys(strip)
+    assert len(greys) == 12
+    # Tile k is frame 30k, drawn at grey 15k; the codec shifts it a little.
+    assert greys == pytest.approx([15 * k for k in range(12)], abs=3)
+
+
+def test_long_clips_get_sparser_tiles(tmp_path: Path) -> None:
+    clip = write_test_video(tmp_path / "clip.h264", seconds=12)
+    frames = ClipFrames(tmp_path / "cache")
+
+    # A clip this long would need 4 s between tiles to fit MAX_TILES.
+    strip = frames.strip(1, clip, clip_seconds=4 * MAX_TILES)
+
+    assert strip is not None
+    assert tile_greys(strip) == pytest.approx([0, 60, 120], abs=3)
+
+
+def test_tile_seconds_keeps_the_tile_count_bounded() -> None:
+    assert tile_seconds(None) == 1
+    assert tile_seconds(MAX_TILES) == 1
+    assert tile_seconds(MAX_TILES + 1) == 2
+    assert tile_seconds(300) * MAX_TILES >= 300
+
+
+def test_full_frame_extraction(tmp_path: Path) -> None:
+    clip = write_test_video(tmp_path / "clip.h264", seconds=12)
+    frames = ClipFrames(tmp_path / "cache")
+
+    frame = frames.frame(1, clip, slot=2, clip_seconds=12)
+
+    assert frame is not None
+    image = cv2.imread(str(frame))
+    assert image is not None
+    assert image.mean() == pytest.approx(30, abs=3)  # frame 60, 2 s in
+    assert frames.frame(1, clip, slot=MAX_TILES, clip_seconds=12) is None
+
+
+def test_full_frame_follows_the_strip_stride(tmp_path: Path) -> None:
+    clip = write_test_video(tmp_path / "clip.h264", seconds=12)
+    frames = ClipFrames(tmp_path / "cache")
+
+    frame = frames.frame(1, clip, slot=2, clip_seconds=4 * MAX_TILES)
+
+    assert frame is not None
+    image = cv2.imread(str(frame))
+    assert image is not None
+    assert image.mean() == pytest.approx(120, abs=3)  # frame 240, 8 s in
+
+
+def test_a_slot_past_the_end_of_the_clip_is_unavailable(tmp_path: Path) -> None:
+    clip = write_test_video(tmp_path / "clip.h264", seconds=3)
+    frames = ClipFrames(tmp_path / "cache")
+
+    assert frames.frame(1, clip, slot=5, clip_seconds=3) is None
+    assert list((tmp_path / "cache").iterdir()) == []
 
 
 def test_unreadable_clip_yields_none(tmp_path: Path) -> None:
     bad = make_clip_file(tmp_path / "garbage.h264", b"not video at all")
     frames = ClipFrames(tmp_path / "cache")
-    assert frames.strip(1, bad) is None
+    assert frames.strip(1, bad, clip_seconds=None) is None
 
 
 def test_video_is_a_playable_cached_copy(tmp_path: Path) -> None:
-    clip = write_test_video(tmp_path / "clip.mp4")
+    clip = write_test_video(tmp_path / "clip.h264")
     frames = ClipFrames(tmp_path / "cache")
 
     video = frames.video(1, clip)
@@ -565,7 +645,7 @@ def test_a_failed_remux_leaves_nothing_for_the_cache_to_serve(
 ) -> None:
     """ffmpeg writes its output as it goes, so a failure can leave a partial
     file under the cache name; the next request must not be served that."""
-    clip = write_test_video(tmp_path / "clip.mp4")
+    clip = write_test_video(tmp_path / "clip.h264")
     frames = ClipFrames(tmp_path / "cache")
 
     def half_written_then_error(command: list[str], **kwargs: Any) -> Any:
@@ -583,7 +663,7 @@ def test_a_cache_entry_appears_only_once_it_is_complete(
 ) -> None:
     """Flask serves these threaded, and ffmpeg creates its output up front: a
     second request for the same clip must never be handed the file being written."""
-    clip = write_test_video(tmp_path / "clip.mp4")
+    clip = write_test_video(tmp_path / "clip.h264")
     cache = tmp_path / "cache"
     frames = ClipFrames(cache)
     cached = cache / "clip1.mp4"
@@ -757,11 +837,7 @@ def test_the_video_route_serves_a_playable_clip(db: Any, tmp_path: Path) -> None
 
     directory = tmp_path / "captures"
     directory.mkdir()
-    # OpenCV picks the muxer from the extension, so write as mp4 and rename:
-    # ffmpeg probes by content, as it does for the raw clips.
-    write_test_video(directory / "clip.mp4").rename(
-        directory / "cat_video_20260912_080000.h264"
-    )
+    write_test_video(directory / "cat_video_20260912_080000.h264")
     db.ingest(directory)
     app = Flask(__name__)
     app.register_blueprint(create_review_blueprint(db, ClipFrames(tmp_path / "cache")))
