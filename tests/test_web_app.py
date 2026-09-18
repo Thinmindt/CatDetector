@@ -79,6 +79,27 @@ def test_the_review_api_is_served_by_the_same_app(review_parts: Any) -> None:
     assert data["counts"]["total"] == 0
 
 
+def test_the_labeled_walk_takes_a_label_value(
+    review_parts: Any, tmp_path: Path
+) -> None:
+    db, frames = review_parts
+    for name in ("cat_video_20260917_080000", "cat_video_20260917_090000"):
+        (tmp_path / "captures").mkdir(exist_ok=True)
+        (tmp_path / "captures" / f"{name}.h264").write_bytes(b"h264")
+    db.ingest(tmp_path / "captures")
+    client = create_app(None, db, frames).test_client()
+    first = client.get("/api/review/next").get_json()["event"]["id"]
+    client.post(f"/api/review/{first}/label", json={"value": "unsure"})
+
+    assert client.get("/api/review/labeled/next").get_json()["event"]["id"] == first
+    assert (
+        client.get("/api/review/labeled/next?value=unsure").get_json()["event"]["id"]
+        == first
+    )
+    assert client.get("/api/review/labeled/next?value=cat").get_json()["event"] is None
+    assert client.get("/api/review/labeled/next?value=dog").status_code == 400
+
+
 def test_without_a_database_the_page_says_review_is_unavailable(
     streamer: Any,
 ) -> None:
