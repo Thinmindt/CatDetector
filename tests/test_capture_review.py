@@ -5,6 +5,7 @@ from __future__ import annotations
 import datetime
 import sqlite3
 import subprocess
+import threading
 from pathlib import Path
 from typing import Any
 
@@ -795,3 +796,36 @@ def test_undo_fetch_shows_the_existing_label(client: Any) -> None:
 def test_strip_route_for_an_unreadable_clip_404s(client: Any) -> None:
     event = client.get("/api/review/next").get_json()["event"]
     assert client.get(f"/review/{event['id']}/clip/0/strip.jpg").status_code == 404
+
+
+def read_repeatedly(db: Any, event_id: int, failures: list[BaseException]) -> None:
+    try:
+        for _ in range(200):
+            got = db.get(event_id)
+            assert got is not None and len(got.clips) == 4
+            assert got.poops == {1: 1, 2: 0, 3: 2}
+            db.counts()
+    except BaseException as exc:
+        failures.append(exc)
+
+
+def test_concurrent_reads_share_the_connection_safely(db: Any, tmp_path: Path) -> None:
+    """The web server is threaded and a browser asks for every clip's media at once."""
+    directory = tmp_path / "captures"
+    visit(directory, 0, 40, 80, 120)
+    db.ingest(directory)
+    event = db.next_unlabeled()
+    db.set_poop_counts(event.id, {1: 1, 2: 0, 3: 2})
+    failures: list[BaseException] = []
+    threads = [
+        threading.Thread(target=read_repeatedly, args=(db, event.id, failures))
+        for _ in range(8)
+    ]
+
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=30)
+
+    assert not any(thread.is_alive() for thread in threads)
+    assert failures == []
