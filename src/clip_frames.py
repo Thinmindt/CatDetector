@@ -1,6 +1,7 @@
 """Sample frames out of raw .h264 clips with ffmpeg, cached on local disk."""
 
 import logging
+import math
 import shutil
 import subprocess
 import tempfile
@@ -14,11 +15,17 @@ from src.motion_recorder import CAMERA_FPS
 
 log = logging.getLogger(__name__)
 
-THUMB_COUNT = 8
+MAX_TILES = 48
 THUMB_WIDTH = 320
-FRAME_STRIDE = CAMERA_FPS  # sample once per second
 FFMPEG_TIMEOUT_SECONDS = 60
 STAGING_SUFFIX = ".part"
+
+
+def tile_seconds(clip_seconds: float | None) -> int:
+    """Seconds between tiles: one, or more once MAX_TILES would not span the clip."""
+    if clip_seconds is None:
+        return 1
+    return max(1, math.ceil(clip_seconds / MAX_TILES))
 
 
 class ClipFrames:
@@ -27,6 +34,9 @@ class ClipFrames:
     OpenCV's VideoCapture cannot seek raw elementary streams, so extraction
     shells out to ffmpeg. Results are cached under cache_dir keyed by clip id;
     clips are immutable once closed, so the cache never needs invalidating.
+
+    Only keyframes are decoded. The recorder writes one per second, so decoded
+    frame n is n seconds into the clip.
     """
 
     def __init__(self, cache_dir: str | Path) -> None:
@@ -36,23 +46,28 @@ class ClipFrames:
         if self._ffmpeg is None:
             log.warning("ffmpeg not found; frame extraction is disabled")
 
-    def strip(self, clip_id: int, clip_path: str | Path) -> Path | None:
-        """A horizontal montage of THUMB_COUNT frames, one per second."""
-        cached = self.cache_dir / f"clip{clip_id}_strip.jpg"
+    def strip(
+        self, clip_id: int, clip_path: str | Path, clip_seconds: float | None
+    ) -> Path | None:
+        """A horizontal montage spanning the clip, tile_seconds(clip_seconds) apart."""
+        stride = tile_seconds(clip_seconds)
+        cached = self.cache_dir / f"clip{clip_id}_strip{stride}s.jpg"
         if cached.exists():
             return cached
-        return self._build_strip(Path(clip_path), cached)
+        return self._build_strip(Path(clip_path), stride, cached)
 
-    def frame(self, clip_id: int, clip_path: str | Path, slot: int) -> Path | None:
+    def frame(
+        self, clip_id: int, clip_path: str | Path, slot: int, clip_seconds: float | None
+    ) -> Path | None:
         """The full-resolution frame behind one strip slot."""
-        if not 0 <= slot < THUMB_COUNT:
+        if not 0 <= slot < MAX_TILES:
             return None
-        cached = self.cache_dir / f"clip{clip_id}_f{slot}.jpg"
+        second = slot * tile_seconds(clip_seconds)
+        cached = self.cache_dir / f"clip{clip_id}_t{second}s.jpg"
         if cached.exists():
             return cached
 
-        frame_number = slot * FRAME_STRIDE
-        args = [f"select='eq(n\\,{frame_number})'", "-frames:v", "1"]
+        args = [f"select='eq(n\\,{second})'", "-frames:v", "1"]
         staging = self._staged(cached)
         if self._extract(Path(clip_path), args, staging) is None:
             return None
@@ -105,12 +120,12 @@ class ClipFrames:
         staging.replace(cached)
         return cached
 
-    def _build_strip(self, clip: Path, cached: Path) -> Path | None:
+    def _build_strip(self, clip: Path, stride: int, cached: Path) -> Path | None:
         with tempfile.TemporaryDirectory(dir=self.cache_dir) as scratch:
             pattern = Path(scratch) / "t%02d.jpg"
-            select = f"select='not(mod(n\\,{FRAME_STRIDE}))',scale={THUMB_WIDTH}:-2"
+            select = f"select='not(mod(n\\,{stride}))',scale={THUMB_WIDTH}:-2"
             if (
-                self._extract(clip, [select, "-frames:v", str(THUMB_COUNT)], pattern)
+                self._extract(clip, [select, "-frames:v", str(MAX_TILES)], pattern)
                 is None
             ):
                 return None
@@ -132,6 +147,8 @@ class ClipFrames:
             self._ffmpeg,
             "-v",
             "error",
+            "-skip_frame",
+            "nokey",
             "-i",
             str(clip),
             "-vf",

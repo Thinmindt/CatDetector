@@ -71,8 +71,9 @@ class FakeCircularOutput:
 
 
 class FakeH264Encoder:
-    def __init__(self, bitrate: int = 0) -> None:
+    def __init__(self, bitrate: int = 0, iperiod: int | None = None) -> None:
         self.bitrate = bitrate
+        self.iperiod = iperiod
 
 
 class FakePicamera2:

@@ -122,7 +122,7 @@ def test_media_is_served_from_a_relative_cache_dir(
     clip.write_bytes(b"h264")
     frames = ClipFrames(".review_cache")
     strip = np.zeros((8, 8, 3), np.uint8)
-    cv2.imwrite(str(frames.cache_dir / "clip1_strip.jpg"), strip)
+    cv2.imwrite(str(frames.cache_dir / "clip1_strip1s.jpg"), strip)
     db = CaptureDB(tmp_path / "captures.db")
     try:
         db.ingest(tmp_path / "captures")
