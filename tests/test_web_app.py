@@ -40,6 +40,7 @@ def test_both_routes_serve_the_tabbed_page(review_parts: Any) -> None:
         assert b'data-tab="live"' in response.data
         assert b'data-tab="review"' in response.data
     assert b"THUMB_WIDTH = 320" in response.data
+    assert b'LABELS = ["cat", "not_cat", "unsure", "clean"]' in response.data
 
 
 def test_without_a_streamer_the_live_tab_learns_there_is_no_detector(

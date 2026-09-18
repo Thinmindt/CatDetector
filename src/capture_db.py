@@ -93,14 +93,6 @@ class Clip:
     size_bytes: int
     boundary: str | None
 
-    @property
-    def seconds(self) -> float | None:
-        if self.started_at is None or self.ended_at is None:
-            return None
-        started = datetime.datetime.fromisoformat(self.started_at)
-        ended = datetime.datetime.fromisoformat(self.ended_at)
-        return (ended - started).total_seconds()
-
 
 @dataclass(frozen=True)
 class Event:
@@ -119,6 +111,27 @@ class Event:
     @property
     def ended_at(self) -> str | None:
         return self.clips[-1].ended_at if self.clips else None
+
+
+FoundClip = tuple[Path, int, ClipFacts | None]
+
+
+def _read_clip(clip: Path) -> FoundClip | None:
+    """A clip's size and sidecar facts, or None if it cannot be read."""
+    try:
+        size = clip.stat().st_size
+    except OSError as error:
+        log.warning("Skipping %s: %s", clip, error)
+        return None
+    return clip, size, _facts_for(clip)
+
+
+def _facts_for(clip: Path) -> ClipFacts | None:
+    try:
+        return read_sidecar(clip)
+    except (OSError, ValueError, KeyError) as error:
+        log.warning("Ignoring the sidecar of %s: %s", clip.name, error)
+        return None
 
 
 def _clip_started_at(name: str) -> str | None:
@@ -222,34 +235,26 @@ class CaptureDB:
 
     # --- ingest -------------------------------------------------------------
 
-    @serialized
     def ingest(self, clip_directory: str | Path) -> int:
         """Register clips not yet known and place them in events.
 
-        Existing events keep their ids. Returns how many clips were new.
+        Existing events keep their ids. Returns how many clips were new. The
+        share is read without the lock held: it can stall for minutes.
         """
         directory = Path(clip_directory)
         if not directory.is_dir():
             log.warning("Clip directory %s does not exist; nothing ingested", directory)
             return 0
 
-        added = self._insert_unknown(directory)
-        if added:
-            self._place_clips(keep_events=True)
-        self._conn.commit()
+        known = self._known_paths()
+        clips = sorted(directory.glob(f"*{CLIP_SUFFIX}"))
+        found = [_read_clip(clip) for clip in clips if str(clip) not in known]
+        added = self._register([clip for clip in found if clip is not None])
         if added:
             log.info("Ingested %d new clip(s) from %s", added, directory)
         return added
 
-    def _insert_unknown(self, directory: Path) -> int:
-        """Register every clip in the directory that is not already known."""
-        now = datetime.datetime.now().isoformat()
-        known = self._known_paths()
-        clips = sorted(directory.glob(f"*{CLIP_SUFFIX}"))
-        return sum(
-            self._insert_new(clip, now) for clip in clips if str(clip) not in known
-        )
-
+    @serialized
     def _known_paths(self) -> set[str]:
         """Clips already registered, whose sidecars a rescan must not re-read.
 
@@ -257,15 +262,19 @@ class CaptureDB:
         """
         return {str(row["path"]) for row in self._conn.execute("SELECT path FROM clip")}
 
-    def _insert_new(self, clip: Path, now: str) -> int:
-        """Register one clip. Returns 0 if it is already known or unreadable."""
-        try:
-            size = clip.stat().st_size
-        except OSError as error:
-            log.warning("Skipping %s: %s", clip, error)
-            return 0
+    @serialized
+    def _register(self, found: list[FoundClip]) -> int:
+        """Insert the clips and place any new ones in events."""
+        now = datetime.datetime.now().isoformat()
+        added = sum(self._insert_new(clip, now) for clip in found)
+        if added:
+            self._place_clips(keep_events=True)
+        self._conn.commit()
+        return added
 
-        facts = self._facts_for(clip)
+    def _insert_new(self, found: FoundClip, now: str) -> int:
+        """Register one clip. Returns 0 if it is already known."""
+        clip, size, facts = found
         cursor = self._conn.execute(
             "INSERT OR IGNORE INTO clip (path, started_at, ended_at, close_reason,"
             " trigger_cx, trigger_cy, last_cx, last_cy, size_bytes, created_at)"
@@ -278,14 +287,6 @@ class CaptureDB:
             ),
         )
         return cursor.rowcount
-
-    @staticmethod
-    def _facts_for(clip: Path) -> ClipFacts | None:
-        try:
-            return read_sidecar(clip)
-        except (OSError, ValueError, KeyError) as error:
-            log.warning("Ignoring the sidecar of %s: %s", clip.name, error)
-            return None
 
     # --- grouping -----------------------------------------------------------
 
@@ -343,21 +344,21 @@ class CaptureDB:
         after_id need not still hold several clips: a split can leave it single,
         and the walk carries on from its place rather than starting over.
         """
-        order = self._event_ids_in_order()
-        multi = set(self._event_ids_in_order(multi_only=True))
-        if after_id in order:
-            order = order[order.index(after_id) + 1 :]
-        return next(
-            (self.get(event_id) for event_id in order if event_id in multi), None
+        return self._next_in_order(
+            after_id, set(self._event_ids_in_order(multi_only=True))
         )
 
     @serialized
     def next_labeled(self, after_id: int | None, value: str | None) -> Event | None:
         """The next labeled event in time order, or the next with this label."""
+        return self._next_in_order(after_id, self._labeled_event_ids(value))
+
+    def _next_in_order(self, after_id: int | None, wanted: set[int]) -> Event | None:
+        """The first wanted event after after_id in time order, whether or not
+        after_id is itself still wanted."""
         order = self._event_ids_in_order()
         if after_id in order:
             order = order[order.index(after_id) + 1 :]
-        wanted = self._labeled_event_ids(value)
         return next(
             (self.get(event_id) for event_id in order if event_id in wanted), None
         )
