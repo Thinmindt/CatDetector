@@ -30,7 +30,7 @@ class ClipFrames:
     """
 
     def __init__(self, cache_dir: str | Path) -> None:
-        self.cache_dir = Path(cache_dir)
+        self.cache_dir = Path(cache_dir).resolve()
         self.cache_dir.mkdir(parents=True, exist_ok=True)
         self._ffmpeg = shutil.which("ffmpeg")
         if self._ffmpeg is None:

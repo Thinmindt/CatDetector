@@ -5,6 +5,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, cast
 
+import cv2
+import numpy as np
 import pytest
 from conftest import StubRecorder
 
@@ -87,3 +89,27 @@ def test_without_a_database_the_page_says_review_is_unavailable(
     assert response.status_code == 200
     assert b"Review is unavailable" in response.data
     assert client.get("/api/review/next").status_code == 404
+
+
+def test_media_is_served_from_a_relative_cache_dir(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A relative cache path is the process's, not the Flask package's."""
+    monkeypatch.chdir(tmp_path)
+    clip = tmp_path / "captures" / "cat_video_20260917_120000.h264"
+    clip.parent.mkdir()
+    clip.write_bytes(b"h264")
+    frames = ClipFrames(".review_cache")
+    strip = np.zeros((8, 8, 3), np.uint8)
+    cv2.imwrite(str(frames.cache_dir / "clip1_strip.jpg"), strip)
+    db = CaptureDB(tmp_path / "captures.db")
+    try:
+        db.ingest(tmp_path / "captures")
+        client = create_app(None, db, frames).test_client()
+
+        response = client.get("/review/1/clip/0/strip.jpg")
+
+        assert response.status_code == 200
+        assert response.data[:2] == b"\xff\xd8"  # a JPEG
+    finally:
+        db.close()
