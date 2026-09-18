@@ -526,21 +526,29 @@ def write_test_video(path: Path, seconds: int = 3) -> Path:
 
 
 def tile_greys(strip: Path) -> list[int]:
-    """The mean grey of each tile, left to right."""
+    """The mean grey of each tile's top half, left to right, clear of the caption."""
     image = cv2.imread(str(strip))
     assert image is not None
     assert image.shape[1] % THUMB_WIDTH == 0
+    top = image[: image.shape[0] // 2]
     return [
-        round(float(image[:, left : left + THUMB_WIDTH].mean()))
+        round(float(top[:, left : left + THUMB_WIDTH].mean()))
         for left in range(0, image.shape[1], THUMB_WIDTH)
     ]
+
+
+def frame_grey(frame: Path | None) -> float:
+    assert frame is not None
+    image = cv2.imread(str(frame))
+    assert image is not None
+    return float(image.mean())
 
 
 def test_strip_is_built_and_cached(tmp_path: Path) -> None:
     clip = write_test_video(tmp_path / "clip.h264")
     frames = ClipFrames(tmp_path / "cache")
 
-    strip = frames.strip(1, clip, clip_seconds=3)
+    strip = frames.strip(1, clip)
 
     assert strip is not None and strip.exists()
     image = cv2.imread(str(strip))
@@ -548,7 +556,7 @@ def test_strip_is_built_and_cached(tmp_path: Path) -> None:
     assert image.shape[1] > image.shape[0]  # wider than tall: a montage
 
     first_mtime = strip.stat().st_mtime_ns
-    again = frames.strip(1, clip, clip_seconds=3)
+    again = frames.strip(1, clip)
     assert again is not None
     assert again.stat().st_mtime_ns == first_mtime  # cache hit
 
@@ -557,7 +565,7 @@ def test_strip_spans_the_whole_clip_one_tile_a_second(tmp_path: Path) -> None:
     clip = write_test_video(tmp_path / "clip.h264", seconds=12)
     frames = ClipFrames(tmp_path / "cache")
 
-    strip = frames.strip(1, clip, clip_seconds=12)
+    strip = frames.strip(1, clip)
 
     assert strip is not None
     greys = tile_greys(strip)
@@ -566,61 +574,90 @@ def test_strip_spans_the_whole_clip_one_tile_a_second(tmp_path: Path) -> None:
     assert greys == pytest.approx([15 * k for k in range(12)], abs=3)
 
 
-def test_long_clips_get_sparser_tiles(tmp_path: Path) -> None:
+def test_long_clips_get_sparser_tiles(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     clip = write_test_video(tmp_path / "clip.h264", seconds=12)
     frames = ClipFrames(tmp_path / "cache")
+    monkeypatch.setattr("src.clip_frames.MAX_TILES", 3)
 
-    # A clip this long would need 4 s between tiles to fit MAX_TILES.
-    strip = frames.strip(1, clip, clip_seconds=4 * MAX_TILES)
+    strip = frames.strip(1, clip)
 
     assert strip is not None
-    assert tile_greys(strip) == pytest.approx([0, 60, 120], abs=3)
+    assert tile_greys(strip) == pytest.approx([0, 60, 120], abs=3)  # 0, 4, 8 s
+
+
+def test_tiles_are_captioned_with_their_offset(tmp_path: Path) -> None:
+    clip = write_test_video(tmp_path / "clip.h264", seconds=2)
+    frames = ClipFrames(tmp_path / "cache")
+
+    strip = frames.strip(1, clip)
+
+    assert strip is not None
+    image = cv2.imread(str(strip))
+    assert image is not None
+    # The second tile is a flat mid grey except for its "0:01" caption.
+    second = image[:, THUMB_WIDTH:]
+    assert second[: second.shape[0] // 2].std() < 1
+    assert second[second.shape[0] // 2 :].std() > 5
 
 
 def test_tile_seconds_keeps_the_tile_count_bounded() -> None:
-    assert tile_seconds(None) == 1
+    assert tile_seconds(0) == 1
     assert tile_seconds(MAX_TILES) == 1
     assert tile_seconds(MAX_TILES + 1) == 2
     assert tile_seconds(300) * MAX_TILES >= 300
 
 
-def test_full_frame_extraction(tmp_path: Path) -> None:
+def test_full_frames_behind_the_tiles_are_kept(tmp_path: Path) -> None:
     clip = write_test_video(tmp_path / "clip.h264", seconds=12)
     frames = ClipFrames(tmp_path / "cache")
 
-    frame = frames.frame(1, clip, slot=2, clip_seconds=12)
+    frame = frames.frame(1, clip, slot=2)
 
-    assert frame is not None
-    image = cv2.imread(str(frame))
-    assert image is not None
-    assert image.mean() == pytest.approx(30, abs=3)  # frame 60, 2 s in
-    assert frames.frame(1, clip, slot=MAX_TILES, clip_seconds=12) is None
+    assert frame_grey(frame) == pytest.approx(30, abs=3)  # frame 60, 2 s in
+    assert frame is not None and frame.stat().st_size > 0
+    assert frames.frame(1, clip, slot=12) is None  # past the end
+    assert frames.frame(1, clip, slot=-1) is None
 
 
-def test_full_frame_follows_the_strip_stride(tmp_path: Path) -> None:
+def test_full_frame_follows_the_strip_stride(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     clip = write_test_video(tmp_path / "clip.h264", seconds=12)
     frames = ClipFrames(tmp_path / "cache")
+    monkeypatch.setattr("src.clip_frames.MAX_TILES", 3)
 
-    frame = frames.frame(1, clip, slot=2, clip_seconds=4 * MAX_TILES)
+    frame = frames.frame(1, clip, slot=2)
 
-    assert frame is not None
-    image = cv2.imread(str(frame))
-    assert image is not None
-    assert image.mean() == pytest.approx(120, abs=3)  # frame 240, 8 s in
+    assert frame_grey(frame) == pytest.approx(120, abs=3)  # frame 240, 8 s in
+    assert frames.frame(1, clip, slot=3) is None
 
 
-def test_a_slot_past_the_end_of_the_clip_is_unavailable(tmp_path: Path) -> None:
+def test_the_strip_is_published_after_its_frames(tmp_path: Path) -> None:
     clip = write_test_video(tmp_path / "clip.h264", seconds=3)
-    frames = ClipFrames(tmp_path / "cache")
+    cache = tmp_path / "cache"
+    frames = ClipFrames(cache)
 
-    assert frames.frame(1, clip, slot=5, clip_seconds=3) is None
-    assert list((tmp_path / "cache").iterdir()) == []
+    strip = frames.strip(1, clip)
+
+    assert strip is not None
+    kept = sorted(f.name for f in cache.iterdir())
+    assert kept == [
+        "clip1_strip1s.jpg",
+        "clip1_t0s.jpg",
+        "clip1_t1s.jpg",
+        "clip1_t2s.jpg",
+    ]
+    assert strip.stat().st_mtime_ns >= max(
+        (cache / f"clip1_t{n}s.jpg").stat().st_mtime_ns for n in range(3)
+    )
 
 
 def test_unreadable_clip_yields_none(tmp_path: Path) -> None:
     bad = make_clip_file(tmp_path / "garbage.h264", b"not video at all")
     frames = ClipFrames(tmp_path / "cache")
-    assert frames.strip(1, bad, clip_seconds=None) is None
+    assert frames.strip(1, bad) is None
 
 
 def test_video_is_a_playable_cached_copy(tmp_path: Path) -> None:
@@ -883,6 +920,37 @@ def read_repeatedly(db: Any, event_id: int, failures: list[BaseException]) -> No
             db.counts()
     except BaseException as exc:
         failures.append(exc)
+
+
+def test_ingest_reads_the_share_without_holding_the_lock(
+    db: Any, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A stalled share must stall the rescan, not every reader of the database."""
+    directory = tmp_path / "captures"
+    directory.mkdir()
+    make_clip_file(directory / "cat_video_20260912_080000.h264")
+    reading = threading.Event()
+    release = threading.Event()
+
+    def stalled_sidecar(clip: Path) -> None:
+        reading.set()
+        assert release.wait(timeout=10)
+
+    monkeypatch.setattr("src.capture_db.read_sidecar", stalled_sidecar)
+    ingest = threading.Thread(target=db.ingest, args=(directory,), daemon=True)
+    ingest.start()
+    assert reading.wait(timeout=10)
+
+    reader = threading.Thread(target=db.counts, daemon=True)
+    reader.start()
+    reader.join(timeout=5)
+    reader_stuck = reader.is_alive()
+    release.set()
+    ingest.join(timeout=10)
+
+    assert not ingest.is_alive()
+    assert not reader_stuck
+    assert db.counts()["total"] == 1
 
 
 def test_concurrent_reads_share_the_connection_safely(db: Any, tmp_path: Path) -> None:

@@ -9,7 +9,7 @@ from flask import Blueprint, Response, jsonify, request, send_file
 
 from config import Config
 from src.capture_db import CaptureDB, Clip, Event
-from src.clip_frames import ClipFrames, tile_seconds
+from src.clip_frames import ClipFrames
 
 log = logging.getLogger(__name__)
 
@@ -102,7 +102,7 @@ class ReviewPages:
             event_id,
             index,
             "image/jpeg",
-            lambda c: self.frames.strip(c.id, c.path, c.seconds),
+            lambda c: self.frames.strip(c.id, c.path),
         )
 
     def frame(self, event_id: int, index: int, slot: int) -> Response:
@@ -110,7 +110,7 @@ class ReviewPages:
             event_id,
             index,
             "image/jpeg",
-            lambda c: self.frames.frame(c.id, c.path, slot, c.seconds),
+            lambda c: self.frames.frame(c.id, c.path, slot),
         )
 
     def video(self, event_id: int, index: int) -> Response:
@@ -152,7 +152,6 @@ class ReviewPages:
                         "ended_at": clip.ended_at,
                         "close_reason": clip.close_reason,
                         "boundary": clip.boundary,
-                        "tile_seconds": tile_seconds(clip.seconds),
                     }
                     for index, clip in enumerate(event.clips)
                 ],

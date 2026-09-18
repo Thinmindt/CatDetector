@@ -6,7 +6,7 @@ from flask import Flask, Response, jsonify, render_template
 
 from src.capture_db import CaptureDB
 from src.clip_frames import THUMB_WIDTH, ClipFrames
-from src.review import create_review_blueprint
+from src.review import VALID_LABELS, create_review_blueprint
 from src.web_streamer import WebStreamer
 
 log = logging.getLogger(__name__)
@@ -29,7 +29,10 @@ def create_app(
 
     def page() -> str:
         return render_template(
-            "app.html", thumb_width=THUMB_WIDTH, review_available=review_available
+            "app.html",
+            thumb_width=THUMB_WIDTH,
+            labels=VALID_LABELS,
+            review_available=review_available,
         )
 
     def no_detector() -> Response:

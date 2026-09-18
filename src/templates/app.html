@@ -17,10 +17,7 @@ nav a.active { color: #eee; background: #1e1e1e; }
 .tiles { display: grid; gap: 6px;
          grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); }
 .tile { aspect-ratio: 16 / 9; background-size: auto 100%; cursor: zoom-in;
-        border-radius: 4px; position: relative; }
-.tile span { position: absolute; left: 4px; bottom: 4px; padding: 1px 5px;
-             font-size: 12px; color: #eee; background: rgba(0, 0, 0, 0.6);
-             border-radius: 3px; }
+        border-radius: 4px; }
 .tiles .note { grid-column: 1 / -1; }
 video { width: 100%; margin-top: 8px; display: none; }
 #counts a { color: #aaa; }
@@ -80,10 +77,12 @@ kbd { background: #333; border-radius: 3px; padding: 1px 5px; }
 
 <script>
 const REVIEW = {{ 'true' if review_available else 'false' }};
-const FILTER = new URLSearchParams(location.search).get('filter');  // null = the unlabeled queue
+const LABELS = {{ labels | tojson }};
+const FILTERS = ['multi', 'labeled', ...LABELS];
+const asked = new URLSearchParams(location.search).get('filter');
+const FILTER = FILTERS.includes(asked) ? asked : null;  // null = the unlabeled queue
 const MULTI = FILTER === 'multi';
-const LABELS = ['cat', 'not_cat', 'unsure', 'clean'];
-const WALKING = MULTI || FILTER === 'labeled' || LABELS.includes(FILTER);
+const WALKING = FILTER !== null;
 const THUMB_WIDTH = {{ thumb_width }};
 let current = null;
 const history_ = [];
@@ -187,16 +186,12 @@ function show(data) {
     `${hms(current.ended_at)}${badge}${grouped}`;
   document.getElementById('clips').innerHTML =
     current.clips.map((c, i) => clipBlock(c, i ? current.clips[i - 1] : null)).join('');
-  current.clips.forEach(c => loadTiles(current.id, c.index, c.tile_seconds));
-}
-
-function mmss(seconds) {
-  return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
+  current.clips.forEach(c => loadTiles(current.id, c.index));
 }
 
 // One frame per tile, cut from the clip's strip image so the tiles wrap to the
 // page instead of running off it. The strip's width says how many frames it holds.
-function loadTiles(eventId, index, tileSeconds) {
+function loadTiles(eventId, index) {
   const grid = document.getElementById(`t${index}`);
   const strip = new Image();
   strip.onload = () => {
@@ -210,9 +205,6 @@ function loadTiles(eventId, index, tileSeconds) {
       tile.style.backgroundImage = `url(${strip.src})`;
       tile.style.backgroundPosition = `${slots > 1 ? slot / (slots - 1) * 100 : 0}% 0`;
       tile.onclick = () => window.open(`/review/${eventId}/clip/${index}/frame/${slot}.jpg`);
-      const at = document.createElement('span');
-      at.textContent = mmss(slot * tileSeconds);
-      tile.appendChild(at);
       grid.appendChild(tile);
     }
   };
