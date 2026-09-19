@@ -123,9 +123,9 @@ class ClipTransfer:
             raise
 
     @staticmethod
-    def _check_size(clip: Path, staged: Path) -> None:
-        if staged.stat().st_size != clip.stat().st_size:
-            raise OSError(f"short copy of {clip.name}")
+    def _check_size(source: Path, staged: Path) -> None:
+        if staged.stat().st_size != source.stat().st_size:
+            raise OSError(f"short copy of {source.name}")
 
     @staticmethod
     def _discard(staged: Path) -> None:

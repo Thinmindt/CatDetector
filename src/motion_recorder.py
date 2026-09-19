@@ -223,7 +223,7 @@ class MotionRecorder:
         if self.metrics is not None:
             self.metrics.record(measured, self.recording)
 
-        if self._is_warming_up() or self._is_dark(measured.brightness):
+        if self._still_warming_up() or self._is_dark(measured.brightness):
             return False
         moving = measured.foreground_px > self.motion_threshold
         if moving:
@@ -240,8 +240,8 @@ class MotionRecorder:
         _, binary = cv2.threshold(mask, SHADOW_PIXEL_VALUE, 255, cv2.THRESH_BINARY)
         return cast(Frame, binary)
 
-    def _is_warming_up(self) -> bool:
-        """Whether MOG2 is still training. Detection is suppressed until it is not."""
+    def _still_warming_up(self) -> bool:
+        """Count this frame towards MOG2's training; True until it has enough."""
         if self._frames_seen >= self.warmup_frames:
             return False
 
