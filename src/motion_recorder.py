@@ -22,7 +22,7 @@ from src.clip_format import (
 )
 from src.clip_sidecar import ClipFacts, CloseReason, write_sidecar
 from src.frame import Frame
-from src.motion_metrics import Blob, MetricsLog, clean_mask, largest_blob, measure
+from src.motion_metrics import Blob, MetricsLog, measure
 
 log = logging.getLogger(__name__)
 
@@ -217,17 +217,16 @@ class MotionRecorder:
     def detect_motion(self, frame: Frame) -> bool:
         # RGB -> BGR followed by BGR -> GRAY is the same as one RGB -> GRAY pass.
         gray = cast(Frame, cv2.cvtColor(frame, cv2.COLOR_RGB2GRAY))
-        mask = self._foreground_mask(gray)
-        self.last_motion_pixels = int(cv2.countNonZero(mask))
-
+        measured = measure(gray, self._foreground_mask(gray))
+        self.last_motion_pixels = measured.foreground_px
         if self.metrics is not None:
-            self.metrics.record(measure(gray, mask), self.recording)
+            self.metrics.record(measured, self.recording)
 
-        if self._is_warming_up() or self._is_dark(gray):
+        if self._is_warming_up() or self._is_dark(measured.brightness):
             return False
-        moving = self.last_motion_pixels > self.motion_threshold
+        moving = measured.foreground_px > self.motion_threshold
         if moving:
-            self.last_blob = largest_blob(clean_mask(mask))
+            self.last_blob = measured.clean_blob
         return moving
 
     def _foreground_mask(self, gray: Frame) -> Frame:
@@ -250,9 +249,9 @@ class MotionRecorder:
             log.info("Motion detection armed after %d frames", self.warmup_frames)
         return True
 
-    def _is_dark(self, gray: Frame) -> bool:
+    def _is_dark(self, brightness: float) -> bool:
         """Whether the scene is too dark to see. Logs each change."""
-        dark = float(cv2.mean(gray)[0]) < self.dark_brightness
+        dark = brightness < self.dark_brightness
         if dark != self.dark:
             self.dark = dark
             log.info(
