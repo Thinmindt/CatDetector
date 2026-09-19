@@ -85,7 +85,7 @@ Requires `ffmpeg` (`sudo apt install ffmpeg`).
 ## Test, lint, format, type-check
 
 ```
-uv run pytest                # unit tests (no hardware needed)
+uv run pytest                # unit tests (no hardware, and no picamera2, needed)
 uv run ruff check .          # lint
 uv run ruff check --fix .    # lint + autofix
 uv run ruff format .         # format

@@ -7,7 +7,10 @@ Anything that needs a real camera lives in tests/manual/ and is run by hand.
 
 from __future__ import annotations
 
+import importlib.util
+import sys
 import time
+import types
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any, cast
@@ -15,6 +18,33 @@ from typing import Any, cast
 import numpy as np
 import pytest
 from numpy.typing import NDArray
+
+PICAMERA2_IS_STUBBED = importlib.util.find_spec("picamera2") is None
+
+
+def stub_picamera2() -> None:
+    """Register bare picamera2 modules so src/ imports without the camera stack.
+
+    Only the three names src/ imports exist, as bare classes; every fixture below
+    replaces them before anything is constructed.
+    """
+    modules = {
+        "picamera2": {"Picamera2"},
+        "picamera2.encoders": {"H264Encoder"},
+        "picamera2.outputs": {"CircularOutput"},
+    }
+    for module_name, class_names in modules.items():
+        module = types.ModuleType(module_name)
+        vars(module).update({name: type(name, (), {}) for name in class_names})
+        sys.modules[module_name] = module
+
+
+if PICAMERA2_IS_STUBBED:
+    stub_picamera2()
+
+needs_real_picamera2 = pytest.mark.skipif(
+    PICAMERA2_IS_STUBBED, reason="exercises the real CircularOutput"
+)
 
 Frame = NDArray[np.uint8]
 

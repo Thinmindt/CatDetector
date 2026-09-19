@@ -9,7 +9,13 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from conftest import LORES_SIZE, MAIN_SIZE, FakePicamera2, make_frame
+from conftest import (
+    LORES_SIZE,
+    MAIN_SIZE,
+    FakePicamera2,
+    make_frame,
+    needs_real_picamera2,
+)
 
 from src.clip_sidecar import ClipFacts, CloseReason, read_sidecar, sidecar_name
 from src.motion_recorder import partial_name
@@ -392,6 +398,7 @@ def test_zero_warmup_announces_that_it_is_armed(
     assert "armed" in caplog.text
 
 
+@needs_real_picamera2
 def test_storage_errors_never_escape_to_picamera2() -> None:
     """Regression, exercised against the real class rather than the fake.
 
@@ -594,6 +601,7 @@ def test_each_way_a_clip_can_close_is_named(recorder: Any) -> None:
     assert facts_of(by_shutdown).close_reason == CloseReason.SHUTDOWN
 
 
+@needs_real_picamera2
 def test_outputframe_survives_the_ring_draining_mid_frame() -> None:
     """stop() can empty the ring between a frame's append and its popleft.
 
