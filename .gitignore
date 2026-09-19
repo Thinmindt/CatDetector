@@ -15,8 +15,14 @@ __pycache__/
 # Test files
 test_images/
 
-# Local planning notes
-docs/
+# Local planning notes. The style guide and design doc are tracked; everything
+# else in docs/ stays private.
+docs/*
+!docs/STYLE.md
+!docs/DESIGN.md
+
+# Agent notes about this particular Pi and its owner
+CLAUDE.local.md
 
 # Local agent files (skills, per-Pi state) -- never publish to the public repo
 .claude/
