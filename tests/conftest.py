@@ -1,4 +1,4 @@
-"""Shared fakes for the picamera2 hardware layer.
+"""Shared fakes for the picamera2 hardware layer, and fixtures for the review side.
 
 `picamera2` binds to the real camera when a `Picamera2` is *constructed*, not when
 the module is imported, so these tests swap the class out and never touch hardware.
@@ -7,7 +7,9 @@ Anything that needs a real camera lives in tests/manual/ and is run by hand.
 
 from __future__ import annotations
 
+import datetime
 import importlib.util
+import subprocess
 import sys
 import threading
 import types
@@ -18,7 +20,10 @@ from typing import Any, cast
 import numpy as np
 import pytest
 
+from src.capture_db import CaptureDB
+from src.clip_sidecar import ClipFacts, CloseReason, write_sidecar
 from src.frame import Frame
+from src.motion_metrics import Blob
 
 PICAMERA2_IS_STUBBED = importlib.util.find_spec("picamera2") is None
 
@@ -254,3 +259,102 @@ def make_recorder(
 @pytest.fixture
 def recorder(make_recorder: Callable[..., Any]) -> Any:
     return make_recorder()
+
+
+# --- captures: clips on disk, their sidecars and the review database -----------
+
+T0 = datetime.datetime(2026, 9, 12, 8, 0, 0)
+BOX_1 = (100, 240)
+BOX_2 = (320, 240)
+BOX_3 = (540, 240)
+
+# Grouping thresholds the capture tests build their fixtures against.
+GAP = 60
+DISTANCE = 100
+
+
+def at(seconds: int) -> datetime.datetime:
+    return T0 + datetime.timedelta(seconds=seconds)
+
+
+def make_clip_file(path: Path, content: bytes = b"fake h264") -> Path:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(content)
+    return path
+
+
+def make_clip_with_facts(
+    directory: Path,
+    started: datetime.datetime,
+    seconds: int,
+    place: tuple[int, int] = BOX_1,
+    reason: CloseReason = CloseReason.TIMEOUT,
+) -> Path:
+    """A clip file named for its start, plus the sidecar the recorder writes."""
+    path = make_clip_file(directory / f"cat_video_{started:%Y%m%d_%H%M%S}.h264")
+    blob = Blob(area=400, x=place[0] - 10, y=place[1] - 10, w=20, h=20)
+    write_sidecar(
+        path,
+        ClipFacts(
+            started_at=started,
+            ended_at=started + datetime.timedelta(seconds=seconds),
+            close_reason=reason,
+            trigger_blob=blob,
+            last_blob=blob,
+        ),
+    )
+    return path
+
+
+def visit(directory: Path, start: int, *offsets: int) -> None:
+    """Clips at start and each offset, close enough to group as one visit."""
+    for offset in (0, *offsets):
+        make_clip_with_facts(directory, at(start + offset), seconds=15)
+
+
+@pytest.fixture
+def db(tmp_path: Path) -> Any:
+    database = CaptureDB(
+        tmp_path / "captures.db", gap_seconds=GAP, box_distance_px=DISTANCE
+    )
+    yield database
+    database.close()
+
+
+@pytest.fixture
+def clip_dir(tmp_path: Path) -> Path:
+    directory = tmp_path / "captures"
+    make_clip_file(directory / "cat_video_20260825_072452.h264")
+    make_clip_file(directory / "cat_video_20260826_090000.h264")
+    return directory
+
+
+def write_test_video(path: Path, seconds: int = 3) -> Path:
+    """A raw H.264 stream like the recorder's: 30 fps, a keyframe every second.
+
+    Frame n is a flat grey of n // 2, so a decoded frame says where it came from.
+    """
+    raw = b"".join(
+        np.full((120, 160, 3), n // 2, dtype=np.uint8).tobytes()
+        for n in range(seconds * 30)
+    )
+    command = [
+        "ffmpeg",
+        *("-v", "error", "-f", "rawvideo", "-pix_fmt", "bgr24"),
+        *("-s", "160x120", "-r", "30", "-i", "-"),
+        *("-c:v", "libx264", "-x264-params", "keyint=30:min-keyint=30:scenecut=0"),
+        *("-pix_fmt", "yuv420p", "-f", "h264", "-y", str(path)),
+    ]
+    subprocess.run(command, input=raw, check=True)  # noqa: S603 -- fixed argv
+    return path
+
+
+# Encoded once per module: tests read the clips and write only their own caches.
+@pytest.fixture(scope="module")
+def short_clip(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    return write_test_video(tmp_path_factory.mktemp("clips") / "short.h264", seconds=3)
+
+
+@pytest.fixture(scope="module")
+def long_clip(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    return write_test_video(tmp_path_factory.mktemp("clips") / "long.h264", seconds=12)

@@ -4,15 +4,9 @@ from __future__ import annotations
 
 import datetime
 
+from conftest import BOX_1, BOX_2, BOX_3, DISTANCE, GAP, T0
+
 from src.event_grouping import ClipRow, group_clips
-
-T0 = datetime.datetime(2026, 9, 12, 8, 0, 0)
-BOX_1 = (100, 240)
-BOX_2 = (320, 240)
-BOX_3 = (540, 240)
-
-GAP = 60
-DISTANCE = 100
 
 
 def clip(
