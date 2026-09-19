@@ -7,11 +7,13 @@ import time
 from collections.abc import Callable
 from typing import Any
 
+import pytest
 from conftest import LORES_SIZE, MAIN_SIZE, FakePicamera2, Frame
 
-# Generous: the bound that matters is "does not wait on the wedged consumer",
-# not the exact join timeout.
-SHUTDOWN_BUDGET_SECONDS = 10
+# The bound that matters is "gave up on the wedged consumer", not the exact join
+# timeout, which the test shortens.
+JOIN_TIMEOUT_SECONDS = 0.2
+SHUTDOWN_BUDGET_SECONDS = 2
 
 
 def wait_for(predicate: Callable[[], bool], timeout: float = 5.0) -> bool:
@@ -120,8 +122,11 @@ def test_stop_frame_distribution_ends_the_thread(camera_manager: Any) -> None:
     assert not thread.is_alive()
 
 
-def test_a_wedged_consumer_cannot_hang_shutdown(camera_manager: Any) -> None:
+def test_a_wedged_consumer_cannot_hang_shutdown(
+    camera_manager: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """A consumer that never returns must not make stop() block forever."""
+    monkeypatch.setattr("src.camera_manager.JOIN_TIMEOUT_SECONDS", JOIN_TIMEOUT_SECONDS)
     release = threading.Event()
     entered = threading.Event()
 
