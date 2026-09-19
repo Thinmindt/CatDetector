@@ -19,7 +19,7 @@ nav a.active { color: #eee; background: #1e1e1e; }
 .tile { aspect-ratio: 16 / 9; background-size: auto 100%; cursor: zoom-in;
         border-radius: 4px; }
 .tiles .note { grid-column: 1 / -1; }
-video { width: 100%; margin-top: 8px; display: none; }
+video { width: 100%; margin-top: 8px; }
 #counts a { color: #aaa; }
 .boundary { margin: 4px 0 4px 12px; }
 .boundary button, .clipmeta button { font-size: 0.85rem; padding: 3px 10px; }
@@ -28,7 +28,6 @@ video { width: 100%; margin-top: 8px; display: none; }
 .warn { color: #f0b429; }
 button { font-size: 1rem; margin-right: 8px; padding: 6px 14px; cursor: pointer; }
 kbd { background: #333; border-radius: 3px; padding: 1px 5px; }
-#done, #skip { display: none; }
 #clean { margin: 12px 0; padding: 10px; background: #1e1e1e; border-radius: 6px; }
 #clean input { width: 4rem; font-size: 1rem; margin: 0 16px 0 4px; }
 </style></head><body>
@@ -54,7 +53,7 @@ kbd { background: #333; border-radius: 3px; padding: 1px 5px; }
     <button onclick="label('unsure')">unsure <kbd>u</kbd></button>
     <button onclick="startClean()">cleaning <kbd>l</kbd></button>
     <button onclick="undo()">undo <kbd>z</kbd></button>
-    <button id="skip" onclick="load()">next <kbd>&rarr;</kbd></button>
+    <button id="skip" onclick="load()" hidden>next <kbd>&rarr;</kbd></button>
     <button onclick="join()">same visit as the next event</button>
   </p>
   <div id="clean" hidden>
@@ -66,7 +65,7 @@ kbd { background: #333; border-radius: 3px; padding: 1px 5px; }
     <button onclick="saveCounts()">save counts</button>
   </div>
 </div>
-<div id="done"><p>Nothing left to review here.</p>
+<div id="done" hidden><p>Nothing left to review here.</p>
   <button onclick="rescan()">rescan clip directory</button></div>
 <div id="counts"></div>
 {% else %}
@@ -161,14 +160,14 @@ function clipBlock(c, prev) {
       (${length}, closed: ${c.close_reason}${gap})${override}
       <button onclick="watch(${c.index})">watch</button></div>
     <div class="tiles" id="t${c.index}"></div>
-    <video id="v${c.index}" controls preload="none"></video>
+    <video id="v${c.index}" controls preload="none" hidden></video>
   </div>`;
 }
 
 function show(data) {
   current = data.event;
-  document.getElementById('viewer').style.display = current ? 'block' : 'none';
-  document.getElementById('done').style.display = current ? 'none' : 'block';
+  document.getElementById('viewer').hidden = !current;
+  document.getElementById('done').hidden = !!current;
   renderCounts(data.counts);
   document.getElementById('clean').hidden = true;
   if (!current) return;
@@ -233,13 +232,15 @@ async function post(url, body) {
     body: JSON.stringify(body || {})})).json();
 }
 
+// The walk being taken: the unlabeled queue, the multi-clip events, or the
+// labeled ones (all, or one label). A walk resumes after the current event.
+const NEXT_ROUTE = MULTI ? 'multi/next' : WALKING ? 'labeled/next' : 'next';
+
 async function load() {
-  const after = current ? `&after=${current.id}` : '';
-  if (MULTI) show(await get(`/api/review/multi/next?${after}`));
-  else if (FILTER === 'labeled') show(await get(`/api/review/labeled/next?${after}`));
-  else if (LABELS.includes(FILTER)) {
-    show(await get(`/api/review/labeled/next?value=${FILTER}${after}`));
-  } else show(await get('/api/review/next'));
+  const params = new URLSearchParams();
+  if (LABELS.includes(FILTER)) params.set('value', FILTER);
+  if (WALKING && current) params.set('after', current.id);
+  show(await get(`/api/review/${NEXT_ROUTE}?${params}`));
 }
 
 async function label(value) {
@@ -294,7 +295,7 @@ async function join() {
 function watch(index) {
   const video = document.getElementById(`v${index}`);
   if (!video.src) video.src = `/review/${current.id}/clip/${index}/video.mp4`;
-  video.style.display = 'block';
+  video.hidden = false;
   video.play();
 }
 
@@ -317,7 +318,7 @@ if (REVIEW) {
   if (WALKING) {
     document.getElementById('mode').textContent =
       MULTI ? '(multi-clip)' : `(${FILTER.replace('_', ' ')})`;
-    document.getElementById('skip').style.display = 'inline-block';
+    document.getElementById('skip').hidden = false;
   }
 }
 activate(tabFromPath(), false);
