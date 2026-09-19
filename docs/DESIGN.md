@@ -2,9 +2,7 @@
 
 Why the code is shaped the way it is. Kept here so the source can stay terse.
 
-Entries cite the roadmap by section (A.2, A.4, B.5b, …). Part A is triggering reliably on every
-visit; part B is building a labelled dataset and a which-cat classifier. The roadmap itself is
-not in the repository.
+Entries cite `ROADMAP.md` by section (A.2, A.4, B.5b, …).
 
 ## Goal
 

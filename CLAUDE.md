@@ -7,19 +7,18 @@ no prior context and are about to change something on real hardware.
 
 | file | what it holds |
 |---|---|
-| `docs/STYLE.md` | how to write code here; a general Python style guide, portable to other repos |
+| `docs/ROADMAP.md` | where the project is going, phase by phase, and the open questions |
 | `docs/DESIGN.md` | why the code is shaped the way it is — rationale, measurements, rejected alternatives |
+| `docs/STYLE.md` | how to write code here; a general Python style guide, portable to other repos |
 
 Read `docs/STYLE.md` before writing code and `docs/DESIGN.md` before changing behaviour. This
 file overlaps them deliberately: CLAUDE.md carries the traps you must not fall into, and the
-design doc carries the full reasoning behind each one.
+design doc carries the full reasoning behind each one. The roadmap's section letters (A.2, A.4,
+B.5b, …) are cited by the design doc and the commit messages.
 
-The rest of `docs/` is **gitignored** and holds the owner's plan: `docs/ROADMAP.md`, phase by
-phase, whose section letters (A.2, A.4, B.5b, …) the design doc and the commit messages cite,
-and `docs/TODO.md`. Part A is triggering reliably on every visit; part B is building a labelled
-dataset and a which-cat classifier. Facts about the one Pi this runs on — its account, its
-mounts, what needs the owner's own terminal — live in `CLAUDE.local.md`, also gitignored. A
-fresh clone has neither file; do not conclude from that that there is no plan.
+Anything else in `docs/` is **gitignored** (`docs/TODO.md` is the owner's to-do list), as is
+`CLAUDE.local.md`, which holds facts about the one Pi this runs on — its account, its mounts,
+what needs the owner's own terminal. A fresh clone has neither file.
 
 ## What this actually is
 
@@ -188,8 +187,8 @@ others are disabled inside `tests/**` for reasons recorded in `docs/STYLE.md` �
 ## Repo hygiene
 
 **This repo is public.** Treat tracked files and commit messages as world-readable. Never put LAN
-addresses, share names, hostnames, or credentials in anything tracked — they belong in the
-gitignored files (`docs/ROADMAP.md`, `CLAUDE.local.md`). `.env` is ignored and has never been
+addresses, share names, hostnames, or credentials in anything tracked — they belong in
+`CLAUDE.local.md`, which is gitignored. `.env` is ignored and has never been
 committed; keep it that way. The same test applies to prose: tracked files are written for a
 stranger with a Pi and a cat. Opinions about the code belong in; notes about the owner, their
 machine or their workflow go in `CLAUDE.local.md`.

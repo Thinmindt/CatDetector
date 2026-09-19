@@ -94,8 +94,9 @@ uv run mypy .                # type-check (strict)
 
 ## Contributing
 
-`docs/STYLE.md` is the style guide and `docs/DESIGN.md` records why the code is shaped the way it
-is, with the measurements behind each decision; `CLAUDE.md` lists the traps. Before a commit, all
+`docs/ROADMAP.md` is the plan and the open questions, `docs/DESIGN.md` records why the code is
+shaped the way it is, with the measurements behind each decision, and `docs/STYLE.md` is the
+style guide; `CLAUDE.md` lists the traps. Before a commit, all
 four of the checks above must pass.
 
 ## Security
