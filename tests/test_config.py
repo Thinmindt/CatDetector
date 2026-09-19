@@ -89,11 +89,13 @@ def test_dotenv_is_actually_loaded(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_falls_back_when_the_environment_is_empty(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """With neither the environment nor .env naming the share, the default holds."""
+    monkeypatch.setattr("dotenv.load_dotenv", lambda *args, **kwargs: False)
     monkeypatch.delenv("NETWORK_SHARE_DIR", raising=False)
     import config
 
     importlib.reload(config)
-    assert config.Config.NETWORK_SHARE_DIR
+    assert config.Config.NETWORK_SHARE_DIR == "/mnt/nas"
 
 
 def test_detection_settings_come_from_the_environment(
