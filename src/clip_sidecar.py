@@ -33,7 +33,7 @@ def sidecar_name(clip: Path) -> Path:
     return clip.with_name(clip.name + SIDECAR_SUFFIX)
 
 
-def write_sidecar(clip: Path, facts: ClipFacts) -> Path:
+def write_sidecar(clip: Path, facts: ClipFacts) -> None:
     payload = {
         "started_at": facts.started_at.isoformat(timespec="milliseconds"),
         "ended_at": facts.ended_at.isoformat(timespec="milliseconds"),
@@ -41,9 +41,7 @@ def write_sidecar(clip: Path, facts: ClipFacts) -> Path:
         "trigger_blob": _blob_fields(facts.trigger_blob),
         "last_blob": _blob_fields(facts.last_blob),
     }
-    path = sidecar_name(clip)
-    path.write_text(json.dumps(payload, indent=1))
-    return path
+    sidecar_name(clip).write_text(json.dumps(payload, indent=1))
 
 
 def read_sidecar(clip: Path) -> ClipFacts | None:

@@ -116,7 +116,6 @@ class FakePicamera2:
     def __init__(self) -> None:
         self.configured: Any = None
         self.started = False
-        self.closed = False
         self.recording_encoder: Any = None
         self.recording_output: Any = None
         self.stop_encoder_calls: list[Any] = []
@@ -166,9 +165,6 @@ class FakePicamera2:
 
     def stop_recording(self) -> None:
         self.stop_recording_calls += 1
-
-    def close(self) -> None:
-        self.closed = True
 
 
 class StubRecorder:

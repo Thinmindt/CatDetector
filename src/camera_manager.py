@@ -11,7 +11,6 @@ log = logging.getLogger(__name__)
 
 JOIN_TIMEOUT_SECONDS = 5.0
 CAPTURE_ERROR_BACKOFF_SECONDS = 2.0
-FRAME_LOG_INTERVAL = 100
 
 FrameConsumer = Callable[[Frame, Frame], None]
 
@@ -67,15 +66,10 @@ class CameraManager:
     def _distribute_frames(self) -> None:
         """Capture and dispatch until stopped. Paced by the blocking capture."""
         log.info("Starting frame distribution loop")
-        frame_count = 0
-
         while self._running:
             try:
                 main_frame, lores_frame = self._capture_next_frames()
                 self._dispatch(main_frame, lores_frame)
-                frame_count += 1
-                if frame_count % FRAME_LOG_INTERVAL == 0:
-                    log.debug("Processed %d frames", frame_count)
             except Exception:
                 log.exception("Frame capture error")
                 time.sleep(CAPTURE_ERROR_BACKOFF_SECONDS)
@@ -99,15 +93,5 @@ class CameraManager:
                 log.exception("Error in consumer")
 
     def get_camera(self) -> Picamera2:
-        """Get the camera instance for recording"""
+        """The camera itself, for the recorder's encoder pipeline."""
         return self.picam2
-
-    def close(self) -> None:
-        """Close the camera"""
-        try:
-            self.stop_frame_distribution()
-            time.sleep(1)
-            self.picam2.close()
-            log.info("Camera closed successfully")
-        except Exception:
-            log.exception("Error closing camera")
