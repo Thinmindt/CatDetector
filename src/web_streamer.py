@@ -15,6 +15,13 @@ log = logging.getLogger(__name__)
 JPEG_QUALITY = 70
 STREAM_INTERVAL_SECONDS = 1 / 30
 
+# picamera2's "RGB888" is BGR in memory, which is what OpenCV expects.
+RED = (0, 0, 255)
+
+
+def caption(frame: Frame, text: str, row: int, scale: float) -> None:
+    cv2.putText(frame, text, (10, row), cv2.FONT_HERSHEY_SIMPLEX, scale, RED, 2)
+
 
 class WebStreamer:
     """Keeps the newest annotated frame and serves it as MJPEG, with a status feed."""
@@ -31,43 +38,16 @@ class WebStreamer:
         self.camera_manager.add_consumer(self._consume_frames)
 
     def _consume_frames(self, main_frame: Frame, lores_frame: Frame) -> None:  # noqa: ARG002 -- signature fixed by FrameConsumer
-        """Consumer callback: annotate a copy of the main frame and keep it."""
-        frame_rgb = main_frame.copy()
-
+        """Consumer callback: keep a copy of the main frame, captioned if recording."""
+        frame = main_frame.copy()
         recorder = self.motion_recorder
-        if recorder:
-            if recorder.recording:
-                cv2.putText(
-                    frame_rgb,
-                    "RECORDING",
-                    (10, 30),
-                    cv2.FONT_HERSHEY_SIMPLEX,
-                    1.0,
-                    (0, 0, 255),
-                    2,
-                )
-                if recorder.current_filename:
-                    cv2.putText(
-                        frame_rgb,
-                        f"File: {recorder.current_filename.name}",
-                        (10, 70),
-                        cv2.FONT_HERSHEY_SIMPLEX,
-                        0.6,
-                        (0, 0, 255),
-                        2,
-                    )
-            cv2.putText(
-                frame_rgb,
-                f"Motion Threshold: {recorder.motion_threshold}",
-                (10, frame_rgb.shape[0] - 20),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                0.5,
-                (255, 255, 255),
-                1,
-            )
+        clip = recorder.current_filename if recorder is not None else None
+        if clip is not None:
+            caption(frame, "RECORDING", row=30, scale=1.0)
+            caption(frame, f"File: {clip.name}", row=70, scale=0.6)
 
         with self.frame_lock:
-            self.latest_frame = frame_rgb
+            self.latest_frame = frame
 
     def status(self) -> dict[str, object]:
         """What the Live tab shows beside the feed."""
