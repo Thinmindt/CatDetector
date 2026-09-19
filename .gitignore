@@ -15,11 +15,11 @@ __pycache__/
 # Test files
 test_images/
 
-# Local planning notes. The style guide and design doc are tracked; everything
-# else in docs/ stays private.
+# docs/ is private by default; these three are tracked.
 docs/*
 !docs/STYLE.md
 !docs/DESIGN.md
+!docs/ROADMAP.md
 
 # Agent notes about this particular Pi and its owner
 CLAUDE.local.md
