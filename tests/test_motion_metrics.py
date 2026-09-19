@@ -27,8 +27,12 @@ SHADOW_VALUE = 127
 EMPTY = FrameMetrics(foreground_px=1, blob=None, clean_blob=None, brightness=0.0)
 
 
+# Enough pixels for MOG2 to train on; a quarter the size of a lores frame.
+SMALL_SIZE = (120, 160)
+
+
 def frame_with(background: int, patches: list[tuple[slice, slice, int]]) -> Any:
-    img = np.full((*LORES_SIZE, 3), background, dtype=np.uint8)
+    img = np.full((*SMALL_SIZE, 3), background, dtype=np.uint8)
     for rows, cols, value in patches:
         img[rows, cols] = value
     return img
@@ -48,7 +52,7 @@ def two_fragments() -> Any:
 def test_mog2_marks_shadows_with_a_distinct_value() -> None:
     """Documents the behaviour the fix depends on, against real MOG2."""
     subtractor = cv2.createBackgroundSubtractorMOG2()
-    background = np.full((120, 160), 200, dtype=np.uint8)
+    background = np.full(SMALL_SIZE, 200, dtype=np.uint8)
     for _ in range(60):
         subtractor.apply(background)
 
@@ -67,7 +71,7 @@ def test_disabling_shadow_detection_does_not_exclude_shadows() -> None:
     counts = []
     for detect_shadows in (True, False):
         subtractor = cv2.createBackgroundSubtractorMOG2(detectShadows=detect_shadows)
-        background = np.full((120, 160), 200, dtype=np.uint8)
+        background = np.full(SMALL_SIZE, 200, dtype=np.uint8)
         for _ in range(60):
             subtractor.apply(background)
         frame = background.copy()
@@ -86,11 +90,11 @@ def test_shadow_pixels_do_not_count_as_motion(recorder_with_real_mog2: Any) -> N
     for _ in range(60):
         recorder.detect_motion(background)
 
-    shadow_only = frame_with(200, [(slice(50, 200), slice(50, 300), 100)])
+    shadow_only = frame_with(200, [(slice(20, 60), slice(20, 100), 100)])
     recorder.detect_motion(shadow_only)
     shadow_pixels = recorder.last_motion_pixels
 
-    real_object = frame_with(200, [(slice(50, 200), slice(50, 300), 20)])
+    real_object = frame_with(200, [(slice(20, 60), slice(20, 100), 20)])
     recorder.detect_motion(real_object)
     object_pixels = recorder.last_motion_pixels
 
@@ -270,12 +274,15 @@ def test_recorder_feeds_the_metrics_log(
     assert {row["brightness"] for row in rows} == {"100.0"}
 
 
-def test_close_returns_when_the_writer_thread_has_died(tmp_path: Path) -> None:
+def test_close_returns_when_the_writer_thread_has_died(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """A dead writer plus a full queue must not wedge shutdown.
 
     close() runs on the main thread during cleanup(), so a blocking enqueue
     there hangs the process.
     """
+    monkeypatch.setattr("src.motion_metrics.SENTINEL_TIMEOUT_SECONDS", 0.1)
     directory = tmp_path / "readonly"
     directory.mkdir()
     directory.chmod(0o500)

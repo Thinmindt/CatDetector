@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import importlib.util
 import sys
-import time
+import threading
 import types
 from collections.abc import Iterator
 from pathlib import Path
@@ -67,7 +67,9 @@ class FakeCircularOutput:
         self.start_calls = 0
         self.stop_calls = 0
         self.dead = False
-        self.stop_delay = 0.0
+        # The real stop() drains the whole ring buffer to disk; a gate here makes
+        # stop() block until a test opens it, so the test can see who waited.
+        self.stop_gate: threading.Event | None = None
         # Assigning fileoutput opens the file in the real class, so that is the
         # statement that fails when the share is gone -- not start().
         self.fail_on_fileoutput = False
@@ -92,10 +94,8 @@ class FakeCircularOutput:
         self.start_calls += 1
 
     def stop(self) -> None:
-        # The real stop() drains the whole ring buffer to disk; stop_delay lets a
-        # test stand in for that being slow.
-        if self.stop_delay:
-            time.sleep(self.stop_delay)
+        if self.stop_gate is not None:
+            self.stop_gate.wait(timeout=5)
         self.started = False
         self.stop_calls += 1
 

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import datetime
 import logging
+import threading
 import time
 from pathlib import Path
 from typing import Any
@@ -19,10 +20,6 @@ from conftest import (
 
 from src.clip_sidecar import ClipFacts, CloseReason, read_sidecar, sidecar_name
 from src.motion_recorder import partial_name
-
-# Handing the drain to a thread should be effectively instant; the fake's
-# stop_delay is 1.0s, so anything near that means the caller waited on it.
-HANDOFF_BUDGET_SECONDS = 0.5
 
 # Mean grey levels either side of a dark cutoff of 10, as measured at night and by day.
 DARK_CUTOFF = 10
@@ -267,13 +264,13 @@ def test_draining_a_clip_does_not_block_the_caller(recorder: Any) -> None:
     picamera2's event loop with it -- for a multi-megabyte network write.
     """
     recorder._start_saving()
-    recorder.circular_output.stop_delay = 1.0
+    drained = threading.Event()
+    recorder.circular_output.stop_gate = drained
 
-    started = time.monotonic()
     recorder._stop_saving(CloseReason.TIMEOUT)
-    elapsed = time.monotonic() - started
 
-    assert elapsed < HANDOFF_BUDGET_SECONDS
+    assert recorder.circular_output.stop_calls == 0  # still draining, elsewhere
+    drained.set()
     recorder._drain_thread.join(timeout=5)
     assert recorder.circular_output.stop_calls == 1
 
@@ -281,11 +278,13 @@ def test_draining_a_clip_does_not_block_the_caller(recorder: Any) -> None:
 def test_a_new_clip_waits_for_the_previous_drain(recorder: Any) -> None:
     """Two clips must not share the output while one is still flushing."""
     recorder._start_saving()
-    recorder.circular_output.stop_delay = 1.0
+    drained = threading.Event()
+    recorder.circular_output.stop_gate = drained
     recorder._stop_saving(CloseReason.TIMEOUT)
 
     assert recorder._start_saving() is None  # drain still in flight
 
+    drained.set()
     recorder._drain_thread.join(timeout=5)
     assert recorder._start_saving() is not None
 
