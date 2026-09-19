@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import collections
 import datetime
+import io
 import logging
 import threading
 import time
@@ -22,6 +24,7 @@ from conftest import (
 
 from src.clip_format import CAMERA_FPS, partial_name
 from src.clip_sidecar import ClipFacts, CloseReason, read_sidecar, sidecar_name
+from src.motion_recorder import _ResilientCircularOutput
 
 # Mean grey levels either side of a dark cutoff of 10, as measured at night and by day.
 DARK_CUTOFF = 10
@@ -259,7 +262,7 @@ def test_cleanup_closes_an_open_clip(recorder: Any) -> None:
     assert not recorder.recording
 
 
-# --- the fixes from review --------------------------------------------------
+# --- resilience: draining, limits, names, clocks, failed writes -------------
 
 
 def test_draining_a_clip_does_not_block_the_caller(recorder: Any) -> None:
@@ -393,7 +396,6 @@ def test_storage_errors_never_escape_to_picamera2() -> None:
     returns camera buffers. The base CircularOutput only catches connection
     errors, so an OSError from the share would kill it and freeze every capture.
     """
-    from src.motion_recorder import _ResilientCircularOutput
 
     class ExplodingFile:
         def __init__(self) -> None:
@@ -416,6 +418,9 @@ def test_storage_errors_never_escape_to_picamera2() -> None:
 
     output._write(b"another")  # and must stop hammering a dead share
     assert handle.writes == 1
+
+
+# --- partial names and startup recovery -------------------------------------
 
 
 def test_a_finished_clip_is_promoted_from_its_partial_name(recorder: Any) -> None:
@@ -591,10 +596,6 @@ def test_outputframe_survives_the_ring_draining_mid_frame() -> None:
     The exception would otherwise kill the encoder's poll thread, which is the
     only one that returns camera buffers.
     """
-    import collections
-    import io
-
-    from src.motion_recorder import _ResilientCircularOutput
 
     class DrainedRing:
         """A ring that stop() drains the instant a frame lands in it."""

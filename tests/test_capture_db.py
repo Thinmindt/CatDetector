@@ -19,6 +19,7 @@ from conftest import (
     visit,
 )
 
+import review
 from src.capture_db import CaptureDB
 from src.clip_sidecar import CloseReason, read_sidecar
 
@@ -257,8 +258,6 @@ def test_the_regroup_command_uses_the_current_thresholds(
 ) -> None:
     """Thresholds must be read when the database opens, not when the module
     loads, or a changed setting would not reach the rule."""
-    import review
-
     directory = tmp_path / "captures"
     make_clip_with_facts(directory, at(0), seconds=20)
     make_clip_with_facts(directory, at(200), seconds=15)

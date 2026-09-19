@@ -11,6 +11,8 @@ from typing import Any
 
 import pytest
 
+import main
+
 
 def test_a_broken_recorder_still_leaves_the_stream(
     camera_manager: Any,
@@ -21,7 +23,6 @@ def test_a_broken_recorder_still_leaves_the_stream(
     """Regression: _setup_circular_recording no longer swallows failures, so an
     OSError propagated out of __init__ and killed startup before WebStreamer
     was ever constructed -- leaving no web feed at all."""
-    import main
 
     def explode(**kwargs: object) -> None:
         raise OSError("share went away mid-startup")
@@ -39,8 +40,6 @@ def test_detection_settings_reach_the_recorder(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    import main
-
     monkeypatch.setattr("main.Config.MOTION_THRESHOLD", 200)
     monkeypatch.setattr("main.Config.DARK_BRIGHTNESS", 12.5)
     monkeypatch.setattr("main.Config.MOTION_TIMEOUT", 30.0)
@@ -81,8 +80,6 @@ def fail_if_not_replaced(*args: object) -> None:
 def test_sigterm_runs_the_same_cleanup_as_ctrl_c() -> None:
     """systemd and kill stop a process with SIGTERM. Without a handler the
     process dies on the spot and the clip being written is never finished."""
-    import main
-
     spy: Any = MonitorSpy()
     previous = signal.signal(signal.SIGTERM, fail_if_not_replaced)
     timer = threading.Timer(0.2, os.kill, args=(os.getpid(), signal.SIGTERM))

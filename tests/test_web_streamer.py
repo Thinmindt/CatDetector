@@ -10,11 +10,11 @@ import numpy as np
 import pytest
 from conftest import LORES_SIZE, MAIN_SIZE, StubRecorder, make_frame
 
+from src.web_streamer import WebStreamer
+
 
 @pytest.fixture
 def make_streamer(camera_manager: Any) -> Any:
-    from src.web_streamer import WebStreamer
-
     def build(recorder: Any = None) -> Any:
         return WebStreamer(camera_manager=camera_manager, motion_recorder=recorder)
 

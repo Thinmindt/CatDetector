@@ -25,7 +25,7 @@ from src.motion_metrics import (
 
 SHADOW_VALUE = 127
 
-EMPTY = FrameMetrics(foreground_px=1, blob=None, clean_blob=None, brightness=0.0)
+NO_BLOB = FrameMetrics(foreground_px=1, blob=None, clean_blob=None, brightness=0.0)
 
 
 # Enough pixels for MOG2 to train on; a quarter the size of a lores frame.
@@ -179,7 +179,7 @@ def test_records_rows_with_a_header(tmp_path: Path) -> None:
         ),
         recording=True,
     )
-    log.record(EMPTY, recording=False)
+    log.record(NO_BLOB, recording=False)
     log.close()
 
     rows = read_rows(tmp_path / "metrics.csv")
@@ -200,11 +200,11 @@ def test_records_rows_with_a_header(tmp_path: Path) -> None:
 def test_appends_without_repeating_the_header(tmp_path: Path) -> None:
     path = tmp_path / "metrics.csv"
     first = MetricsLog(path)
-    first.record(EMPTY, recording=False)
+    first.record(NO_BLOB, recording=False)
     first.close()
 
     second = MetricsLog(path)
-    second.record(EMPTY, recording=False)
+    second.record(NO_BLOB, recording=False)
     second.close()
 
     assert len(read_rows(path)) == 2
@@ -221,7 +221,7 @@ def test_a_file_with_another_column_layout_is_left_alone(
 
     with caplog.at_level(logging.WARNING):
         log = MetricsLog(path)
-    log.record(EMPTY, recording=False)
+    log.record(NO_BLOB, recording=False)
     log.close()
 
     assert path.read_text() == old
@@ -237,7 +237,7 @@ def test_record_does_not_block_when_the_writer_falls_behind(
     log = MetricsLog(tmp_path / "metrics.csv")
     log._queue.maxsize = 1
     for _ in range(5000):
-        log.record(EMPTY, recording=False)
+        log.record(NO_BLOB, recording=False)
 
     assert log.dropped > 0
     with caplog.at_level(logging.WARNING):
@@ -284,7 +284,7 @@ def test_close_returns_when_the_writer_thread_has_died(
 
         log._queue.maxsize = 2
         for _ in range(10):
-            log.record(EMPTY, recording=False)
+            log.record(NO_BLOB, recording=False)
         assert log._queue.full()
 
         finished = threading.Event()
