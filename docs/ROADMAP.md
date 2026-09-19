@@ -399,6 +399,20 @@ at the moment of labeling and never hidden:
       bounding boxes, and a route that opens one event, for notification deep links (the review
       UI now lives in the main app on the same port, so nothing else stands in the way).
 
+**From use, 2026-09-19.** Two things make the page hard to work with now that it is used daily:
+
+- [ ] **It is used from a phone, and the buttons are too small to hit.** Larger touch targets
+      for the label, cleaning and split/join actions, and a layout that reflows at phone width:
+      the tile grid, the counts line and the event header. The keyboard shortcuts stay; they
+      are the desk path, and a phone has no keys.
+- [ ] **A reload loses your place.** The `?filter=` walks keep their position in page state, so
+      reloading starts the walk over from its first event, and a backlog cannot be worked
+      through in sittings. Put the position in the URL — the event id as the path, the filter as
+      a query parameter — so a reload, the back button or a pasted link lands on the same event.
+      This is the same route the notification deep links need (B.4), so build it once.
+- [ ] **Dates are machine-shaped.** Show times in a readable local form (`Tue 15 Sep, 06:11`),
+      with the relative time (`3 days ago`) on hover, here and on the timeline below (B.6).
+
 Non-goals for v1: multi-user, accounts, editing bounding boxes by hand.
 
 ## B.4 Notifications
@@ -485,7 +499,13 @@ What it needs downstream, none of it on the capture path:
 
 ## B.6 The payoff
 
-- [ ] Per-cat visit log, and a page showing frequency over time.
+- [ ] Per-cat visit log, and a page showing frequency over time. **First cut (2026-09-19): a
+      timeline of every event**, newest first, one row each with its time, label, box, duration
+      and clip count, linking to the event's review page. One filter per label value (the same
+      set the review walk uses), so the `cat` rows alone read as the visit log and the `clean`
+      rows as the cleaning log. Dates readable, relative time on hover (B.3). Until per-cat
+      labels exist, frequency is read off this page by eye; once they do, it becomes the per-cat
+      log without changing shape.
 - [ ] Litter box usage is a health signal, and catching bowel or urinary trouble is the goal.
       Alert on changes in how often a cat visits and how long it stays.
       That should shape what gets logged from the start (duration in box, time of day), because
