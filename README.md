@@ -85,6 +85,7 @@ Requires `ffmpeg` (`sudo apt install ffmpeg`).
 ## Test, lint, format, type-check
 
 ```
+bash scripts/check.sh        # everything below, stopping at the first failure
 uv run pytest                # unit tests (no hardware, and no picamera2, needed)
 uv run ruff check .          # lint
 uv run ruff check --fix .    # lint + autofix
@@ -92,12 +93,13 @@ uv run ruff format .         # format
 uv run mypy .                # type-check (strict)
 ```
 
+GitHub Actions runs the same script on every push (`.github/workflows/check.yml`).
+
 ## Contributing
 
 `docs/ROADMAP.md` is the plan and the open questions, `docs/DESIGN.md` records why the code is
 shaped the way it is, with the measurements behind each decision, and `docs/STYLE.md` is the
-style guide; `CLAUDE.md` lists the traps. Before a commit, all
-four of the checks above must pass.
+style guide; `CLAUDE.md` lists the traps. Before a commit, `scripts/check.sh` must pass.
 
 ## Security
 
