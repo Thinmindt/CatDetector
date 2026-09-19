@@ -5,6 +5,7 @@ from __future__ import annotations
 import csv
 import logging
 import threading
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -82,10 +83,12 @@ def test_disabling_shadow_detection_does_not_exclude_shadows() -> None:
     assert counts[0] == counts[1]
 
 
-def test_shadow_pixels_do_not_count_as_motion(recorder_with_real_mog2: Any) -> None:
+def test_shadow_pixels_do_not_count_as_motion(
+    make_recorder: Callable[..., Any],
+) -> None:
     """Regression: countNonZero counted MOG2's 127s, so a moving shadow read as
     a cat."""
-    recorder = recorder_with_real_mog2
+    recorder = make_recorder(stub_mog2=False, warmup_frames=0)
     background = frame_with(200, [])
     for _ in range(60):
         recorder.detect_motion(background)
@@ -249,17 +252,10 @@ def test_creates_the_parent_directory(tmp_path: Path) -> None:
 
 
 def test_recorder_feeds_the_metrics_log(
-    camera_manager: Any, fake_encoders: None, tmp_path: Path
+    make_recorder: Callable[..., Any], tmp_path: Path
 ) -> None:
-    from src.motion_recorder import MotionRecorder
-
     log = MetricsLog(tmp_path / "metrics.csv")
-    rec = MotionRecorder(
-        camera_manager=camera_manager,
-        video_directory=tmp_path / "clips",
-        metrics=log,
-        warmup_frames=2,
-    )
+    rec = make_recorder(stub_mog2=False, metrics=log, warmup_frames=2)
     for _ in range(5):
         rec.detect_motion(make_frame(LORES_SIZE, 100))
     rec.cleanup()

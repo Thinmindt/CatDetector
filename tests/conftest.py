@@ -11,7 +11,7 @@ import importlib.util
 import sys
 import threading
 import types
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from pathlib import Path
 from typing import Any, cast
 
@@ -221,35 +221,36 @@ def camera_manager(fake_camera: FakePicamera2) -> Iterator[Any]:
 
 
 @pytest.fixture
-def recorder(camera_manager: Any, fake_encoders: None, tmp_path: Path) -> Iterator[Any]:
+def make_recorder(
+    camera_manager: Any, fake_encoders: None, tmp_path: Path
+) -> Callable[..., Any]:
+    """A recorder over the fakes; keyword overrides reach the constructor.
+
+    MOG2 is swapped for StubSubtractor so tests dictate the foreground pixel
+    count exactly; stub_mog2=False keeps the real one.
+    """
     from src.motion_recorder import MotionRecorder
 
-    rec = MotionRecorder(
-        camera_manager=camera_manager,
-        video_directory=tmp_path / "clips",
-        file_prefix="test",
-        motion_threshold=1000,
-        # make_frame() is black by default; 0 keeps every test frame lit.
-        dark_brightness=0,
-        motion_timeout=5,
-        buffer_seconds=2,
-        warmup_frames=3,
-    )
-    # Swap MOG2 out so tests dictate the foreground pixel count exactly.
-    rec.background_subtractor = cast(Any, StubSubtractor())
-    yield rec
+    def build(*, stub_mog2: bool = True, **overrides: Any) -> Any:
+        settings: dict[str, Any] = {
+            "video_directory": tmp_path / "clips",
+            "file_prefix": "test",
+            "motion_threshold": 1000,
+            # make_frame() is black by default; 0 keeps every test frame lit.
+            "dark_brightness": 0,
+            "motion_timeout": 5,
+            "mog2_history": 500,
+            "buffer_seconds": 2,
+            "warmup_frames": 3,
+        }
+        rec = MotionRecorder(camera_manager, **{**settings, **overrides})
+        if stub_mog2:
+            rec.background_subtractor = cast(Any, StubSubtractor())
+        return rec
+
+    return build
 
 
 @pytest.fixture
-def recorder_with_real_mog2(
-    camera_manager: Any, fake_encoders: None, tmp_path: Path
-) -> Any:
-    """Recorder keeping the real MOG2, for tests about shadow handling."""
-    from src.motion_recorder import MotionRecorder
-
-    return MotionRecorder(
-        camera_manager=camera_manager,
-        video_directory=tmp_path / "clips",
-        motion_threshold=1000,
-        warmup_frames=0,
-    )
+def recorder(make_recorder: Callable[..., Any]) -> Any:
+    return make_recorder()

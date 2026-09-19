@@ -70,7 +70,6 @@ def build_recorder(
         return MotionRecorder(
             camera_manager=camera_manager,
             video_directory=local_clips,
-            file_prefix="cat_video",
             motion_threshold=Config.MOTION_THRESHOLD,
             dark_brightness=Config.DARK_BRIGHTNESS,
             motion_timeout=Config.MOTION_TIMEOUT,

@@ -6,6 +6,7 @@ import datetime
 import logging
 import threading
 import time
+from collections.abc import Callable
 from dataclasses import replace
 from pathlib import Path
 from typing import Any
@@ -57,12 +58,10 @@ def test_the_encoder_pins_one_keyframe_a_second(recorder: Any) -> None:
 
 
 def test_creates_the_video_directory(
-    camera_manager: Any, fake_encoders: None, tmp_path: Path
+    make_recorder: Callable[..., Any], tmp_path: Path
 ) -> None:
-    from src.motion_recorder import MotionRecorder
-
     target = tmp_path / "nested" / "clips"
-    MotionRecorder(camera_manager=camera_manager, video_directory=target)
+    make_recorder(video_directory=target)
     assert target.is_dir()
 
 
@@ -370,35 +369,18 @@ def test_timeout_survives_a_wall_clock_step(
     assert not recorder.recording
 
 
-def test_negative_warmup_is_rejected(
-    camera_manager: Any, fake_encoders: None, tmp_path: Path
-) -> None:
-    from src.motion_recorder import MotionRecorder
-
+def test_negative_warmup_is_rejected(make_recorder: Callable[..., Any]) -> None:
     with pytest.raises(ValueError):
-        MotionRecorder(
-            camera_manager=camera_manager,
-            video_directory=tmp_path / "clips",
-            warmup_frames=-1,
-        )
+        make_recorder(warmup_frames=-1)
 
 
 def test_zero_warmup_announces_that_it_is_armed(
-    camera_manager: Any,
-    fake_encoders: None,
-    tmp_path: Path,
-    caplog: pytest.LogCaptureFixture,
+    make_recorder: Callable[..., Any], caplog: pytest.LogCaptureFixture
 ) -> None:
     """warmup_frames=0 legitimately means "no warmup", but it must still say so:
     the armed line is otherwise only logged from inside the warmup branch."""
-    from src.motion_recorder import MotionRecorder
-
     with caplog.at_level(logging.INFO):
-        MotionRecorder(
-            camera_manager=camera_manager,
-            video_directory=tmp_path / "clips",
-            warmup_frames=0,
-        )
+        make_recorder(warmup_frames=0)
 
     assert "armed" in caplog.text
 
@@ -464,45 +446,39 @@ def test_an_empty_clip_is_discarded_rather_than_promoted(
     assert "Discarded empty clip" in caplog.text
 
 
-def build_recorder_over(camera_manager: Any, directory: Path) -> Any:
-    from src.motion_recorder import MotionRecorder
-
-    return MotionRecorder(camera_manager=camera_manager, video_directory=directory)
-
-
 def test_a_clip_cut_off_mid_write_is_recovered_at_startup(
-    camera_manager: Any, fake_encoders: None, tmp_path: Path
+    make_recorder: Callable[..., Any], tmp_path: Path
 ) -> None:
     """A power cut leaves the partial name, and only final names ever ship."""
     clip = tmp_path / "cat_video_20260910_080413.h264"
     partial_name(clip).write_bytes(b"half a visit")
 
-    build_recorder_over(camera_manager, tmp_path)
+    make_recorder(video_directory=tmp_path)
 
     assert clip.read_bytes() == b"half a visit"
     assert not partial_name(clip).exists()
 
 
 def test_an_empty_partial_clip_is_discarded_at_startup(
-    camera_manager: Any, fake_encoders: None, tmp_path: Path
+    make_recorder: Callable[..., Any], tmp_path: Path
 ) -> None:
     clip = tmp_path / "cat_video_20260910_080413.h264"
     partial_name(clip).write_bytes(b"")
 
-    build_recorder_over(camera_manager, tmp_path)
+    make_recorder(video_directory=tmp_path)
 
     assert not clip.exists()
     assert not partial_name(clip).exists()
 
 
 def test_recovery_never_overwrites_a_finished_clip(
-    camera_manager: Any, fake_encoders: None, tmp_path: Path
+    make_recorder: Callable[..., Any], tmp_path: Path
 ) -> None:
     clip = tmp_path / "cat_video_20260910_080413.h264"
     clip.write_bytes(b"the whole visit")
     partial_name(clip).write_bytes(b"something else")
 
-    build_recorder_over(camera_manager, tmp_path)
+    make_recorder(video_directory=tmp_path)
 
     assert clip.read_bytes() == b"the whole visit"
     assert partial_name(clip).read_bytes() == b"something else"
