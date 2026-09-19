@@ -44,7 +44,9 @@ Three consequences worth holding onto:
 
 This only runs on a Pi with an attached camera. `picamera2` binds to real hardware when a
 `Picamera2` object is **constructed** (not when the module is imported), so nothing in `src/` can
-be exercised on a dev machine; the unit tests fake that layer instead.
+be exercised on a dev machine; the unit tests fake that layer instead. The suite itself runs
+anywhere: on a machine with no `picamera2`, `tests/conftest.py` registers empty stand-in modules
+before `src/` is imported, and the two tests that exercise the real `CircularOutput` skip.
 
 The recordings directory is a **CIFS** network share mounted at `/mnt/nas`. That matters more
 than it sounds: writes can fail with a plain `OSError`, the mount can be absent at boot, and
@@ -202,7 +204,8 @@ then, not later — rewriting unpushed commits is free and rewriting pushed ones
 
 `tests/` holds pytest unit tests that never touch the camera. `tests/conftest.py` fakes
 `Picamera2`, `H264Encoder` and `_ResilientCircularOutput`, and `StubSubtractor` replaces MOG2 so
-a test can dictate the foreground pixel count exactly.
+a test can dictate the foreground pixel count exactly. A test that needs the real picamera2
+classes takes the `needs_real_picamera2` marker, so it skips where the package is absent.
 
 The fixture patches `_ResilientCircularOutput`, the subclass the recorder actually constructs —
 patching `CircularOutput` does nothing, because the subclass bound the real base class at import
