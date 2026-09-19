@@ -269,8 +269,14 @@ and counted rather than blocking — the capture thread must never wait on a dis
 on local disk, not the share: one row per frame at 30 fps is exactly the small-write pattern
 that CIFS handles worst.
 
-Contour extraction runs per frame only when metrics are enabled. Measured cost on the Pi: none
-detectable — 30.1 fps with and without.
+**Every frame is measured once, whether or not metrics are on** (2026-09-19). `detect_motion`
+decides from the same `FrameMetrics` the log receives, so the trigger and the CSV can never
+disagree, and A.3's size band reads its blob from the same place. The cost of measuring on
+every frame, on the Pi 5 with a synthetic 640x480 mask: 2.4 ms for a cat-sized blob or an empty
+mask, 9 ms for a mask that is 1 % speckle (raw-contour extraction on the noise), against a 33 ms
+frame budget. The metrics-on path already paid that and measured motion frames a second time,
+and held 30.0 fps on the camera (2026-09-18), so the metrics-off path now costs at most what the
+data run has been costing.
 
 **Blobs are logged both raw and cleaned, along with frame brightness.** A.3 will trigger on the
 largest blob after cleanup: a morphological open with a 3x3 ellipse drops speckle, then a close
