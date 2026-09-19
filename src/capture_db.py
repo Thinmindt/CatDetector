@@ -2,7 +2,6 @@
 
 import datetime
 import logging
-import re
 import sqlite3
 import threading
 from collections.abc import Callable
@@ -12,17 +11,10 @@ from pathlib import Path
 from typing import Any
 
 from config import Config
-from src.clip_format import CLIP_SUFFIX, H264_BITRATE
-from src.clip_sidecar import ClipFacts, read_sidecar
+from src.clip_scan import FoundClip, scan_clips
 from src.event_grouping import ClipRow, group_clips
 
 log = logging.getLogger(__name__)
-
-CLIP_TIMESTAMP = re.compile(r"_(\d{8})_(\d{6})(?:_\d+)?\.h264$")
-
-# A clip with no sidecar was cut off by a crash; its end is estimated from size.
-RECOVERED = "recovered"
-BYTES_PER_SECOND = H264_BITRATE / 8
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS event (
@@ -113,65 +105,6 @@ class Event:
         return self.clips[-1].ended_at if self.clips else None
 
 
-FoundClip = tuple[Path, int, ClipFacts | None]
-
-
-def _read_clip(clip: Path) -> FoundClip | None:
-    """A clip's size and sidecar facts, or None if it cannot be read."""
-    try:
-        size = clip.stat().st_size
-    except OSError as error:
-        log.warning("Skipping %s: %s", clip, error)
-        return None
-    return clip, size, _facts_for(clip)
-
-
-def _facts_for(clip: Path) -> ClipFacts | None:
-    try:
-        return read_sidecar(clip)
-    except (OSError, ValueError, KeyError) as error:
-        log.warning("Ignoring the sidecar of %s: %s", clip.name, error)
-        return None
-
-
-def _clip_started_at(name: str) -> str | None:
-    """ISO timestamp parsed from a clip filename, or None if it has none."""
-    match = CLIP_TIMESTAMP.search(name)
-    if match is None:
-        return None
-    try:
-        stamp = datetime.datetime.strptime(match[1] + match[2], "%Y%m%d%H%M%S")
-    except ValueError:
-        return None
-    return stamp.isoformat()
-
-
-def _estimated_end(started: str | None, size: int) -> str | None:
-    if started is None:
-        return None
-    end = datetime.datetime.fromisoformat(started) + datetime.timedelta(
-        seconds=size / BYTES_PER_SECOND
-    )
-    return end.isoformat(timespec="milliseconds")
-
-
-def _facts_columns(
-    facts: ClipFacts | None, started: str | None, size: int
-) -> tuple[object, ...]:
-    """started_at, ended_at, close_reason and the four centroid columns."""
-    if facts is None:
-        return (started, _estimated_end(started, size), RECOVERED, *(None,) * 4)
-    trigger = facts.trigger_blob.centroid if facts.trigger_blob else (None, None)
-    last = facts.last_blob.centroid if facts.last_blob else (None, None)
-    return (
-        facts.started_at.isoformat(timespec="milliseconds"),
-        facts.ended_at.isoformat(timespec="milliseconds"),
-        facts.close_reason.value,
-        *trigger,
-        *last,
-    )
-
-
 def _clip_row(row: sqlite3.Row) -> ClipRow:
     started = datetime.datetime.fromisoformat(row["started_at"])
     ended = (
@@ -242,14 +175,8 @@ class CaptureDB:
         share is read without the lock held: it can stall for minutes.
         """
         directory = Path(clip_directory)
-        if not directory.is_dir():
-            log.warning("Clip directory %s does not exist; nothing ingested", directory)
-            return 0
-
-        known = self._known_paths()
-        clips = sorted(directory.glob(f"*{CLIP_SUFFIX}"))
-        found = [_read_clip(clip) for clip in clips if str(clip) not in known]
-        added = self._register([clip for clip in found if clip is not None])
+        found = scan_clips(directory, skip=self._known_paths())
+        added = self._register(found)
         if added:
             log.info("Ingested %d new clip(s) from %s", added, directory)
         return added
@@ -272,17 +199,20 @@ class CaptureDB:
         self._conn.commit()
         return added
 
-    def _insert_new(self, found: FoundClip, now: str) -> int:
+    def _insert_new(self, clip: FoundClip, now: str) -> int:
         """Register one clip. Returns 0 if it is already known."""
-        clip, size, facts = found
         cursor = self._conn.execute(
             "INSERT OR IGNORE INTO clip (path, started_at, ended_at, close_reason,"
             " trigger_cx, trigger_cy, last_cx, last_cy, size_bytes, created_at)"
             " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
-                str(clip),
-                *_facts_columns(facts, _clip_started_at(clip.name), size),
-                size,
+                str(clip.path),
+                clip.started_at,
+                clip.ended_at,
+                clip.close_reason,
+                *(clip.trigger or (None, None)),
+                *(clip.last or (None, None)),
+                clip.size,
                 now,
             ),
         )
