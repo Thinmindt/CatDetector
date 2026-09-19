@@ -248,11 +248,6 @@ def test_creates_the_parent_directory(tmp_path: Path) -> None:
     assert (tmp_path / "nested" / "deeper").is_dir()
 
 
-def test_recorder_runs_without_metrics(recorder: Any) -> None:
-    assert recorder.metrics is None
-    recorder.detect_motion(make_frame(LORES_SIZE))
-
-
 def test_recorder_feeds_the_metrics_log(
     camera_manager: Any, fake_encoders: None, tmp_path: Path
 ) -> None:

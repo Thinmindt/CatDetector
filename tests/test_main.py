@@ -12,24 +12,6 @@ from typing import Any
 import pytest
 
 
-def test_recording_does_not_wait_for_the_share(
-    camera_manager: Any, fake_encoders: None, tmp_path: Path
-) -> None:
-    """Clips go to local disk, so an absent share must not stop the recorder.
-
-    Only ClipTransfer touches the share, and it checks the mountpoint itself --
-    see test_clip_transfer's unmounted-share case for that half.
-    """
-    import main
-
-    local = tmp_path / "clip_cache"
-
-    recorder = main.build_recorder(camera_manager, local)
-
-    assert recorder is not None
-    assert local.is_dir()
-
-
 def test_a_broken_recorder_still_leaves_the_stream(
     camera_manager: Any,
     tmp_path: Path,

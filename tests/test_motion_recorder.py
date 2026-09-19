@@ -50,6 +50,13 @@ def test_starts_buffering_on_the_shared_camera(
     assert fake_camera.recording_encoder is recorder.encoder
 
 
+def test_the_encoder_pins_one_keyframe_a_second(recorder: Any) -> None:
+    """The review tiles are cut at keyframes and assume one per second."""
+    from src.motion_recorder import CAMERA_FPS
+
+    assert recorder.encoder.iperiod == CAMERA_FPS
+
+
 def test_creates_the_video_directory(
     camera_manager: Any, fake_encoders: None, tmp_path: Path
 ) -> None:
@@ -401,9 +408,9 @@ def test_zero_warmup_announces_that_it_is_armed(
 def test_storage_errors_never_escape_to_picamera2() -> None:
     """Regression, exercised against the real class rather than the fake.
 
-    Frames are written inline on picamera2's camera event-loop thread. The base
-    CircularOutput only catches connection errors, so an OSError from the CIFS
-    share would propagate into that thread and kill it, hanging every capture.
+    Clip bytes are written on the encoder's poll thread, the only one that
+    returns camera buffers. The base CircularOutput only catches connection
+    errors, so an OSError from the share would kill it and freeze every capture.
     """
     from src.motion_recorder import _ResilientCircularOutput
 
