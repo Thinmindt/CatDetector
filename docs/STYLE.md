@@ -71,6 +71,35 @@ than re-read on every visit to the file. A comment beginning "deliberately", "we
 
 The exception is a `noqa`, which needs its reason inline to be reviewable. Keep it to a clause.
 
+## Design documents
+
+The design document is where the reasoning lives, and it has a failure mode of its own: being
+written from the vantage point of the day it was written. An entry is read months later by
+someone who was not there, so each one gives three things and nothing else:
+
+- **What** the decision is, in present tense, as a fact about the code.
+- **Why** — the measurement, the failure mode, or the constraint. This is the part a reader
+  cannot recover from the code.
+- **When**, as a date on the decision: `**Draining happens off-thread** (2026-08-29).` It says
+  how fresh the measurement is and gives `git log` a handle.
+
+Then the rules that follow from that:
+
+- **Never write a pending state.** "Still to be confirmed once the cooler is fitted" is false
+  within a week and nothing flags it. Pending work goes in the roadmap, where an unchecked box
+  *is* the status.
+- **A rejected alternative is a fact about the world, not a story about the code.** "Two
+  `capture_array` calls run at 15 fps", not "we used to make two calls". The first stays true
+  after the function is renamed; the second is git's job, and it ages.
+- **An incident is evidence, not narrative.** "A detector started by hand stays down after a
+  power cut until a person notices; one such gap cost 4.5 h" carries everything the reader
+  needs. The date of the incident, who noticed and what happened next do not.
+- **Sample size is part of the measurement.** "From one visit" or "from 22 clips" is what lets
+  the next person decide whether to trust the number or re-measure.
+
+The test is the same one as for comments, one level up: would the sentence still be true and
+still be useful if the reader had no idea when it was written?
+
 ## Docstrings
 
 One line if one line does it. Say what the thing is for; add a second paragraph only for a

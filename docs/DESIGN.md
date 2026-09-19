@@ -15,7 +15,7 @@ made a visit is how we get there, not the goal itself. Three things follow from 
 - **A visit may span several clips.** It is fine to stop recording while nothing is truly moving, for
   example while a cat sits still in the box, as long as the clips on either side of the pause are
   linked to the same litter-box event. One clip does not have to stay open through the stillness.
-  Linking clips into events is not built yet; see ROADMAP A.4 and B.1.
+  Clips are linked into events at ingest; see Events below and ROADMAP A.4.
 - **Poop versus pee is a possible later step.** Telling them apart looks hard and error-prone, so
   nothing should depend on it.
 
@@ -30,13 +30,13 @@ return frames from different exposures ~33 ms apart. Measured on the imx708: 15.
 calls, 30.00 fps for one `capture_arrays`. It returns `(arrays, metadata)`, not a bare list.
 
 **No sleep in the capture loop.** `capture_arrays` blocks until the next frame, which paces the
-loop at the sensor rate. An added sleep is pure loss — the earlier `sleep(0.033)` on top of two
-blocking captures is what produced ~10 fps.
+loop at the sensor rate. An added sleep is pure loss: a `sleep(0.033)` on top of two blocking
+captures runs the loop at ~10 fps.
 
-**Consumers run outside `_frame_lock`.** The lock covers capture only. Consumers still run
-synchronously on the capture thread, so a slow one throttles everything; it just no longer does
-so while holding the lock. Exceptions are caught per consumer so one bad consumer cannot stop
-the loop.
+**Consumers run outside `_frame_lock`.** The lock covers capture only. Consumers run
+synchronously on the capture thread, so a slow one throttles everything; a lock held across them
+as well would let one blocked consumer stop capture itself. Exceptions are caught per consumer so
+one bad consumer cannot stop the loop.
 
 **Joins are bounded.** A wedged consumer must not make shutdown hang. Five seconds, then log and
 move on.
@@ -82,8 +82,8 @@ copy drops the mtime, so once a clip reaches the share nothing says when it ende
 frame the cat was. `<clip>.h264.json` records the start and end wall times, the cleaned blob that
 triggered the clip, the blob on its last motion frame, and why it closed (`timeout`, `max_length`,
 `shutdown`). Those are the inputs to event grouping (ROADMAP A.4). Grouping is decided later from
-the sidecars rather than at capture time, because the gap threshold comes from data that does not
-exist yet, and a rule over recorded facts can be re-run. The recorder writes the sidecar *before*
+the sidecars rather than at capture time, because the gap threshold is set from data, and a rule
+over recorded facts can be re-run when it changes. The recorder writes the sidecar *before*
 promoting the clip and `ClipTransfer` copies it *before* the clip, so neither the local scan nor
 the review server can see a finished clip without its facts. A clip recovered after a crash has no
 sidecar; ingest treats that as `recovered` and estimates the end from size. The blob is computed
@@ -109,9 +109,8 @@ the `.part` is left for a person to look at.
 **After an unclean stop the camera stays busy ~10-15 s.** A `kill -9`, a crash or a power cut
 gives libcamera no chance to release the sensor, so the next `Picamera2()` fails with "Camera
 __init__ sequence did not complete" until the kernel reclaims it. Constructing the camera is the
-first thing `main.py` does, so this is a startup failure, not a recording one. Any auto-restart
-(the deferred systemd unit) must wait out that window; see ROADMAP's `RestartSec`. Measured on the
-Pi 5, 2026-09-12.
+first thing `main.py` does, so this is a startup failure, not a recording one. The service's
+`RestartSec` waits out that window; see Process. Measured on the Pi 5, 2026-09-12.
 
 **`_ResilientCircularOutput`.** Clip bytes are written on the **encoder's poll thread**
 (`V4L2Encoder.thread_poll`), not the camera event-loop thread. That distinction matters: the
@@ -135,8 +134,8 @@ anyway: switching it looks like a robustness improvement and is the opposite.
 **Draining happens off-thread.** `CircularOutput.stop()` writes the entire ring buffer with a
 flush per frame, holding the output's lock throughout. Inline on the capture thread that stalls
 frame distribution and picamera2's event loop for the length of the write. `_finish_clip` runs
-on its own thread; handoff measures ~0.3 ms. Now that the destination is local disk rather than
-the share, that write is milliseconds rather than a multi-megabyte network round trip.
+on its own thread; handoff measures ~0.3 ms. With the destination on local disk that write is
+milliseconds; to the share it is a multi-megabyte network round trip.
 
 **`buffer_seconds = 5`.** `stop()` empties the ring buffer, so pre-motion footage is bounded by
 the gap since the last clip ended regardless of buffer size. A 30 s buffer bought nothing and
@@ -170,7 +169,7 @@ open for the size of the jump; a forward step truncated one early.
 
 **Known weakness: a global pixel count.** Detection compares the number of foreground pixels
 anywhere in the frame against one threshold, with no spatial coherence, so scattered noise and
-one cat-sized blob look the same. Shadows no longer count; see Instrumentation. See ROADMAP.md
+one cat-sized blob look the same. Shadows do not count; see Instrumentation. See ROADMAP.md
 part A.
 
 **Threshold, timeout and MOG2 history are environment settings** (`MOTION_THRESHOLD`,
@@ -178,12 +177,12 @@ part A.
 much rather than missing a visit, and trying different values should not need a code change. The
 timeout and history keep their old hard-coded values (10 s and 500 frames).
 
-**The default threshold is 300 px, down from 5000** (2026-09-11). The only cat visit measured so
-far moved about 400–1,400 foreground px in the full-sensor view, and about 3,300 at its peak in the
-old cropped view. So 5000 would have recorded no visits at all, and 2000 missed the end of that
-one. Idle noise in the same view stayed under 100 px in 99.9% of frames and peaked at 228, so 300
-sits between the two. It is a safety net for a run that forgets to set the variable, not a tuned
-value; A.2's data sets the real one. The recorder's own default matches.
+**The default threshold is 300 px** (2026-09-11, from one visit). A walking cat measures about
+400–1,400 foreground px in the full-sensor view, and about 3,300 at peak in the cropped mode, so a
+threshold of 5000 records no visits at all and 2000 loses the end of a visit. Idle noise in the
+same view stays under 100 px in 99.9% of frames and peaks at 228, so 300 sits between the two.
+It is a safety net for a run that forgets to set the variable, not a tuned value; A.2's data sets
+the real one. The recorder's own default matches.
 
 History sets how long a still cat takes to fade into the background: roughly history ÷ 30
 seconds. The timeout then closes the clip. The goal allows a visit to span several clips, so
@@ -219,12 +218,12 @@ the main thread, so `monitor()`'s `finally` runs the usual shutdown. It also ign
 SIGTERM, so a second one cannot interrupt that cleanup.
 
 **It runs as a systemd service** (`deploy/catdetector.service.in`, 2026-09-14), so it starts at boot
-and comes back after a crash. Before that it was started by hand, and the power-off of 2026-09-10
-cost four and a half hours of recording until someone noticed. Most of the unit's settings favour
-recall over tidiness:
+and comes back after a crash. A detector started by hand stays down after a power cut until a
+person notices; one such gap cost four and a half hours of recording. Most of the unit's settings
+favour recall over tidiness:
 
 - **It wants the share's mount but does not require it.** `RequiresMountsFor=/mnt/nas` would stop
-  the detector from starting whenever the NAS is down at boot. Recording no longer needs the share:
+  the detector from starting whenever the NAS is down at boot. Recording does not need the share:
   clips are staged on local disk, and `ClipTransfer` refuses a path that is not a mountpoint. The
   unit is still ordered after the mount, so a share that is coming up is there for the first ingest.
 - **It waits for NTP, for at most 90 s.** After a power cut, fake-hwclock rewinds the clock to its
@@ -278,8 +277,8 @@ largest blob after cleanup: a morphological open with a 3x3 ellipse drops speckl
 with a 9x9 ellipse joins the pieces MOG2 splits one cat into. Logging that measurement during the
 A.2 run means the size band comes from the same numbers the trigger will see. The raw blob is
 still logged, so other kernel sizes can be judged later. Brightness is the mean grey level of the
-analysis frame. It makes lighting changes easy to pick out, and most of the non-cat clips so far
-were lighting changes.
+analysis frame. It makes lighting changes easy to pick out, and they are the main source of
+non-cat clips.
 
 Measured on the Pi 5's CPU with a synthetic mask and no camera: cleanup plus contours costs about
 1.7 ms a frame, and brightness 0.03 ms, against a 33 ms frame budget. With the camera running and
@@ -296,11 +295,10 @@ with no database. `CaptureDB` calls it from two places: `ingest`, for every resc
 on demand. The thresholds (`EVENT_GAP_SECONDS`, `EVENT_BOX_DISTANCE_PX`) are read when the
 database opens, not when the module loads, so `review.py --regroup` sees a changed setting.
 
-**Ingest reads only the sidecars of clips it has not seen** (2026-09-16). `_insert_new` used to
-read and parse every clip's sidecar before `INSERT OR IGNORE` discarded the known ones, so a rescan
-cost one CIFS round trip per clip in the archive. Both entry points ingest at startup, and the
-detector is now a service that restarts on its own, so that cost is paid at every start and lands
-where it hurts most: startup is time the camera is not recording. `ingest` now selects the known
+**Ingest reads only the sidecars of clips it has not seen** (2026-09-16). Reading every sidecar
+and letting `INSERT OR IGNORE` discard the known ones costs one CIFS round trip per clip in the
+archive, at every start of either entry point — and the service restarts on its own, so that cost
+lands where it hurts most: startup is time the camera is not recording. `ingest` selects the known
 paths once and skips them.
 
 **Event ids are stable across rescans.** Deep links (B.4 notifications), the UI's undo history and
@@ -322,8 +320,7 @@ one. Its start comes from the filename and its end is estimated from size at the
 match on time alone rather than strand the clip in its own event.
 
 **The frame cache is keyed by clip id, not event id.** Clip ids never change; event ids do on a
-`regroup`, and one event now has several clips. Cache files are named `clip<id>_...` so nothing
-from the old scheme can collide.
+`regroup`, and one event has several clips. Cache files are named `clip<id>_...`.
 
 **A database from before grouping is refused, not migrated.** The only database that predated
 grouping held nine test events and was carried across once by hand (2026-09-12). Migration code
@@ -335,31 +332,30 @@ for one machine's nine rows would outlive its purpose; a clear error at startup 
 recorder writes: on a real clip it reported a garbage frame count, failed its first read, and
 could not seek. ffmpeg decodes the same files cleanly (~0.6 s for an 8-thumb strip, ~0.4 s for
 one full frame on the Pi 5), so extraction shells out. Results are cached on local disk keyed by
-event id — clips are immutable once closed, so the cache never needs invalidating.
+clip id — clips are immutable once closed, so the cache never needs invalidating.
 
 **Cache entries are published by rename** (2026-09-16). Flask serves the review UI threaded, and
 ffmpeg creates and truncates its output before it writes anything, so a check-then-write on the
-final cache path had two failure modes: a second request for the same clip could see the file exist
-and be served a truncated MP4 or JPEG, and two requests could run ffmpeg against one path and leave
-a corrupt entry cached for good, since nothing invalidates the cache. Each artifact is now written
+final cache path has two failure modes: a second request for the same clip can see the file exist
+and be served a truncated MP4 or JPEG, and two requests can run ffmpeg against one path and leave
+a corrupt entry cached for good, since nothing invalidates the cache. Each artifact is written
 to a unique `<name>.<hex>.part.<ext>` beside it and renamed into place; the rename is atomic within
 the cache directory, and the real extension stays last because ffmpeg and cv2 choose the format
 from it.
 
-**Tiles span the whole clip** (2026-09-17). Until then the strip was the first eight seconds of a
-clip — pre-roll plus the trigger — on the theory that early bias was the right bias for cat/not-cat.
-It was not. In one 96 s clip a cat used the left box for eighty seconds, and the eight tiles
-showed one paw at the top of the last frame, so the reviewer labelled it `not_cat`; the strip also
-made every visit look like "a cat enters and never leaves", because the exit was two minutes past
-the last tile. The strip now covers the file: one tile per second up to
-`MAX_TILES` (48), then every 2, 3, … seconds so the count stays bounded (`tile_seconds`).
+**Tiles span the whole clip** (2026-09-17). A strip of the first eight seconds — pre-roll plus
+the trigger — is not enough for cat/not-cat: in one 96 s clip a cat used the left box for eighty
+seconds, and eight early tiles showed one paw at the top of the last frame, so the reviewer
+labelled it `not_cat`. Cut that way, every visit also looks like "a cat enters and never leaves",
+because the exit is minutes past the last tile. The strip covers the file: one tile per second up
+to `MAX_TILES` (48), then every 2, 3, … seconds so the count stays bounded (`tile_seconds`).
 
-**The stride comes from the footage, not the sidecar.** The first version sized it from the
-sidecar's `started_at → ended_at`, and the code review caught that this is the trigger-to-close
-span: the file starts up to `buffer_seconds` earlier, because `CircularOutput.start()` flushes
-from the oldest keyframe in the ring (that 96 s clip has 101 keyframes for a 95.9 s sidecar).
-A 44–48 s sidecar would have capped the strip short of the exit. The build therefore dumps every
-keyframe, counts them, and thins in Python; nothing about the clip's length is needed up front.
+**The stride comes from the footage, not the sidecar.** The sidecar's `started_at → ended_at` is
+the trigger-to-close span, not the file's: the file starts up to `buffer_seconds` earlier, because
+`CircularOutput.start()` flushes from the oldest keyframe in the ring (that 96 s clip has 101
+keyframes for a 95.9 s sidecar), so a stride sized from the sidecar caps the strip short of the
+exit. The build dumps every keyframe, counts them, and thins in Python; nothing about the clip's
+length is needed up front.
 Consequences: the stride is only known once the clip is decoded, so the cache name carries it
 (`clip<id>_strip<stride>s.jpg`, found by glob) and the caption is drawn **into** each tile rather
 than sent to the page. A caption is the offset into the file, the same clock the player shows,
@@ -381,11 +377,11 @@ renumbers the surviving frames, so `n` counts keyframes, i.e. seconds; a raw str
 timestamps to select on instead, which is why the tests build their fixture with libx264 at
 `keyint=30` rather than through cv2, whose writer sets its own GOP.
 
-**The share is read outside the database lock** (2026-09-18). `serialized` was added to stop
-concurrent reads corrupting SQLite's cursors, and the first cut put it on `ingest` too, which globs
-the share and reads every new sidecar over CIFS — up to a couple of minutes per failing operation
-on a soft mount — while every reader of the review UI queued behind it. `ingest` now collects
-paths, sizes and sidecar facts with no lock held and takes it only to insert, place and commit;
+**The share is read outside the database lock** (2026-09-18). `serialized` exists to stop
+concurrent reads corrupting SQLite's cursors. Under it, `ingest` — which globs the share and reads
+every new sidecar over CIFS, up to a couple of minutes per failing operation on a soft mount —
+would hold every reader of the review UI behind it. So `ingest` collects paths, sizes and sidecar
+facts with no lock held and takes it only to insert, place and commit;
 `INSERT OR IGNORE` covers a clip that another ingest registered in between.
 
 **Single-page UI.** Labeling navigates no pages — next event and images are fetched and swapped
@@ -404,14 +400,14 @@ same shape that lets labels follow clips. The box is a **position in frame, 1 to
 not a box identity: nothing in the pipeline knows one box from another, and the signal is made over
 the box concerned.
 
-**One app, one port, two tabs** (2026-09-12; until then review ran on its own server on :5001). `web_app.create_app` takes the streamer and the review parts as optionals and
-serves whatever it was given: `main.py` passes both, `review.py` passes no streamer, and a
-review database that fails to open leaves the Live tab up rather than taking the detector down,
-in the same spirit as a broken recorder leaving the stream up. The two entry points cannot run
-at once because they want the same port, and that is intended: review is a tab of the detector's
-page whenever the detector is running. The page is a Jinja template rather than a string in a
-Python module because ruff's line limit applies inside strings, and the JavaScript was being
-wrapped to satisfy it.
+**One app, one port, two tabs** (2026-09-12). `web_app.create_app` takes the streamer and the
+review parts as optionals and serves whatever it was given: `main.py` passes both, `review.py`
+passes no streamer, and a review database that fails to open leaves the Live tab up rather than
+taking the detector down, in the same spirit as a broken recorder leaving the stream up. The two
+entry points cannot run at once because they want the same port, and that is intended: review is
+a tab of the detector's page whenever the detector is running. The page is a Jinja template
+rather than a string in a Python module: ruff's line limit applies inside strings, and JavaScript
+wrapped to satisfy it is unreadable.
 
 **The MJPEG stream is torn down when its tab is hidden.** Each viewer of `/video_feed` costs a
 JPEG encode of every frame on the server, so the Live tab sets the image source when it is shown
