@@ -1,4 +1,5 @@
 import os
+from pathlib import Path
 
 from dotenv import load_dotenv
 
@@ -9,6 +10,9 @@ class Config:
     """Load configs from environment variables."""
 
     NETWORK_SHARE_DIR = os.getenv("NETWORK_SHARE_DIR", "/mnt/nas")
+
+    # Finished clips on the share: ClipTransfer fills it and the review page reads it.
+    CAPTURES_DIR = str(Path(NETWORK_SHARE_DIR) / "captures")
 
     # Clips are written here first, then moved to the share once finished.
     # Local disk: recording must not depend on the network.

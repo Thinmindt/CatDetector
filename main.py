@@ -7,12 +7,11 @@ from types import FrameType
 
 from config import Config
 from src.camera_manager import CameraManager
-from src.capture_db import CaptureDB
-from src.clip_frames import ClipFrames
 from src.clip_transfer import ClipTransfer
 from src.logging_setup import configure_logging
 from src.motion_metrics import MetricsLog
 from src.motion_recorder import MotionRecorder
+from src.review import Review, open_review
 from src.web_app import WEB_PORT, create_app, run
 from src.web_streamer import WebStreamer
 
@@ -86,19 +85,17 @@ def build_recorder(
 def build_transfer(local_clips: pathlib.Path, share: pathlib.Path) -> ClipTransfer:
     transfer = ClipTransfer(
         local_directory=local_clips,
-        destination=share / "captures",
+        destination=Config.CAPTURES_DIR,
         share_root=share,
     )
     transfer.start()
     return transfer
 
 
-def build_review(share: pathlib.Path) -> tuple[CaptureDB, ClipFrames] | None:
-    """Open the capture database, or return None so the live feed still comes up."""
+def build_review() -> Review | None:
+    """Open the review half, or return None so the live feed still comes up."""
     try:
-        db = CaptureDB(Config.DB_PATH)
-        log.info("Ingest found %d new clip(s)", db.ingest(share / "captures"))
-        return db, ClipFrames(Config.REVIEW_CACHE_DIR)
+        return open_review()
     except Exception as error:
         log.warning("Review unavailable (%s) - continuing with the live feed", error)
         return None
@@ -113,9 +110,7 @@ if __name__ == "__main__":
     recorder = build_recorder(camera_manager, local_clips)
     transfer = build_transfer(local_clips, share) if recorder else None
     streamer = WebStreamer(camera_manager=camera_manager, motion_recorder=recorder)
-    review = build_review(share)
-
-    app = create_app(streamer, *(review or (None, None)))
+    app = create_app(streamer, build_review())
     threading.Thread(target=run, args=(app,), daemon=True).start()
 
     log.info("Starting cat detector with shared camera")

@@ -15,6 +15,9 @@ log = logging.getLogger(__name__)
 
 VALID_LABELS = ("cat", "not_cat", "unsure", "clean")
 
+# The database and the frame extractor the review routes are built on.
+Review = tuple[CaptureDB, ClipFrames]
+
 # Litter boxes by position in frame, left to right; the camera knows no more.
 BOXES = (1, 2, 3)
 
@@ -94,7 +97,7 @@ class ReviewPages:
         return self._event_payload(self.db.join(event_id))
 
     def rescan(self) -> Any:
-        added = self.db.ingest(Path(Config.NETWORK_SHARE_DIR) / "captures")
+        added = self.db.ingest(Config.CAPTURES_DIR)
         return jsonify({"added": added, "counts": self.db.counts()})
 
     def strip(self, event_id: int, index: int) -> Response:
@@ -159,9 +162,16 @@ class ReviewPages:
         return jsonify({"event": body, "counts": self.db.counts()})
 
 
-def create_review_blueprint(db: CaptureDB, frames: ClipFrames) -> Blueprint:
+def open_review() -> Review:
+    """The capture database, brought up to date from the share, and its extractor."""
+    db = CaptureDB(Config.DB_PATH)
+    log.info("Ingest found %d new clip(s)", db.ingest(Config.CAPTURES_DIR))
+    return db, ClipFrames(Config.REVIEW_CACHE_DIR)
+
+
+def create_review_blueprint(review: Review) -> Blueprint:
     """The review API and media routes. The page itself is served by web_app."""
-    pages = ReviewPages(db, frames)
+    pages = ReviewPages(*review)
     bp = Blueprint("review", __name__)
     bp.add_url_rule("/api/review/next", view_func=pages.next_event)
     bp.add_url_rule("/api/review/multi/next", view_func=pages.next_multi)

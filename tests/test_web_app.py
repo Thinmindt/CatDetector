@@ -32,7 +32,7 @@ def streamer(camera_manager: Any) -> Any:
 
 
 def test_both_routes_serve_the_tabbed_page(review_parts: Any) -> None:
-    client = create_app(None, *review_parts).test_client()
+    client = create_app(None, review_parts).test_client()
 
     for path in ("/", "/review"):
         response = client.get(path)
@@ -46,7 +46,7 @@ def test_both_routes_serve_the_tabbed_page(review_parts: Any) -> None:
 def test_without_a_streamer_the_live_tab_learns_there_is_no_detector(
     review_parts: Any,
 ) -> None:
-    client = create_app(None, *review_parts).test_client()
+    client = create_app(None, review_parts).test_client()
 
     assert client.get("/api/status").get_json() == {"detector": False}
     assert client.get("/video_feed").status_code == 404
@@ -55,7 +55,7 @@ def test_without_a_streamer_the_live_tab_learns_there_is_no_detector(
 def test_with_a_streamer_the_live_routes_are_served(
     streamer: Any, review_parts: Any
 ) -> None:
-    app = create_app(streamer, *review_parts)
+    app = create_app(streamer, review_parts)
     client = app.test_client()
 
     status = client.get("/api/status").get_json()
@@ -72,7 +72,7 @@ def test_with_a_streamer_the_live_routes_are_served(
 
 
 def test_the_review_api_is_served_by_the_same_app(review_parts: Any) -> None:
-    client = create_app(None, *review_parts).test_client()
+    client = create_app(None, review_parts).test_client()
 
     data = client.get("/api/review/next").get_json()
 
@@ -83,12 +83,12 @@ def test_the_review_api_is_served_by_the_same_app(review_parts: Any) -> None:
 def test_the_labeled_walk_takes_a_label_value(
     review_parts: Any, tmp_path: Path
 ) -> None:
-    db, frames = review_parts
+    db, _ = review_parts
     for name in ("cat_video_20260917_080000", "cat_video_20260917_090000"):
         (tmp_path / "captures").mkdir(exist_ok=True)
         (tmp_path / "captures" / f"{name}.h264").write_bytes(b"h264")
     db.ingest(tmp_path / "captures")
-    client = create_app(None, db, frames).test_client()
+    client = create_app(None, review_parts).test_client()
     first = client.get("/api/review/next").get_json()["event"]["id"]
     client.post(f"/api/review/{first}/label", json={"value": "unsure"})
 
@@ -104,7 +104,7 @@ def test_the_labeled_walk_takes_a_label_value(
 def test_without_a_database_the_page_says_review_is_unavailable(
     streamer: Any,
 ) -> None:
-    client = create_app(streamer, None, None).test_client()
+    client = create_app(streamer, None).test_client()
 
     response = client.get("/review")
 
@@ -127,7 +127,7 @@ def test_media_is_served_from_a_relative_cache_dir(
     db = CaptureDB(tmp_path / "captures.db")
     try:
         db.ingest(tmp_path / "captures")
-        client = create_app(None, db, frames).test_client()
+        client = create_app(None, (db, frames)).test_client()
 
         response = client.get("/review/1/clip/0/strip.jpg")
 
