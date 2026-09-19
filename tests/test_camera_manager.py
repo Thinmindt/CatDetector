@@ -8,7 +8,9 @@ from collections.abc import Callable
 from typing import Any
 
 import pytest
-from conftest import LORES_SIZE, MAIN_SIZE, FakePicamera2, Frame
+from conftest import LORES_SIZE, MAIN_SIZE, FakePicamera2
+
+from src.frame import Frame
 
 # The bound that matters is "gave up on the wedged consumer", not the exact join
 # timeout, which the test shortens.

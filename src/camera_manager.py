@@ -3,18 +3,15 @@ import threading
 import time
 from collections.abc import Callable
 
-import numpy as np
-from numpy.typing import NDArray
 from picamera2 import Picamera2
+
+from src.frame import Frame
 
 log = logging.getLogger(__name__)
 
 JOIN_TIMEOUT_SECONDS = 5.0
 CAPTURE_ERROR_BACKOFF_SECONDS = 2.0
 FRAME_LOG_INTERVAL = 100
-
-# Frames arrive from picamera2 as HxWx3 uint8 arrays.
-Frame = NDArray[np.uint8]
 
 FrameConsumer = Callable[[Frame, Frame], None]
 

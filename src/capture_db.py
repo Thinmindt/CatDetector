@@ -12,9 +12,9 @@ from pathlib import Path
 from typing import Any
 
 from config import Config
+from src.clip_format import CLIP_SUFFIX, H264_BITRATE
 from src.clip_sidecar import ClipFacts, read_sidecar
 from src.event_grouping import ClipRow, group_clips
-from src.motion_recorder import CLIP_SUFFIX, H264_BITRATE
 
 log = logging.getLogger(__name__)
 

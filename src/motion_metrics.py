@@ -10,8 +10,8 @@ from pathlib import Path
 from typing import Any, TextIO, cast
 
 import cv2
-import numpy as np
-from numpy.typing import NDArray
+
+from src.frame import Frame
 
 log = logging.getLogger(__name__)
 
@@ -168,7 +168,7 @@ def _centroid_columns(blob: Blob | None) -> list[object]:
     return ["", ""] if blob is None else list(blob.centroid)
 
 
-def largest_blob(mask: NDArray[np.uint8]) -> Blob | None:
+def largest_blob(mask: Frame) -> Blob | None:
     """Largest connected foreground region, or None if the mask is empty."""
     contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     if not contours:
@@ -181,15 +181,13 @@ def largest_blob(mask: NDArray[np.uint8]) -> Blob | None:
     )
 
 
-def clean_mask(mask: NDArray[np.uint8]) -> NDArray[np.uint8]:
+def clean_mask(mask: Frame) -> Frame:
     """The mask with speckle removed and nearby fragments joined."""
     opened = cv2.morphologyEx(mask, cv2.MORPH_OPEN, SPECKLE_KERNEL)
-    return cast(
-        NDArray[np.uint8], cv2.morphologyEx(opened, cv2.MORPH_CLOSE, MERGE_KERNEL)
-    )
+    return cast(Frame, cv2.morphologyEx(opened, cv2.MORPH_CLOSE, MERGE_KERNEL))
 
 
-def measure(gray: NDArray[np.uint8], mask: NDArray[np.uint8]) -> FrameMetrics:
+def measure(gray: Frame, mask: Frame) -> FrameMetrics:
     """The metrics for one analysis frame, from its grey image and foreground mask."""
     return FrameMetrics(
         foreground_px=int(cv2.countNonZero(mask)),

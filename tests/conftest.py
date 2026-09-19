@@ -17,7 +17,8 @@ from typing import Any, cast
 
 import numpy as np
 import pytest
-from numpy.typing import NDArray
+
+from src.frame import Frame
 
 PICAMERA2_IS_STUBBED = importlib.util.find_spec("picamera2") is None
 
@@ -45,8 +46,6 @@ if PICAMERA2_IS_STUBBED:
 needs_real_picamera2 = pytest.mark.skipif(
     PICAMERA2_IS_STUBBED, reason="exercises the real CircularOutput"
 )
-
-Frame = NDArray[np.uint8]
 
 MAIN_SIZE = (720, 1280)
 LORES_SIZE = (480, 640)

@@ -275,7 +275,12 @@ problem rather than a venv problem. Rebuild with the two-line recovery above.
 
 One camera, several consumers. `picamera2` allows a single `Picamera2` instance per process, so
 [src/camera_manager.py](src/camera_manager.py) owns it and everything else borrows from it. It
-also defines the shared `Frame` (`NDArray[np.uint8]`) and `FrameConsumer` type aliases.
+also defines the `FrameConsumer` alias. The `Frame` array alias lives in
+[src/frame.py](src/frame.py), and what a clip is on disk — its suffixes, `partial_name()`,
+`CAMERA_FPS`, `H264_BITRATE` — in [src/clip_format.py](src/clip_format.py), so that the review
+side (`capture_db`, `clip_frames`, `clip_transfer`, `review`) imports nothing from the modules
+that import `picamera2`. `review.py` runs on a machine without the camera stack for that reason;
+keep it so.
 
 **Frame fan-out.** `CameraManager` configures two streams — `main` at 1280x720 for
 display/recording and `lores` at 640x480 for cheap analysis. Components call `add_consumer(fn)` to

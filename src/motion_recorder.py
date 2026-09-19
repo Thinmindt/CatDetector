@@ -11,28 +11,26 @@ import cv2
 from picamera2.encoders import H264Encoder
 from picamera2.outputs import CircularOutput
 
-from src.camera_manager import CameraManager, Frame
+from src.camera_manager import CameraManager
+from src.clip_format import (
+    CAMERA_FPS,
+    CLIP_SUFFIX,
+    H264_BITRATE,
+    PARTIAL_SUFFIX,
+    final_name,
+    partial_name,
+)
 from src.clip_sidecar import ClipFacts, CloseReason, write_sidecar
+from src.frame import Frame
 from src.motion_metrics import Blob, MetricsLog, clean_mask, largest_blob, measure
 
 log = logging.getLogger(__name__)
-
-CAMERA_FPS = 30
-H264_BITRATE = 10_000_000
-
-CLIP_SUFFIX = ".h264"  # raw elementary stream, not a container
-PARTIAL_SUFFIX = ".part"
 
 # MOG2 marks shadow pixels with this value; only 255 is real foreground.
 SHADOW_PIXEL_VALUE = 127
 
 CLIP_FLUSH_TIMEOUT_SECONDS = 30
 DISK_CHECK_INTERVAL_SECONDS = 5
-
-
-def partial_name(clip: Path) -> Path:
-    """The name a clip is written under. Only the final name means "complete"."""
-    return clip.with_name(clip.name + PARTIAL_SUFFIX)
 
 
 def _has_content(writing: Path | None) -> bool:
@@ -152,7 +150,7 @@ class MotionRecorder:
         """Give clips cut off by an unclean shutdown their final name, so they ship."""
         pattern = f"*{CLIP_SUFFIX}{PARTIAL_SUFFIX}"
         for writing in sorted(self.video_directory.glob(pattern)):
-            clip = writing.with_name(writing.name.removesuffix(PARTIAL_SUFFIX))
+            clip = final_name(writing)
             if clip.exists():
                 log.warning("Left %s alone: %s already exists", writing.name, clip.name)
             elif self._promote(writing, clip):
