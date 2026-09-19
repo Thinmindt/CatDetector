@@ -8,7 +8,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from functools import wraps
 from pathlib import Path
-from typing import Any
+from typing import Any, NamedTuple
 
 from config import Config
 from src.clip_scan import FoundClip, scan_clips
@@ -62,8 +62,6 @@ EVENTS_WITH_SEVERAL_CLIPS = (
     " GROUP BY event_id HAVING COUNT(*) > 1"
 )
 
-Remembered = dict[str, tuple[str, str, str]]  # clip path -> (value, labeled_at, source)
-
 
 def serialized[**P, R](method: Callable[P, R]) -> Callable[P, R]:
     """Runs the method under the database's lock: one connection, many threads."""
@@ -75,6 +73,12 @@ def serialized[**P, R](method: Callable[P, R]) -> Callable[P, R]:
             return method(*args, **kwargs)
 
     return locked
+
+
+class Label(NamedTuple):
+    value: str
+    labeled_at: str
+    source: str
 
 
 @dataclass(frozen=True)
@@ -369,23 +373,24 @@ class CaptureDB:
         self._conn.execute(f"DELETE FROM label WHERE event_id NOT IN ({live})")  # noqa: S608 -- no user input
         self._conn.execute(f"DELETE FROM event WHERE id NOT IN ({live})")  # noqa: S608 -- no user input
 
-    def _labels_by_clip(self) -> Remembered:
+    def _labels_by_clip(self) -> dict[str, Label]:
         rows = self._conn.execute(
             "SELECT c.path, l.value, l.labeled_at, l.source"
             " FROM clip c JOIN label l ON l.event_id = c.event_id"
         )
         return {
-            row["path"]: (row["value"], row["labeled_at"], row["source"])
+            row["path"]: Label(row["value"], row["labeled_at"], row["source"])
             for row in rows
         }
 
-    def _relabel(self, remembered: Remembered) -> None:
+    def _relabel(self, remembered: dict[str, Label]) -> None:
         """Keep a label where an event's clips agree; drop it where they clash."""
         for event_id, paths in self._paths_by_event().items():
             labels = {remembered[path] for path in paths if path in remembered}
-            values = {value for value, _, _ in labels}
+            values = {label.value for label in labels}
             if len(values) == 1:
-                self._write_label(event_id, min(labels, key=lambda label: label[1]))
+                earliest = min(labels, key=lambda label: label.labeled_at)
+                self._write_label(event_id, earliest)
             elif len(values) > 1:
                 self._conn.execute("DELETE FROM label WHERE event_id = ?", (event_id,))
                 log.warning(
@@ -402,14 +407,13 @@ class CaptureDB:
             result.setdefault(int(row["event_id"]), []).append(row["path"])
         return result
 
-    def _write_label(self, event_id: int, label: tuple[str, str, str]) -> None:
-        value, labeled_at, source = label
+    def _write_label(self, event_id: int, label: Label) -> None:
         self._conn.execute(
             "INSERT INTO label (event_id, value, labeled_at, source)"
             " VALUES (?, ?, ?, ?) ON CONFLICT(event_id) DO UPDATE SET"
             " value = excluded.value, labeled_at = excluded.labeled_at,"
             " source = excluded.source",
-            (event_id, value, labeled_at, source),
+            (event_id, *label),
         )
 
     # --- review -------------------------------------------------------------
@@ -445,7 +449,7 @@ class CaptureDB:
     def set_label(self, event_id: int, value: str, source: str = "human") -> None:
         """Write or overwrite the label for one event."""
         self._write_label(
-            event_id, (value, datetime.datetime.now().isoformat(), source)
+            event_id, Label(value, datetime.datetime.now().isoformat(), source)
         )
         self._conn.commit()
 
