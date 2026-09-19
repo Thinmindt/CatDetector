@@ -52,12 +52,14 @@ CREATE TABLE IF NOT EXISTS poop_count (
 );
 """
 
+# Events oldest first; those with no dated clip last.
 EVENTS_IN_ORDER = (
     "SELECT e.id FROM event e JOIN clip c ON c.event_id = e.id GROUP BY e.id"
     " ORDER BY MIN(c.started_at) IS NULL, MIN(c.started_at), e.id"
 )
-EVENTS_WITH_SEVERAL_CLIPS = EVENTS_IN_ORDER.replace(
-    " ORDER BY", " HAVING COUNT(*) > 1 ORDER BY"
+EVENTS_WITH_SEVERAL_CLIPS = (
+    "SELECT event_id FROM clip WHERE event_id IS NOT NULL"
+    " GROUP BY event_id HAVING COUNT(*) > 1"
 )
 
 Remembered = dict[str, tuple[str, str, str]]  # clip path -> (value, labeled_at, source)
@@ -274,9 +276,7 @@ class CaptureDB:
         after_id need not still hold several clips: a split can leave it single,
         and the walk carries on from its place rather than starting over.
         """
-        return self._next_in_order(
-            after_id, set(self._event_ids_in_order(multi_only=True))
-        )
+        return self._next_in_order(after_id, self._multi_clip_event_ids())
 
     @serialized
     def next_labeled(self, after_id: int | None, value: str | None) -> Event | None:
@@ -301,9 +301,19 @@ class CaptureDB:
             params = (value,)
         return {int(row["event_id"]) for row in self._conn.execute(query, params)}
 
-    def _event_ids_in_order(self, multi_only: bool = False) -> list[int]:
-        query = EVENTS_WITH_SEVERAL_CLIPS if multi_only else EVENTS_IN_ORDER
-        return [int(row["id"]) for row in self._conn.execute(query)]
+    def _multi_clip_event_ids(self) -> set[int]:
+        rows = self._conn.execute(EVENTS_WITH_SEVERAL_CLIPS)
+        return {int(row["event_id"]) for row in rows}
+
+    def _unlabeled_event_ids(self) -> set[int]:
+        rows = self._conn.execute(
+            "SELECT e.id FROM event e LEFT JOIN label l ON l.event_id = e.id"
+            " WHERE l.event_id IS NULL"
+        )
+        return {int(row["id"]) for row in rows}
+
+    def _event_ids_in_order(self) -> list[int]:
+        return [int(row["id"]) for row in self._conn.execute(EVENTS_IN_ORDER)]
 
     def _place_clips(self, keep_events: bool) -> None:
         remembered = self._labels_by_clip()
@@ -407,15 +417,7 @@ class CaptureDB:
     @serialized
     def next_unlabeled(self) -> Event | None:
         """Oldest event with no label yet."""
-        row = self._conn.execute(
-            "SELECT e.id FROM event e"
-            " LEFT JOIN label l ON l.event_id = e.id"
-            " JOIN clip c ON c.event_id = e.id"
-            " WHERE l.event_id IS NULL"
-            " GROUP BY e.id"
-            " ORDER BY MIN(c.started_at) IS NULL, MIN(c.started_at), e.id LIMIT 1"
-        ).fetchone()
-        return None if row is None else self.get(int(row["id"]))
+        return self._next_in_order(None, self._unlabeled_event_ids())
 
     @serialized
     def get(self, event_id: int) -> Event | None:
@@ -491,11 +493,7 @@ class CaptureDB:
         result = {"total": 0, "labeled": 0, "multi_clip": 0}
         row = self._conn.execute("SELECT COUNT(*) AS n FROM event").fetchone()
         result["total"] = int(row["n"])
-        row = self._conn.execute(
-            "SELECT COUNT(*) AS n FROM (SELECT event_id FROM clip"
-            " WHERE event_id IS NOT NULL GROUP BY event_id HAVING COUNT(*) > 1)"
-        ).fetchone()
-        result["multi_clip"] = int(row["n"])
+        result["multi_clip"] = len(self._multi_clip_event_ids())
         for value_row in self._conn.execute(
             "SELECT value, COUNT(*) AS n FROM label GROUP BY value"
         ):
