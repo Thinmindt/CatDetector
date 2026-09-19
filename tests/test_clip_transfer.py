@@ -10,9 +10,9 @@ from typing import Any
 
 import pytest
 
+from src.clip_format import partial_name
 from src.clip_sidecar import sidecar_name
 from src.clip_transfer import ClipTransfer
-from src.motion_recorder import partial_name
 
 
 @pytest.fixture

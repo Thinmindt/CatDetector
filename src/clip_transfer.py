@@ -6,8 +6,8 @@ import shutil
 import threading
 from pathlib import Path
 
+from src.clip_format import CLIP_SUFFIX, partial_name
 from src.clip_sidecar import sidecar_name
-from src.motion_recorder import CLIP_SUFFIX, partial_name
 
 log = logging.getLogger(__name__)
 

@@ -12,8 +12,8 @@ from uuid import uuid4
 import cv2
 import numpy as np
 
-from src.camera_manager import Frame
-from src.motion_recorder import CAMERA_FPS
+from src.clip_format import CAMERA_FPS
+from src.frame import Frame
 
 log = logging.getLogger(__name__)
 

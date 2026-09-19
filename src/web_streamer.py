@@ -6,7 +6,8 @@ from collections.abc import Iterator
 import cv2
 from flask import Blueprint, Response, jsonify
 
-from src.camera_manager import CameraManager, Frame
+from src.camera_manager import CameraManager
+from src.frame import Frame
 from src.motion_recorder import MotionRecorder
 
 log = logging.getLogger(__name__)

@@ -18,8 +18,8 @@ from conftest import (
     needs_real_picamera2,
 )
 
+from src.clip_format import CAMERA_FPS, partial_name
 from src.clip_sidecar import ClipFacts, CloseReason, read_sidecar, sidecar_name
-from src.motion_recorder import partial_name
 
 # Mean grey levels either side of a dark cutoff of 10, as measured at night and by day.
 DARK_CUTOFF = 10
@@ -52,8 +52,6 @@ def test_starts_buffering_on_the_shared_camera(
 
 def test_the_encoder_pins_one_keyframe_a_second(recorder: Any) -> None:
     """The review tiles are cut at keyframes and assume one per second."""
-    from src.motion_recorder import CAMERA_FPS
-
     assert recorder.encoder.iperiod == CAMERA_FPS
 
 
