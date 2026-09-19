@@ -199,6 +199,12 @@ Measured MOG2 defaults on this camera:
 
 ## A.3 Detect a cat-sized thing, not "some pixels changed"
 
+- [ ] **First, split `MotionRecorder`.** Its `# --- detection ---` and `# --- clip lifecycle ---`
+      halves share nothing but the trigger boolean, and every step below changes only the first
+      half. A `MotionDetector` that turns a lores frame into "motion or not, and the largest
+      blob" leaves the recorder owning only the encoder and the open clip. Doing this as the
+      first step means the detection changes land in one small class with its own tests, not
+      inside a 440-line file that also knows how to rename a `.part`.
 - [ ] Morphological open to erase speckle, then close/dilate to merge head/body/tail into
       one blob.
 - [ ] `cv2.findContours`, take the largest contour's area instead of a global count.
@@ -409,7 +415,11 @@ at the moment of labeling and never hidden:
       reloading starts the walk over from its first event, and a backlog cannot be worked
       through in sittings. Put the position in the URL — the event id as the path, the filter as
       a query parameter — so a reload, the back button or a pasted link lands on the same event.
-      This is the same route the notification deep links need (B.4), so build it once.
+      This is the same route the notification deep links need (B.4), so build it once. On the
+      API side the three walks (`/api/review/next`, `/multi/next`, `/labeled/next`) become
+      one `/api/review/next?filter=&after=` — the page already has one `load()` that picks
+      between them, and one route with the same two parameters as the URL is what a
+      reload can replay.
 - [ ] **Dates are machine-shaped.** Show times in a readable local form (`Tue 15 Sep, 06:11`),
       with the relative time (`3 days ago`) on hover, here and on the timeline below (B.6).
 
