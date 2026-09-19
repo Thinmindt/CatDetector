@@ -15,22 +15,16 @@ from src.frame import Frame
 
 log = logging.getLogger(__name__)
 
+RAW_BLOB_COLUMNS = ("blob_area", "x", "y", "w", "h")
+CLEAN_BLOB_COLUMNS = ("clean_area", "clean_x", "clean_y", "clean_w", "clean_h")
 FIELDS = [
     "timestamp",
     "foreground_px",
-    "blob_area",
-    "x",
-    "y",
-    "w",
-    "h",
+    *RAW_BLOB_COLUMNS,
     "cx",
     "cy",
     "recording",
-    "clean_area",
-    "clean_x",
-    "clean_y",
-    "clean_w",
-    "clean_h",
+    *CLEAN_BLOB_COLUMNS,
     "brightness",
 ]
 
@@ -52,6 +46,10 @@ class Blob:
     y: int
     w: int
     h: int
+
+    @property
+    def bounds(self) -> tuple[int, int, int, int]:
+        return self.x, self.y, self.w, self.h
 
     @property
     def centroid(self) -> tuple[int, int]:
@@ -82,22 +80,23 @@ class MetricsLog:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self.dropped = 0
         self.written = 0
-        self._queue: queue.Queue[list[object] | None] = queue.Queue(maxsize=QUEUE_LIMIT)
+        self._queue: queue.Queue[dict[str, object] | None] = queue.Queue(
+            maxsize=QUEUE_LIMIT
+        )
         self._thread = threading.Thread(target=self._write_rows, daemon=True)
         self._thread.start()
         log.info("Recording detection metrics to %s", self.path)
 
     def record(self, frame: FrameMetrics, recording: bool) -> None:
-        stamp = datetime.datetime.now().isoformat(timespec="milliseconds")
-        row: list[object] = [
-            stamp,
-            frame.foreground_px,
-            *_blob_columns(frame.blob),
-            *_centroid_columns(frame.blob),
-            int(recording),
-            *_blob_columns(frame.clean_blob),
-            f"{frame.brightness:.1f}",
-        ]
+        row: dict[str, object] = {
+            "timestamp": datetime.datetime.now().isoformat(timespec="milliseconds"),
+            "foreground_px": frame.foreground_px,
+            **_blob_columns(RAW_BLOB_COLUMNS, frame.blob),
+            **_centroid_columns(frame.blob),
+            "recording": int(recording),
+            **_blob_columns(CLEAN_BLOB_COLUMNS, frame.clean_blob),
+            "brightness": f"{frame.brightness:.1f}",
+        }
         try:
             self._queue.put_nowait(row)
         except queue.Full:
@@ -118,9 +117,9 @@ class MetricsLog:
         needs_header = not self.path.exists() or self.path.stat().st_size == 0
         try:
             with self.path.open("a", newline="") as handle:
-                writer = csv.writer(handle)
+                writer = csv.DictWriter(handle, fieldnames=FIELDS)
                 if needs_header:
-                    writer.writerow(FIELDS)
+                    writer.writeheader()
                     handle.flush()
                 self._drain(writer, handle)
         except OSError:
@@ -158,14 +157,14 @@ def _path_for_current_layout(path: Path) -> Path:
     return sibling
 
 
-def _blob_columns(blob: Blob | None) -> list[object]:
-    if blob is None:
-        return [0, "", "", "", ""]
-    return [blob.area, blob.x, blob.y, blob.w, blob.h]
+def _blob_columns(names: tuple[str, ...], blob: Blob | None) -> dict[str, object]:
+    values = (0, "", "", "", "") if blob is None else (blob.area, *blob.bounds)
+    return dict(zip(names, values, strict=True))
 
 
-def _centroid_columns(blob: Blob | None) -> list[object]:
-    return ["", ""] if blob is None else list(blob.centroid)
+def _centroid_columns(blob: Blob | None) -> dict[str, object]:
+    cx, cy = ("", "") if blob is None else blob.centroid
+    return {"cx": cx, "cy": cy}
 
 
 def largest_blob(mask: Frame) -> Blob | None:
