@@ -5,25 +5,21 @@ from the current thresholds and exits.
 """
 
 import logging
-import pathlib
 import sys
 
 from flask import Flask
 
 from config import Config
 from src.capture_db import CaptureDB
-from src.clip_frames import ClipFrames
 from src.logging_setup import configure_logging
+from src.review import open_review
 from src.web_app import WEB_PORT, create_app, run
 
 log = logging.getLogger(__name__)
 
 
 def build_app() -> Flask:
-    db = CaptureDB(Config.DB_PATH)
-    added = db.ingest(pathlib.Path(Config.NETWORK_SHARE_DIR) / "captures")
-    log.info("Ingest found %d new clip(s)", added)
-    return create_app(None, db, ClipFrames(Config.REVIEW_CACHE_DIR))
+    return create_app(None, open_review())
 
 
 def regroup_events() -> dict[str, int]:

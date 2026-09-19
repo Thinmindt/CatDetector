@@ -732,13 +732,17 @@ def test_a_cache_entry_appears_only_once_it_is_complete(
 # --- review API -------------------------------------------------------------
 
 
+def review_blueprint(db: Any, tmp_path: Path) -> Any:
+    return create_review_blueprint((db, ClipFrames(tmp_path / "cache")))
+
+
 @pytest.fixture
 def client(db: Any, clip_dir: Path, tmp_path: Path) -> Any:
     from flask import Flask
 
     db.ingest(clip_dir)
     app = Flask(__name__)
-    app.register_blueprint(create_review_blueprint(db, ClipFrames(tmp_path / "cache")))
+    app.register_blueprint(review_blueprint(db, tmp_path))
     return app.test_client()
 
 
@@ -839,7 +843,7 @@ def grouped_client(db: Any, tmp_path: Path) -> Any:
     visit(directory, 500)
     db.ingest(directory)
     app = Flask(__name__)
-    app.register_blueprint(create_review_blueprint(db, ClipFrames(tmp_path / "cache")))
+    app.register_blueprint(review_blueprint(db, tmp_path))
     return app.test_client()
 
 
@@ -887,7 +891,7 @@ def test_the_video_route_serves_a_playable_clip(
     shutil.copy(short_clip, directory / "cat_video_20260912_080000.h264")
     db.ingest(directory)
     app = Flask(__name__)
-    app.register_blueprint(create_review_blueprint(db, ClipFrames(tmp_path / "cache")))
+    app.register_blueprint(review_blueprint(db, tmp_path))
     client = app.test_client()
     event = client.get("/api/review/next").get_json()["event"]
 
