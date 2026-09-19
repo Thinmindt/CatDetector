@@ -72,7 +72,8 @@ sudo bash deploy/install-service.sh          # install/refresh the catdetector s
 sudo systemctl stop catdetector              # free the camera for anything else
 journalctl -u catdetector -f                 # the service's logs
 
-uv run pytest                                # unit tests (no hardware needed, ~8s)
+bash scripts/check.sh                        # all four gates, in the order that fails fastest
+uv run pytest                                # unit tests (no hardware needed)
 uv run ruff check .                          # lint
 uv run ruff format .                         # format
 uv run mypy .                                # type-check (strict, must stay clean)
@@ -123,8 +124,9 @@ under an `RLock` (`@serialized`). Anything that touches the share — `ingest`'s
 reads — must stay **outside** that lock: a stalled CIFS mount would otherwise freeze every review
 request behind it.
 
-**All four gates must pass before every commit** — tests, lint, format check, type check. Run
-them and report the result.
+**All four gates must pass before every commit** — tests, lint, format check, type check.
+`scripts/check.sh` runs them, and `.github/workflows/check.yml` runs the same script on every
+push. Run it and report the result.
 
 `uv run` targets the project venv directly, so activating it is unnecessary.
 
