@@ -172,6 +172,21 @@ symptom is often an exception inside a worker thread rather than a clean failure
 `assert not thread.is_alive()` after an unbounded join is a tautology, and a regression hangs the
 suite instead of failing it. Give the whole suite a timeout too.
 
+**Patch the name the code looks up.** A subclass binds its base class at import time, so
+patching the base in its module changes nothing for a subclass that already exists. Patch the
+class the code under test constructs, where it constructs it.
+
+**Keep manual and hardware scripts out of collection by name.** A script named `check_*.py`
+matches none of pytest's globs, so it cannot be collected by accident. `norecursedirs` is not
+enough: it suppresses directory walking and does nothing for an explicitly named path.
+
+**Never read a streaming or infinite response through a buffering test client.** It reads to
+the end, the end never comes, and the suite hangs with no failure. Build the response in a
+request context and take what you need from the generator directly.
+
+**Prove a comment-only change with the AST.** Parse each file before and after, strip the
+docstrings, and compare `ast.dump`. Equal dumps mean no behaviour changed.
+
 ## Tooling
 
 Every commit must pass the linter, the formatter check, the type checker, and the tests.
