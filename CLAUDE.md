@@ -3,21 +3,23 @@
 Guidance for Claude Code working in this repository. Written agent-to-agent: it assumes you have
 no prior context and are about to change something on real hardware.
 
-## Read this first: there are three documents you cannot see
-
-`docs/` is **gitignored**. It will not appear in a fresh clone, in git history, or on GitHub, and
-nothing in the tracked tree hints at its contents. Check on disk before concluding there is no
-plan and no standard:
+## Read this first: the docs
 
 | file | what it holds |
 |---|---|
-| `docs/ROADMAP.md` | where the project is going, phase by phase, and the open questions |
-| `docs/DESIGN.md` | why the code is shaped the way it is — rationale, measurements, rejected alternatives |
 | `docs/STYLE.md` | how to write code here; a general Python style guide, portable to other repos |
+| `docs/DESIGN.md` | why the code is shaped the way it is — rationale, measurements, rejected alternatives |
 
 Read `docs/STYLE.md` before writing code and `docs/DESIGN.md` before changing behaviour. This
 file overlaps them deliberately: CLAUDE.md carries the traps you must not fall into, and the
 design doc carries the full reasoning behind each one.
+
+The rest of `docs/` is **gitignored** and holds the owner's plan: `docs/ROADMAP.md`, phase by
+phase, whose section letters (A.2, A.4, B.5b, …) the design doc and the commit messages cite,
+and `docs/TODO.md`. Part A is triggering reliably on every visit; part B is building a labelled
+dataset and a which-cat classifier. Facts about the one Pi this runs on — its account, its
+mounts, what needs the owner's own terminal — live in `CLAUDE.local.md`, also gitignored. A
+fresh clone has neither file; do not conclude from that that there is no plan.
 
 ## What this actually is
 
@@ -43,7 +45,7 @@ Three consequences worth holding onto:
 
 This only runs on a Pi with an attached camera. `picamera2` binds to real hardware when a
 `Picamera2` object is **constructed** (not when the module is imported), so nothing in `src/` can
-be exercised on a dev machine. Assume the working directory *is* the Pi — it is.
+be exercised on a dev machine; the unit tests fake that layer instead.
 
 The recordings directory is a **CIFS** network share mounted at `/mnt/nas`. That matters more
 than it sounds: writes can fail with a plain `OSError`, the mount can be absent at boot, and
@@ -76,7 +78,7 @@ uv run mypy .                                # type-check (strict, must stay cle
 
 uv run python tests/manual/check_camera.py   # hardware smoke test; writes test_images/test_image.jpg
 
-METRICS_CSV=/home/butler/metrics.csv uv run python main.py   # + per-frame detection metrics
+METRICS_CSV=$HOME/metrics.csv uv run python main.py          # + per-frame detection metrics
 
 uv run python review.py                      # the same web UI without the camera, on :5000
 ```
@@ -120,8 +122,8 @@ under an `RLock` (`@serialized`). Anything that touches the share — `ingest`'s
 reads — must stay **outside** that lock: a stalled CIFS mount would otherwise freeze every review
 request behind it.
 
-**All four gates must pass before every commit** — tests, lint, format check, type check. This is
-a standing instruction from the repo owner, not a nicety. Run them and report the result.
+**All four gates must pass before every commit** — tests, lint, format check, type check. Run
+them and report the result.
 
 `uv run` targets the project venv directly, so activating it is unnecessary.
 
@@ -131,15 +133,16 @@ a standing instruction from the repo owner, not a nicety. Run them and report th
 any hardware script will fail to open the camera, and vice versa. Check with
 `ps aux | grep main.py` before wondering why initialisation failed.
 
-**The detector normally runs as the `catdetector` systemd service** (`deploy/catdetector.service`,
-installed 2026-09-14), so the camera is usually taken. Anything else that needs it, including a
-hand-run `main.py`, needs `sudo systemctl stop catdetector` first and a `start` afterwards. Every
-minute it is stopped is a gap in the cats' record, so say so and restart it. **You cannot sudo on
-this Pi**: it asks for a password, and the `!` prefix has no terminal to ask on. The owner has to
-run those commands from a terminal of their own. The service's output goes to the journal
-(`journalctl -u catdetector`). When matching its process with `pgrep -f`, anchor the pattern
-(`'^/home/butler/sw/CatDetector/\.venv/bin/python3? main\.py'`): an unanchored one also matches
-the shell running your own command, and a `kill` then takes that shell down with it.
+**The detector normally runs as the `catdetector` systemd service** (built from
+`deploy/catdetector.service.in` by `deploy/install-service.sh`), so the camera is usually taken.
+Anything else that needs it, including a hand-run `main.py`, needs `sudo systemctl stop
+catdetector` first and a `start` afterwards. Every minute it is stopped is a gap in the cats'
+record, so keep that window short and say when it is open. Per-run settings such as
+`MOTION_THRESHOLD` and `METRICS_CSV` live in a systemd drop-in (`systemctl edit catdetector`),
+not in the tracked unit. The service's output goes to the journal (`journalctl -u catdetector`).
+When matching its process with `pgrep -f`, anchor the pattern to the venv's interpreter path, as
+`install-service.sh` does: an unanchored one also matches the shell running your own command,
+and a `kill` then takes that shell down with it.
 
 **Testing the recorder without polluting the NAS.** `config.py` calls `load_dotenv()`, which does
 *not* override variables already in the environment, so pointing both directories at scratch
@@ -151,7 +154,7 @@ LOCAL_CLIP_DIR=/some/scratch/clips NETWORK_SHARE_DIR=/some/scratch/share uv run 
 
 `ClipTransfer` refuses to write to a path that is not a real mountpoint, so a scratch share
 leaves the clips on local disk rather than scattering them across the SD card. Do not leave test
-clips on the share — the owner has had to clear them twice.
+clips on the share.
 
 **Verify on hardware, not just in the test suite.** The suite fakes the entire camera layer, so
 it cannot catch a picamera2 API misuse. Things worth measuring after a change to the capture or
@@ -185,11 +188,13 @@ others are disabled inside `tests/**` for reasons recorded in `docs/STYLE.md` �
 ## Repo hygiene
 
 **This repo is public.** Treat tracked files and commit messages as world-readable. Never put LAN
-addresses, share names, hostnames, or credentials in anything tracked — they belong in `docs/`,
-which is ignored. `.env` is ignored and has never been committed; keep it that way.
+addresses, share names, hostnames, or credentials in anything tracked — they belong in the
+gitignored files (`docs/ROADMAP.md`, `CLAUDE.local.md`). `.env` is ignored and has never been
+committed; keep it that way. The same test applies to prose: tracked files are written for a
+stranger with a Pi and a cat. Opinions about the code belong in; notes about the owner, their
+machine or their workflow go in `CLAUDE.local.md`.
 
-Do not add `Claude-Session:` trailers to commit messages here. The owner asked for them to be
-removed and not re-added. `Co-Authored-By:` is fine.
+Commit messages carry no `Claude-Session:` trailers. `Co-Authored-By:` is fine.
 
 If something sensitive lands in a commit that has **not** been pushed, remove it from history
 then, not later — rewriting unpushed commits is free and rewriting pushed ones is not.

@@ -2,6 +2,8 @@
 name = "cat-detector"
 version = "0.1.0"
 description = "Raspberry Pi camera monitor: motion-triggered recording plus a live MJPEG web stream."
+license = "MIT"
+license-files = ["LICENSE"]
 # Pinned to the interpreter the OS ships. python3-libcamera is an ABI-tagged apt
 # package (_libcamera.cpython-313-aarch64-linux-gnu.so) and libcamera is not on
 # PyPI, so the OS picks the Python version, not us. Raspberry Pi OS trixie = 3.13.

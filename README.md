@@ -51,9 +51,11 @@ uv run python tests/manual/check_camera.py    # camera smoke test (needs the cam
 
 ### As a service
 
-`deploy/catdetector.service` runs the detector at boot and restarts it after a crash. Install or
-refresh it with the script below, which also stops a copy started by hand, since the camera takes
-one process at a time:
+`deploy/install-service.sh` installs a systemd unit that runs the detector at boot and restarts
+it after a crash. It builds the unit from `deploy/catdetector.service.in` for this checkout — the
+directory's owner runs the service, and the share named by `NETWORK_SHARE_DIR` in `.env` is the
+mount it waits for — and stops a copy started by hand, since the camera takes one process at a
+time:
 
 ```
 sudo bash deploy/install-service.sh
@@ -61,8 +63,12 @@ journalctl -u catdetector -f         # logs
 sudo systemctl stop catdetector      # free the camera, e.g. for the smoke test
 ```
 
-The unit hard-codes the checkout path and user, and carries the detection settings of the current
-data run in its `Environment=` lines. Edit them to suit, then re-run the script.
+Settings for a particular run (`MOTION_THRESHOLD`, `METRICS_CSV`, ...) go in a drop-in rather
+than in the tracked unit, so re-running the script never loses them:
+
+```
+sudo systemctl edit catdetector      # opens an override; add Environment= lines under [Service]
+```
 
 ## Reviewing captures
 
@@ -85,6 +91,12 @@ uv run ruff check --fix .    # lint + autofix
 uv run ruff format .         # format
 uv run mypy .                # type-check (strict)
 ```
+
+## Contributing
+
+`docs/STYLE.md` is the style guide and `docs/DESIGN.md` records why the code is shaped the way it
+is, with the measurements behind each decision; `CLAUDE.md` lists the traps. Before a commit, all
+four of the checks above must pass.
 
 ## Security
 
@@ -124,3 +136,7 @@ METRICS_CSV=/home/you/metrics.csv
 
 When set, every frame appends a row of detection metrics (foreground pixel count, largest
 contour area, bounding box) to that file. Use a local path, not the network share.
+
+## License
+
+MIT — see [LICENSE](LICENSE).

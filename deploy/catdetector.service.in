@@ -1,20 +1,22 @@
+# Template: install-service.sh fills in the user, the checkout path and the share's
+# mount unit, then installs the result.
+# Per-run settings (MOTION_THRESHOLD, METRICS_CSV, ...) go in a drop-in:
+#   sudo systemctl edit catdetector
 [Unit]
 Description=Cat detector: litter-box camera, motion recorder and web UI
 # Wants, not Requires: clips are staged on local disk, so a missing share must
 # not stop recording.
-Wants=mnt-nas.mount
-After=mnt-nas.mount time-sync.target
+Wants=@SHARE_MOUNT@
+After=@SHARE_MOUNT@ time-sync.target
 
 [Service]
 Type=simple
-User=butler
-Group=butler
-WorkingDirectory=/home/butler/sw/CatDetector
-Environment=MOTION_THRESHOLD=150
-Environment=METRICS_CSV=/home/butler/metrics_eval_20260914.csv
+User=@USER@
+Group=@USER@
+WorkingDirectory=@CHECKOUT@
 # Waits for NTP so clips are stamped with the right time; starts anyway after 90 s.
 ExecStartPre=-/usr/bin/timeout 90 /usr/lib/systemd/systemd-time-wait-sync
-ExecStart=/home/butler/sw/CatDetector/.venv/bin/python main.py
+ExecStart=@CHECKOUT@/.venv/bin/python main.py
 Restart=on-failure
 # The camera stays busy for up to ~15 s after an unclean exit.
 RestartSec=20
