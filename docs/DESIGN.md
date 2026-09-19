@@ -388,7 +388,9 @@ concurrent reads corrupting SQLite's cursors. Under it, `ingest` — which globs
 every new sidecar over CIFS, up to a couple of minutes per failing operation on a soft mount —
 would hold every reader of the review UI behind it. So `ingest` collects paths, sizes and sidecar
 facts with no lock held and takes it only to insert, place and commit;
-`INSERT OR IGNORE` covers a clip that another ingest registered in between.
+`INSERT OR IGNORE` covers a clip that another ingest registered in between. The share-reading
+half is its own module, `clip_scan.py`, with no lock in it (2026-09-19): the rule is then a
+property of the import graph rather than of one method's care.
 
 **Single-page UI.** Labeling navigates no pages — next event and images are fetched and swapped
 in place — so the undo history can live in a JS array rather than sessionStorage, and labeling

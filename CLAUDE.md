@@ -120,9 +120,10 @@ written off the capture thread and dropped rather than queued without bound, so 
 dropped rows is reported at shutdown.
 
 `CaptureDB` is one SQLite connection shared by Flask's request threads, so its public methods run
-under an `RLock` (`@serialized`). Anything that touches the share — `ingest`'s glob and sidecar
-reads — must stay **outside** that lock: a stalled CIFS mount would otherwise freeze every review
-request behind it.
+under an `RLock` (`@serialized`). Anything that touches the share must stay **outside** that
+lock: a stalled CIFS mount would otherwise freeze every review request behind it. The glob and
+the sidecar reads live in `src/clip_scan.py`, which has no lock to hold; `ingest` calls it
+unlocked and takes the lock only to insert what it found. Keep share I/O in that module.
 
 **All four gates must pass before every commit** — tests, lint, format check, type check.
 `scripts/check.sh` runs them, and `.github/workflows/check.yml` runs the same script on every
