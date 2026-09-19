@@ -22,6 +22,19 @@ Review = tuple[CaptureDB, ClipFrames]
 BOXES = (1, 2, 3)
 
 
+def error(message: str, status: int) -> Any:
+    return jsonify({"error": message}), status
+
+
+def no_such_event() -> Any:
+    return error("no such event", 404)
+
+
+def request_body() -> dict[str, Any]:
+    """The request's JSON object, or an empty one."""
+    return request.get_json(silent=True) or {}
+
+
 def validated_counts(raw: Any) -> dict[int, int] | None:
     """{box: poops} for boxes 1-3 with counts of 0 or more, or None if it is not."""
     if not isinstance(raw, dict) or not raw:
@@ -52,31 +65,31 @@ class ReviewPages:
         after = request.args.get("after", type=int)
         value = request.args.get("value")
         if value is not None and value not in VALID_LABELS:
-            return jsonify({"error": f"value must be one of {VALID_LABELS}"}), 400
+            return error(f"value must be one of {VALID_LABELS}", 400)
         return self._event_payload(self.db.next_labeled(after, value))
 
     def one_event(self, event_id: int) -> Any:
         event = self.db.get(event_id)
         if event is None:
-            return jsonify({"error": "no such event"}), 404
+            return no_such_event()
         return self._event_payload(event)
 
     def set_label(self, event_id: int) -> Any:
-        value = (request.get_json(silent=True) or {}).get("value")
+        value = request_body().get("value")
         if value not in VALID_LABELS:
-            return jsonify({"error": f"value must be one of {VALID_LABELS}"}), 400
+            return error(f"value must be one of {VALID_LABELS}", 400)
         if self.db.get(event_id) is None:
-            return jsonify({"error": "no such event"}), 404
+            return no_such_event()
         self.db.set_label(event_id, value)
         return jsonify({"ok": True, "counts": self.db.counts()})
 
     def set_counts(self, event_id: int) -> Any:
         """Poops found per box at a cleaning, signalled by hand in the clip."""
         if self.db.get(event_id) is None:
-            return jsonify({"error": "no such event"}), 404
-        counts = validated_counts((request.get_json(silent=True) or {}).get("counts"))
+            return no_such_event()
+        counts = validated_counts(request_body().get("counts"))
         if counts is None:
-            return jsonify({"error": f"counts must be {{box: n}} for {BOXES}"}), 400
+            return error(f"counts must be {{box: n}} for {BOXES}", 400)
         self.db.set_poop_counts(event_id, counts)
         return self._event_payload(self.db.get(event_id))
 
@@ -84,16 +97,16 @@ class ReviewPages:
         """A new visit starts at the index-th clip; the rest stay in this event."""
         event = self.db.get(event_id)
         if event is None:
-            return jsonify({"error": "no such event"}), 404
-        index = (request.get_json(silent=True) or {}).get("index")
+            return no_such_event()
+        index = request_body().get("index")
         if not isinstance(index, int) or not 0 < index < len(event.clips):
-            return jsonify({"error": "index must name a clip after the first"}), 400
+            return error("index must name a clip after the first", 400)
         self.db.split(event.clips[index].id)
         return self._event_payload(self.db.get(event_id))
 
     def join(self, event_id: int) -> Any:
         if self.db.get(event_id) is None:
-            return jsonify({"error": "no such event"}), 404
+            return no_such_event()
         return self._event_payload(self.db.join(event_id))
 
     def rescan(self) -> Any:
