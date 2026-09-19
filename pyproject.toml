@@ -70,6 +70,19 @@ select = [
     "RET",  # simplify returns
     "ARG",  # unused arguments
     "S",    # bandit security checks
+    # Each of these reported nothing when adopted; they guard the future for free.
+    "N",    # pep8 naming
+    "A",    # no shadowing builtins
+    "ERA",  # no commented-out code
+    "PIE",  # misc: no unnecessary pass, no duplicate class fields, ...
+    "PERF",  # comprehensions and list.extend over loops with append
+    "FURB",  # modern idioms
+    "ISC",  # implicit string concatenation
+    "TID",  # no relative imports
+    "PLE",  # pylint errors
+    "PLW",  # pylint warnings
+    "FLY",  # f-strings over static joins
+    "RSE",  # raise without redundant parentheses
 ]
 ignore = [
     # A clear ValueError message at the raise site beats a bespoke exception
