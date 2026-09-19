@@ -88,6 +88,11 @@ class FakeCircularOutput:
     def is_abandoned(self) -> bool:
         return self.dead
 
+    def begin(self, path: Path) -> None:
+        self.dead = False
+        self.fileoutput = path
+        self.start()
+
     def start(self) -> None:
         self.started = True
         self.start_calls += 1

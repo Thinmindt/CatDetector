@@ -6,6 +6,7 @@ import datetime
 import logging
 import threading
 import time
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -594,7 +595,9 @@ def test_each_way_a_clip_can_close_is_named(recorder: Any) -> None:
     recorder.background_subtractor.motion_pixels = 5000
     recorder._process_frames(make_frame(MAIN_SIZE), make_frame(LORES_SIZE))
     by_length = recorder.current_filename
-    recorder._clip_started = time.monotonic() - (recorder.max_clip_seconds + 1)
+    recorder._clip = replace(
+        recorder._clip, started=time.monotonic() - (recorder.max_clip_seconds + 1)
+    )
     recorder._process_frames(make_frame(MAIN_SIZE), make_frame(LORES_SIZE))
     recorder._drain_thread.join(timeout=5)
 

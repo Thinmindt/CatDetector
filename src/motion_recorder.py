@@ -3,7 +3,7 @@ import logging
 import shutil
 import threading
 import time
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, cast
 
@@ -33,11 +33,25 @@ CLIP_FLUSH_TIMEOUT_SECONDS = 30
 DISK_CHECK_INTERVAL_SECONDS = 5
 
 
-def _has_content(writing: Path | None) -> bool:
+def _has_content(writing: Path) -> bool:
     try:
-        return writing is not None and writing.stat().st_size > 0
+        return writing.stat().st_size > 0
     except OSError:
         return False
+
+
+@dataclass(frozen=True)
+class OpenClip:
+    """A clip being written: its final name and what the sidecar will need."""
+
+    path: Path
+    started: float  # monotonic, for the length limit
+    started_at: datetime.datetime
+    trigger_blob: Blob | None
+
+    @property
+    def writing(self) -> Path:
+        return partial_name(self.path)
 
 
 class _ResilientCircularOutput(CircularOutput):  # type: ignore[misc]
@@ -46,6 +60,12 @@ class _ResilientCircularOutput(CircularOutput):  # type: ignore[misc]
     Both methods run on the encoder's poll thread. That thread is the only one
     that returns camera buffers, so an exception escaping it starves the camera.
     """
+
+    def begin(self, path: Path) -> None:
+        """Divert the ring buffer to a new file, forgetting any earlier failure."""
+        self.dead = False
+        self.fileoutput = path
+        self.start()
 
     def _write(self, frame: Any, timestamp: Any = None) -> None:
         if self.is_abandoned():
@@ -72,7 +92,7 @@ class _ResilientCircularOutput(CircularOutput):  # type: ignore[misc]
 
     def is_abandoned(self) -> bool:
         """Whether a write failed and the current clip has been given up on."""
-        return bool(getattr(self, "dead", False))
+        return bool(self.dead)
 
 
 class MotionRecorder:
@@ -104,7 +124,6 @@ class MotionRecorder:
 
         self.camera_manager = camera_manager
         self.picam2 = camera_manager.get_camera()
-        self.recording = False
 
         self.motion_threshold = motion_threshold
         self.dark_brightness = dark_brightness
@@ -128,17 +147,13 @@ class MotionRecorder:
         self.motion_timeout = motion_timeout
         self.max_clip_seconds = max_clip_seconds
         self.min_free_bytes = min_free_bytes
-        self._clip_started = 0.0
-        self._clip_started_at: datetime.datetime | None = None
-        self._trigger_blob: Blob | None = None
+        self._clip: OpenClip | None = None
         self._disk_checked_at: float | None = None
         self._had_room = True
 
         self.buffer_seconds = buffer_seconds
         self.circular_output: Any = None
         self.encoder: Any = None
-        self.current_filename: Path | None = None
-        self._writing_path: Path | None = None
         self._drain_thread: threading.Thread | None = None
         self._closed = False
 
@@ -171,6 +186,14 @@ class MotionRecorder:
         # Encodes the "main" stream, separately from the CameraManager fan-out.
         self.picam2.start_recording(self.encoder, self.circular_output)
         log.info("Circular recording started")
+
+    @property
+    def recording(self) -> bool:
+        return self._clip is not None
+
+    @property
+    def current_filename(self) -> Path | None:
+        return self._clip.path if self._clip is not None else None
 
     # --- detection ----------------------------------------------------------
 
@@ -243,7 +266,9 @@ class MotionRecorder:
         return self.recording and now - self.last_motion_time > self.motion_timeout
 
     def _clip_has_run_too_long(self, now: float) -> bool:
-        return self.recording and now - self._clip_started > self.max_clip_seconds
+        return (
+            self._clip is not None and now - self._clip.started > self.max_clip_seconds
+        )
 
     # --- clip lifecycle -----------------------------------------------------
 
@@ -253,108 +278,89 @@ class MotionRecorder:
         The clip opens with whatever pre-motion footage the buffer holds, which
         is bounded by the gap since the last clip ended.
         """
-        if self.recording or self.circular_output is None:
+        if self._clip is not None or self.circular_output is None:
             return None
         if self._previous_clip_is_still_flushing() or not self._has_room():
             return None
 
         started = datetime.datetime.now()
-        path = self._next_clip_path(started)
-        writing = partial_name(path)
+        clip = OpenClip(
+            path=self._next_clip_path(started),
+            started=time.monotonic(),
+            started_at=started,
+            trigger_blob=self.last_blob,
+        )
         try:
-            self.circular_output.dead = False
-            self.circular_output.fileoutput = writing
-            self.circular_output.start()
+            self.circular_output.begin(clip.writing)
         except Exception:
-            log.exception("Failed to start saving to %s", path)
+            log.exception("Failed to start saving to %s", clip.path)
             return None
 
-        self.current_filename = path
-        self._writing_path = writing
-        self.recording = True
-        self._clip_started = time.monotonic()
-        self._clip_started_at = started
-        self._trigger_blob = self.last_blob
+        self._clip = clip
         log.info(
-            "Started saving to %s (motion pixels: %d)", path, self.last_motion_pixels
+            "Started saving to %s (motion pixels: %d)",
+            clip.path,
+            self.last_motion_pixels,
         )
-        return path
+        return clip.path
 
     def _stop_saving(self, reason: CloseReason) -> Path | None:
         """Stop writing to the file and fall back to buffering only.
 
         The ring buffer is drained to disk on a separate thread.
         """
-        if not self.recording:
+        clip = self._clip
+        if clip is None:
             return None
+        self._clip = None
 
-        saved = self.current_filename
-        writing = self._writing_path
-        output = self.circular_output
-        facts = self._clip_facts(reason)
-        self.recording = False
-        self.current_filename = None
-        self._writing_path = None
-
+        facts = ClipFacts(
+            started_at=clip.started_at,
+            ended_at=datetime.datetime.now(),
+            close_reason=reason,
+            trigger_blob=clip.trigger_blob,
+            last_blob=self.last_blob,
+        )
         self._drain_thread = threading.Thread(
             target=self._finish_clip,
-            args=(output, writing, saved, facts),
+            args=(self.circular_output, clip, facts),
             daemon=True,
         )
         self._drain_thread.start()
-        return saved
+        return clip.path
 
-    def _clip_facts(self, reason: CloseReason) -> ClipFacts | None:
-        if self._clip_started_at is None:
-            return None
-        return ClipFacts(
-            started_at=self._clip_started_at,
-            ended_at=datetime.datetime.now(),
-            close_reason=reason,
-            trigger_blob=self._trigger_blob,
-            last_blob=self.last_blob,
-        )
-
-    def _finish_clip(
-        self,
-        output: Any,
-        writing: Path | None,
-        path: Path | None,
-        facts: ClipFacts | None,
-    ) -> None:
+    def _finish_clip(self, output: Any, clip: OpenClip, facts: ClipFacts) -> None:
         """Drain the ring buffer into the clip and close it. Runs off-thread."""
         try:
             output.stop()
         except Exception:
-            log.exception("Error finishing %s", path)
+            log.exception("Error finishing %s", clip.path)
             return
 
         abandoned = output.is_abandoned()
-        if abandoned and facts is not None:
-            facts = replace(facts, close_reason=CloseReason.ABANDONED)
-        self._record_facts(writing, path, facts)
-        promoted = self._promote(writing, path)
         if abandoned:
-            log.warning("Clip %s is incomplete: writes failed partway through", path)
+            facts = replace(facts, close_reason=CloseReason.ABANDONED)
+        self._record_facts(clip, facts)
+        promoted = self._promote(clip.writing, clip.path)
+        if abandoned:
+            log.warning(
+                "Clip %s is incomplete: writes failed partway through", clip.path
+            )
         elif promoted:
-            log.info("Stopped saving %s", path)
+            log.info("Stopped saving %s", clip.path)
 
     @staticmethod
-    def _record_facts(
-        writing: Path | None, path: Path | None, facts: ClipFacts | None
-    ) -> None:
+    def _record_facts(clip: OpenClip, facts: ClipFacts) -> None:
         """Write the sidecar. Runs before the clip takes its final name."""
-        if facts is None or path is None or not _has_content(writing):
+        if not _has_content(clip.writing):
             return
         try:
-            write_sidecar(path, facts)
+            write_sidecar(clip.path, facts)
         except OSError as error:
-            log.error("Could not write the sidecar for %s: %s", path.name, error)  # noqa: TRY400 -- the message is the whole story
+            log.error("Could not write the sidecar for %s: %s", clip.path.name, error)  # noqa: TRY400 -- the message is the whole story
 
-    def _promote(self, writing: Path | None, path: Path | None) -> bool:
+    def _promote(self, writing: Path, path: Path) -> bool:
         """Give the clip its final name, which is what marks it ready to ship."""
-        if writing is None or path is None:
-            return False
         try:
             if writing.stat().st_size == 0:
                 writing.unlink()
