@@ -35,7 +35,6 @@ class ClipTransfer:
         self.share_root = Path(share_root)
         self.scan_interval = scan_interval
         self.local_directory.mkdir(parents=True, exist_ok=True)
-        self.transferred = 0
         self._share_was_ready = True
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
@@ -105,7 +104,6 @@ class ClipTransfer:
 
         sidecar.unlink(missing_ok=True)
         clip.unlink()
-        self.transferred += 1
         log.info("Shipped %s to %s", clip.name, self.destination)
         return True
 
