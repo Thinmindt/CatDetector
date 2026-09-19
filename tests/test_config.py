@@ -5,7 +5,7 @@ from __future__ import annotations
 import importlib
 import os
 from collections.abc import Iterator
-from types import ModuleType
+from typing import Any
 
 import pytest
 
@@ -43,8 +43,9 @@ def restore_config() -> Iterator[None]:
     importlib.reload(config)
 
 
-def reload_with_default_detection(monkeypatch: pytest.MonkeyPatch) -> ModuleType:
-    """Reload config with no detection settings in the environment or .env."""
+@pytest.fixture
+def defaults(monkeypatch: pytest.MonkeyPatch) -> Any:
+    """Config with no detection settings in the environment or .env."""
 
     def skip_dotenv(*args: object, **kwargs: object) -> bool:
         return False
@@ -54,7 +55,7 @@ def reload_with_default_detection(monkeypatch: pytest.MonkeyPatch) -> ModuleType
         monkeypatch.delenv(name, raising=False)
     import config
 
-    return importlib.reload(config)
+    return importlib.reload(config).Config
 
 
 def test_env_var_overrides_dotenv(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -114,24 +115,15 @@ def test_detection_settings_come_from_the_environment(
     assert config.Config.MOG2_HISTORY == 1500
 
 
-def test_default_threshold_is_below_a_walking_cat(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_default_threshold_is_below_a_walking_cat(defaults: Any) -> None:
     """A run that forgets MOTION_THRESHOLD must still record a visit."""
-    config = reload_with_default_detection(monkeypatch)
-    assert config.Config.MOTION_THRESHOLD < WALKING_CAT_PX
+    assert defaults.MOTION_THRESHOLD < WALKING_CAT_PX
 
 
-def test_default_dark_cutoff_separates_night_from_a_lit_room(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    config = reload_with_default_detection(monkeypatch)
-    assert BRIGHTEST_NIGHT_FRAME < config.Config.DARK_BRIGHTNESS < DIMMEST_LIT_FRAME
+def test_default_dark_cutoff_separates_night_from_a_lit_room(defaults: Any) -> None:
+    assert BRIGHTEST_NIGHT_FRAME < defaults.DARK_BRIGHTNESS < DIMMEST_LIT_FRAME
 
 
-def test_timeout_and_history_keep_their_old_defaults(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    config = reload_with_default_detection(monkeypatch)
-    assert config.Config.MOTION_TIMEOUT == 10
-    assert config.Config.MOG2_HISTORY == 500
+def test_timeout_and_history_keep_their_old_defaults(defaults: Any) -> None:
+    assert defaults.MOTION_TIMEOUT == 10
+    assert defaults.MOG2_HISTORY == 500

@@ -13,6 +13,7 @@ from conftest import StubRecorder
 from src.capture_db import CaptureDB
 from src.clip_frames import ClipFrames
 from src.web_app import create_app
+from src.web_streamer import WebStreamer
 
 
 @pytest.fixture
@@ -24,8 +25,6 @@ def review_parts(tmp_path: Path) -> Any:
 
 @pytest.fixture
 def streamer(camera_manager: Any) -> Any:
-    from src.web_streamer import WebStreamer
-
     return WebStreamer(
         camera_manager=camera_manager, motion_recorder=cast(Any, StubRecorder())
     )
