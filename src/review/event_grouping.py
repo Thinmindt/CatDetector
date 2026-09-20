@@ -4,8 +4,16 @@ import datetime
 import math
 from collections.abc import Sequence
 from dataclasses import dataclass
+from enum import StrEnum
 
 Centroid = tuple[int, int]
+
+
+class Boundary(StrEnum):
+    """A reviewer's override of the rule at one clip."""
+
+    SPLIT = "split"  # a new visit starts here
+    JOIN = "join"  # continues the clip named in `joins`
 
 
 @dataclass(frozen=True)
@@ -17,8 +25,8 @@ class ClipRow:
     ended_at: datetime.datetime
     trigger: Centroid | None
     last: Centroid | None
-    boundary: str | None = None  # "split" or "join", set by a reviewer
-    joins: str | None = None  # path of the clip a "join" continues
+    boundary: Boundary | None = None
+    joins: str | None = None  # path of the clip a JOIN continues
 
 
 @dataclass
@@ -62,9 +70,9 @@ def _chain_for(
     gap_seconds: float,
     box_distance_px: float,
 ) -> _Chain | None:
-    if clip.boundary == "split":
+    if clip.boundary is Boundary.SPLIT:
         return None
-    if clip.boundary == "join" and clip.joins in by_path:
+    if clip.boundary is Boundary.JOIN and clip.joins in by_path:
         return by_path[clip.joins]
 
     earliest = clip.started_at - datetime.timedelta(seconds=gap_seconds)

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import datetime
 import sqlite3
 import threading
 from pathlib import Path
@@ -35,7 +36,7 @@ def test_ingest_registers_new_clips_once(db: Any, clip_dir: Path) -> None:
 def test_ingest_parses_started_at_from_the_filename(db: Any, clip_dir: Path) -> None:
     db.ingest(clip_dir)
     event = db.next_unlabeled()
-    assert event.started_at == "2026-08-25T07:24:52"
+    assert event.started_at == datetime.datetime(2026, 8, 25, 7, 24, 52)
 
 
 def test_ingest_accepts_unparseable_names(db: Any, tmp_path: Path) -> None:
@@ -100,9 +101,9 @@ def test_ingest_takes_the_facts_from_the_sidecar(db: Any, tmp_path: Path) -> Non
     event = db.next_unlabeled()
 
     (clip,) = event.clips
-    assert clip.started_at == "2026-09-12T08:00:00.000"
-    assert clip.ended_at == "2026-09-12T08:00:25.000"
-    assert clip.close_reason == "max_length"
+    assert clip.started_at == at(0)
+    assert clip.ended_at == at(25)
+    assert clip.close_reason is CloseReason.MAX_LENGTH
 
 
 def test_a_rescan_does_not_re_read_the_sidecars_it_already_has(
@@ -137,8 +138,8 @@ def test_a_clip_without_a_sidecar_is_recovered_with_an_estimated_end(
     db.ingest(directory)
     (clip,) = db.next_unlabeled().clips
 
-    assert clip.close_reason == "recovered"
-    assert clip.ended_at == "2026-09-12T08:00:10.000"
+    assert clip.close_reason is CloseReason.RECOVERED
+    assert clip.ended_at == at(10)
 
 
 def test_clips_of_one_visit_become_one_event(db: Any, tmp_path: Path) -> None:
@@ -151,9 +152,9 @@ def test_clips_of_one_visit_become_one_event(db: Any, tmp_path: Path) -> None:
 
     assert db.counts() == {"total": 2, "labeled": 0, "multi_clip": 1}
     first = db.next_unlabeled()
-    assert [c.started_at[11:19] for c in first.clips] == ["08:00:00", "08:00:40"]
-    assert first.started_at == "2026-09-12T08:00:00.000"
-    assert first.ended_at == "2026-09-12T08:00:55.000"
+    assert [c.started_at for c in first.clips] == [at(0), at(40)]
+    assert first.started_at == at(0)
+    assert first.ended_at == at(55)
 
 
 def test_a_later_ingest_keeps_event_ids_stable(db: Any, tmp_path: Path) -> None:
@@ -285,11 +286,11 @@ def test_split_starts_a_new_unlabeled_event_and_the_first_half_keeps_its_id(
     db.split(event.clips[1].id)
 
     first = db.get(event.id)
-    assert [c.started_at[11:19] for c in first.clips] == ["08:00:00"]
+    assert [c.started_at for c in first.clips] == [at(0)]
     assert first.label == "cat"
     second = db.next_unlabeled()
     assert second.id != first.id
-    assert [c.started_at[11:19] for c in second.clips] == ["08:00:40", "08:01:20"]
+    assert [c.started_at for c in second.clips] == [at(40), at(80)]
     assert db.counts() == {"total": 2, "labeled": 1, "multi_clip": 1, "cat": 1}
 
 
@@ -345,8 +346,8 @@ def test_next_multi_walks_the_multi_clip_events_in_order(
     first = db.next_multi(None)
     second = db.next_multi(first.id)
 
-    assert first.started_at[11:19] == "08:00:00"
-    assert second.started_at[11:19] == "08:16:40"
+    assert first.started_at == at(0)
+    assert second.started_at == at(1000)
     assert db.next_multi(second.id) is None
 
 
@@ -393,7 +394,7 @@ def test_next_multi_carries_on_after_a_split_leaves_one_clip(
 
     third = db.next_multi(second.id)
     assert third is not None
-    assert third.started_at[11:19] == "08:16:40"
+    assert third.started_at == at(1000)
 
 
 def test_poop_counts_survive_a_regroup(db: Any, tmp_path: Path) -> None:

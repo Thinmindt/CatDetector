@@ -10,8 +10,9 @@ from functools import wraps
 from pathlib import Path
 from typing import Any, NamedTuple
 
+from src.clips.sidecar import CloseReason, iso
 from src.review.clip_scan import FoundClip, scan_clips
-from src.review.event_grouping import ClipRow, group_clips
+from src.review.event_grouping import Boundary, ClipRow, group_clips
 
 log = logging.getLogger(__name__)
 
@@ -84,11 +85,11 @@ class Label(NamedTuple):
 class Clip:
     id: int
     path: str
-    started_at: str | None
-    ended_at: str | None
-    close_reason: str
+    started_at: datetime.datetime | None
+    ended_at: datetime.datetime | None
+    close_reason: CloseReason
     size_bytes: int
-    boundary: str | None
+    boundary: Boundary | None
 
 
 @dataclass(frozen=True)
@@ -102,26 +103,39 @@ class Event:
     poops: dict[int, int] = field(default_factory=dict)
 
     @property
-    def started_at(self) -> str | None:
+    def started_at(self) -> datetime.datetime | None:
         return self.clips[0].started_at if self.clips else None
 
     @property
-    def ended_at(self) -> str | None:
+    def ended_at(self) -> datetime.datetime | None:
         return self.clips[-1].ended_at if self.clips else None
+
+
+# Timestamps are stored as ISO text, which sorts in time order.
+
+
+def _iso(when: datetime.datetime | None) -> str | None:
+    return None if when is None else iso(when)
+
+
+def _when(text: str | None) -> datetime.datetime | None:
+    return None if text is None else datetime.datetime.fromisoformat(text)
+
+
+def _boundary(text: str | None) -> Boundary | None:
+    return None if text is None else Boundary(text)
 
 
 def _clip_row(row: sqlite3.Row) -> ClipRow:
     started = datetime.datetime.fromisoformat(row["started_at"])
-    ended = (
-        datetime.datetime.fromisoformat(row["ended_at"]) if row["ended_at"] else started
-    )
+    ended = _when(row["ended_at"]) or started
     return ClipRow(
         path=row["path"],
         started_at=started,
         ended_at=ended,
         trigger=_centroid(row["trigger_cx"], row["trigger_cy"]),
         last=_centroid(row["last_cx"], row["last_cy"]),
-        boundary=row["boundary"],
+        boundary=_boundary(row["boundary"]),
         joins=row["joins"],
     )
 
@@ -205,9 +219,9 @@ class CaptureDB:
             " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 str(clip.path),
-                clip.started_at,
-                clip.ended_at,
-                clip.close_reason,
+                _iso(clip.started_at),
+                _iso(clip.ended_at),
+                clip.close_reason.value,
                 *(clip.trigger or (None, None)),
                 *(clip.last or (None, None)),
                 clip.size,
@@ -235,7 +249,8 @@ class CaptureDB:
         if row is None:
             return
         self._conn.execute(
-            "UPDATE clip SET boundary = 'split', joins = NULL WHERE id = ?", (clip_id,)
+            "UPDATE clip SET boundary = ?, joins = NULL WHERE id = ?",
+            (Boundary.SPLIT.value, clip_id),
         )
         self._place_clips(keep_events=True)
         moved = self._conn.execute(
@@ -258,8 +273,8 @@ class CaptureDB:
         if this is None or following is None:
             return None
         self._conn.execute(
-            "UPDATE clip SET boundary = 'join', joins = ? WHERE id = ?",
-            (this.clips[-1].path, following.clips[0].id),
+            "UPDATE clip SET boundary = ?, joins = ? WHERE id = ?",
+            (Boundary.JOIN.value, this.clips[-1].path, following.clips[0].id),
         )
         self._place_clips(keep_events=True)
         self._conn.commit()
@@ -502,9 +517,9 @@ class CaptureDB:
         return Clip(
             id=int(row["id"]),
             path=str(row["path"]),
-            started_at=row["started_at"],
-            ended_at=row["ended_at"],
-            close_reason=str(row["close_reason"]),
+            started_at=_when(row["started_at"]),
+            ended_at=_when(row["ended_at"]),
+            close_reason=CloseReason(row["close_reason"]),
             size_bytes=int(row["size_bytes"] or 0),
-            boundary=row["boundary"],
+            boundary=_boundary(row["boundary"]),
         )
