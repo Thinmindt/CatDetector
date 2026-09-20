@@ -8,6 +8,7 @@ from types import FrameType
 from config import Config
 from src.capture.camera_manager import CameraManager
 from src.capture.clip_transfer import ClipTransfer
+from src.capture.motion_detector import MotionDetector
 from src.capture.motion_metrics import MetricsLog
 from src.capture.motion_recorder import MotionRecorder
 from src.capture.web_streamer import WebStreamer
@@ -66,13 +67,16 @@ def build_recorder(
     across whenever it is reachable.
     """
     try:
+        detector = MotionDetector(
+            motion_threshold=Config.MOTION_THRESHOLD,
+            dark_brightness=Config.DARK_BRIGHTNESS,
+            mog2_history=Config.MOG2_HISTORY,
+        )
         return MotionRecorder(
             camera_manager=camera_manager,
             video_directory=local_clips,
-            motion_threshold=Config.MOTION_THRESHOLD,
-            dark_brightness=Config.DARK_BRIGHTNESS,
+            detector=detector,
             motion_timeout=Config.MOTION_TIMEOUT,
-            mog2_history=Config.MOG2_HISTORY,
             metrics=build_metrics(),
         )
     except Exception as error:

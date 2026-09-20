@@ -5,14 +5,14 @@ import threading
 import time
 from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import Any, cast
+from typing import Any
 
-import cv2
 from picamera2.encoders import H264Encoder
 from picamera2.outputs import CircularOutput
 
 from src.capture.camera_manager import CameraManager
-from src.capture.motion_metrics import MetricsLog, measure
+from src.capture.motion_detector import MotionDetector
+from src.capture.motion_metrics import MetricsLog
 from src.clips.blob import Blob
 from src.clips.format import (
     CAMERA_FPS,
@@ -26,9 +26,6 @@ from src.clips.frame import Frame
 from src.clips.sidecar import ClipFacts, CloseReason, write_sidecar
 
 log = logging.getLogger(__name__)
-
-# MOG2 marks shadow pixels with this value; only 255 is real foreground.
-SHADOW_PIXEL_VALUE = 127
 
 CLIP_FLUSH_TIMEOUT_SECONDS = 30
 DISK_CHECK_INTERVAL_SECONDS = 5
@@ -97,49 +94,26 @@ class _ResilientCircularOutput(CircularOutput):  # type: ignore[misc]
 
 
 class MotionRecorder:
-    """
-    A class to monitor cats using motion detection and record video.
-    Uses circular buffer to avoid camera resource conflicts.
-    """
+    """Writes clips from the shared camera's encoder while the detector sees motion."""
 
     def __init__(
         self,
         camera_manager: CameraManager,
         video_directory: str | Path,
+        detector: MotionDetector,
         *,
-        motion_threshold: int,
-        dark_brightness: float,
         motion_timeout: float,
-        mog2_history: int,
         file_prefix: str = "cat_video",
         buffer_seconds: int = 5,
-        warmup_frames: int = 30,
         max_clip_seconds: float = 300,
         min_free_bytes: int = 1_000_000_000,
         metrics: MetricsLog | None = None,
     ) -> None:
-        """
-        Initializes the MotionRecorder with a shared camera manager.
-        """
-        if warmup_frames < 0:
-            raise ValueError("warmup_frames must not be negative")
-
         self.camera_manager = camera_manager
         self.picam2 = camera_manager.get_camera()
-
-        self.motion_threshold = motion_threshold
-        self.dark_brightness = dark_brightness
-        self.dark = False
-        self.background_subtractor = cv2.createBackgroundSubtractorMOG2(
-            history=mog2_history
-        )
+        self.detector = detector
         self.last_motion_pixels = 0
-        self.last_blob: Blob | None = None
         self.metrics = metrics
-        self.warmup_frames = warmup_frames
-        self._frames_seen = 0
-        if warmup_frames == 0:
-            log.info("Motion detection armed (warmup disabled)")
 
         self.file_prefix = file_prefix
         self.video_directory = Path(video_directory)
@@ -217,51 +191,12 @@ class MotionRecorder:
             self._stop_saving(CloseReason.MAX_LENGTH)
 
     def detect_motion(self, frame: Frame) -> bool:
-        # RGB -> BGR followed by BGR -> GRAY is the same as one RGB -> GRAY pass.
-        gray = cast(Frame, cv2.cvtColor(frame, cv2.COLOR_RGB2GRAY))
-        measured = measure(gray, self._foreground_mask(gray))
-        self.last_motion_pixels = measured.foreground_px
+        """Run the detector and log the frame's metrics."""
+        detection = self.detector.detect(frame)
+        self.last_motion_pixels = detection.metrics.foreground_px
         if self.metrics is not None:
-            self.metrics.record(measured, self.recording)
-
-        if self._still_warming_up() or self._is_dark(measured.brightness):
-            return False
-        moving = measured.foreground_px > self.motion_threshold
-        if moving:
-            self.last_blob = measured.clean_blob
-        return moving
-
-    def _foreground_mask(self, gray: Frame) -> Frame:
-        """Binary foreground mask, with MOG2's shadow pixels excluded.
-
-        Shadow detection stays on: disabling it relabels shadows as foreground
-        rather than removing them.
-        """
-        mask = self.background_subtractor.apply(gray)
-        _, binary = cv2.threshold(mask, SHADOW_PIXEL_VALUE, 255, cv2.THRESH_BINARY)
-        return cast(Frame, binary)
-
-    def _still_warming_up(self) -> bool:
-        """Count this frame towards MOG2's training; True until it has enough."""
-        if self._frames_seen >= self.warmup_frames:
-            return False
-
-        self._frames_seen += 1
-        if self._frames_seen == self.warmup_frames:
-            log.info("Motion detection armed after %d frames", self.warmup_frames)
-        return True
-
-    def _is_dark(self, brightness: float) -> bool:
-        """Whether the scene is too dark to see. Logs each change."""
-        dark = brightness < self.dark_brightness
-        if dark != self.dark:
-            self.dark = dark
-            log.info(
-                "Scene is dark; ignoring motion"
-                if dark
-                else "Scene is lit; detecting motion"
-            )
-        return dark
+            self.metrics.record(detection.metrics, self.recording)
+        return detection.moving
 
     def _motion_has_stopped(self, now: float) -> bool:
         return self.recording and now - self.last_motion_time > self.motion_timeout
@@ -289,7 +224,7 @@ class MotionRecorder:
             path=self._next_clip_path(started),
             started=time.monotonic(),
             started_at=started,
-            trigger_blob=self.last_blob,
+            trigger_blob=self.detector.last_blob,
         )
         try:
             self.circular_output.begin(clip.writing)
@@ -320,7 +255,7 @@ class MotionRecorder:
             ended_at=datetime.datetime.now(),
             close_reason=reason,
             trigger_blob=clip.trigger_blob,
-            last_blob=self.last_blob,
+            last_blob=self.detector.last_blob,
         )
         self._drain_thread = threading.Thread(
             target=self._finish_clip,

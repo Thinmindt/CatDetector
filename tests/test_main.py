@@ -48,10 +48,10 @@ def test_detection_settings_reach_the_recorder(
     recorder = main.build_recorder(camera_manager, tmp_path / "clip_cache")
 
     assert recorder is not None
-    assert recorder.motion_threshold == 200
-    assert recorder.dark_brightness == 12.5
+    assert recorder.detector.motion_threshold == 200
+    assert recorder.detector.dark_brightness == 12.5
     assert recorder.motion_timeout == 30.0
-    assert recorder.background_subtractor.getHistory() == 1500
+    assert recorder.detector.background_subtractor.getHistory() == 1500
 
 
 class MonitorSpy:

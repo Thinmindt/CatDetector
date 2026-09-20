@@ -60,7 +60,7 @@ class WebStreamer:
             "recorder": True,
             "recording": recorder.recording,
             "clip": clip.name if clip else None,
-            "motion_threshold": recorder.motion_threshold,
+            "motion_threshold": recorder.detector.motion_threshold,
             "motion_timeout": recorder.motion_timeout,
         }
 

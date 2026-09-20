@@ -172,13 +172,20 @@ class FakePicamera2:
         self.stop_recording_calls += 1
 
 
+class StubDetector:
+    """Only the attributes the web layer reads from a MotionDetector."""
+
+    def __init__(self) -> None:
+        self.motion_threshold = 300
+
+
 class StubRecorder:
     """Only the attributes the web layer reads from a MotionRecorder."""
 
     def __init__(self, recording: bool = False, filename: Path | None = None) -> None:
         self.recording = recording
         self.current_filename = filename
-        self.motion_threshold = 300
+        self.detector = StubDetector()
         self.motion_timeout = 10
 
 
@@ -225,33 +232,47 @@ def camera_manager(fake_camera: FakePicamera2) -> Iterator[Any]:
     manager.stop_frame_distribution()
 
 
+DETECTOR_SETTINGS: dict[str, Any] = {
+    "motion_threshold": 1000,
+    # make_frame() is black by default; 0 keeps every test frame lit.
+    "dark_brightness": 0,
+    "mog2_history": 500,
+    "warmup_frames": 3,
+}
+
+
+def make_detector(*, stub_mog2: bool = True, **overrides: Any) -> Any:
+    """A detector over StubSubtractor, so tests dictate the foreground pixel
+    count exactly; stub_mog2=False keeps the real MOG2."""
+    from src.capture.motion_detector import MotionDetector
+
+    detector = MotionDetector(**{**DETECTOR_SETTINGS, **overrides})
+    if stub_mog2:
+        detector.background_subtractor = cast(Any, StubSubtractor())
+    return detector
+
+
 @pytest.fixture
 def make_recorder(
     camera_manager: Any, fake_encoders: None, tmp_path: Path
 ) -> Callable[..., Any]:
-    """A recorder over the fakes; keyword overrides reach the constructor.
-
-    MOG2 is swapped for StubSubtractor so tests dictate the foreground pixel
-    count exactly; stub_mog2=False keeps the real one.
-    """
+    """A recorder over the fakes and a stubbed detector; keyword overrides
+    reach whichever constructor owns them."""
     from src.capture.motion_recorder import MotionRecorder
 
     def build(*, stub_mog2: bool = True, **overrides: Any) -> Any:
         settings: dict[str, Any] = {
             "video_directory": tmp_path / "clips",
             "file_prefix": "test",
-            "motion_threshold": 1000,
-            # make_frame() is black by default; 0 keeps every test frame lit.
-            "dark_brightness": 0,
             "motion_timeout": 5,
-            "mog2_history": 500,
             "buffer_seconds": 2,
-            "warmup_frames": 3,
         }
-        rec = MotionRecorder(camera_manager, **{**settings, **overrides})
-        if stub_mog2:
-            rec.background_subtractor = cast(Any, StubSubtractor())
-        return rec
+        for_detector = {k: v for k, v in overrides.items() if k in DETECTOR_SETTINGS}
+        for_recorder = {k: v for k, v in overrides.items() if k not in for_detector}
+        detector = make_detector(stub_mog2=stub_mog2, **for_detector)
+        return MotionRecorder(
+            camera_manager, detector=detector, **{**settings, **for_recorder}
+        )
 
     return build
 
