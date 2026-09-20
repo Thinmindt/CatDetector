@@ -10,16 +10,15 @@ import pytest
 from conftest import make_clip_file, visit
 from flask import Flask
 
-from src.review.api import create_review_blueprint
+from src.review.api import Review, create_review_blueprint
 from src.review.clip_frames import ClipFrames
 
 
 def client_for(db: Any, tmp_path: Path) -> Any:
     """A test client for the review API alone, over this database."""
     app = Flask(__name__)
-    app.register_blueprint(
-        create_review_blueprint((db, ClipFrames(tmp_path / "cache")))
-    )
+    review = Review(db, ClipFrames(tmp_path / "cache"), tmp_path / "captures")
+    app.register_blueprint(create_review_blueprint(review))
     return app.test_client()
 
 

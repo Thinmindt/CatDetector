@@ -19,7 +19,7 @@ from conftest import (
     visit,
 )
 
-import review
+import main
 from src.clips.sidecar import CloseReason, read_sidecar
 from src.review.capture_db import CaptureDB
 
@@ -270,7 +270,7 @@ def test_the_regroup_command_uses_the_current_thresholds(
     monkeypatch.setattr("config.Config.DB_PATH", str(db_path))
     monkeypatch.setattr("config.Config.EVENT_GAP_SECONDS", 600.0)
 
-    assert review.regroup_events()["total"] == 1
+    assert main.regroup_events()["total"] == 1
 
 
 def test_split_starts_a_new_unlabeled_event_and_the_first_half_keeps_its_id(
@@ -431,7 +431,7 @@ def test_a_database_from_before_grouping_is_refused(tmp_path: Path) -> None:
         conn.execute("CREATE TABLE event (id INTEGER PRIMARY KEY, clip_path TEXT)")
 
     with pytest.raises(RuntimeError, match="predates event grouping"):
-        CaptureDB(old)
+        CaptureDB(old, gap_seconds=GAP, box_distance_px=DISTANCE)
 
 
 # --- one connection, many threads -------------------------------------------

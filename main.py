@@ -1,6 +1,7 @@
 import logging
 import pathlib
 import signal
+import sys
 import threading
 import time
 from types import FrameType
@@ -13,7 +14,9 @@ from src.capture.motion_metrics import MetricsLog
 from src.capture.motion_recorder import MotionRecorder
 from src.capture.web_streamer import WebStreamer
 from src.logging_setup import configure_logging
-from src.review.api import Review, open_review
+from src.review.api import Review
+from src.review.capture_db import CaptureDB
+from src.review.clip_frames import ClipFrames
 from src.web_app import WEB_PORT, create_app, run
 
 log = logging.getLogger(__name__)
@@ -96,6 +99,22 @@ def build_transfer(local_clips: pathlib.Path, share: pathlib.Path) -> ClipTransf
     return transfer
 
 
+def open_db() -> CaptureDB:
+    return CaptureDB(
+        Config.DB_PATH,
+        gap_seconds=Config.EVENT_GAP_SECONDS,
+        box_distance_px=Config.EVENT_BOX_DISTANCE_PX,
+    )
+
+
+def open_review() -> Review:
+    """The capture database, brought up to date from the share, and its extractor."""
+    captures = pathlib.Path(Config.CAPTURES_DIR)
+    db = open_db()
+    log.info("Ingest found %d new clip(s)", db.ingest(captures))
+    return Review(db, ClipFrames(Config.REVIEW_CACHE_DIR), captures)
+
+
 def build_review() -> Review | None:
     """Open the review half, or return None so the live feed still comes up."""
     try:
@@ -105,8 +124,21 @@ def build_review() -> Review | None:
         return None
 
 
+def regroup_events() -> dict[str, int]:
+    """Rebuild every event from the current thresholds. Event ids change."""
+    db = open_db()
+    try:
+        db.regroup()
+        return db.counts()
+    finally:
+        db.close()
+
+
 if __name__ == "__main__":
     configure_logging(__name__)
+    if "--regroup" in sys.argv[1:]:
+        log.info("Regrouped: %s", regroup_events())
+        sys.exit(0)
     share = pathlib.Path(Config.NETWORK_SHARE_DIR)
     local_clips = pathlib.Path(Config.LOCAL_CLIP_DIR)
 

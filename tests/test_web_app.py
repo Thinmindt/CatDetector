@@ -8,9 +8,10 @@ from typing import Any, cast
 import cv2
 import numpy as np
 import pytest
-from conftest import StubRecorder
+from conftest import DISTANCE, GAP, StubRecorder
 
 from src.capture.web_streamer import WebStreamer
+from src.review.api import Review
 from src.review.capture_db import CaptureDB
 from src.review.clip_frames import ClipFrames
 from src.web_app import create_app
@@ -18,8 +19,8 @@ from src.web_app import create_app
 
 @pytest.fixture
 def review_parts(tmp_path: Path) -> Any:
-    db = CaptureDB(tmp_path / "captures.db")
-    yield db, ClipFrames(tmp_path / "cache")
+    db = CaptureDB(tmp_path / "captures.db", gap_seconds=GAP, box_distance_px=DISTANCE)
+    yield Review(db, ClipFrames(tmp_path / "cache"), tmp_path / "captures")
     db.close()
 
 
@@ -102,10 +103,11 @@ def test_media_is_served_from_a_relative_cache_dir(
     frames = ClipFrames(".review_cache")
     strip = np.zeros((8, 8, 3), np.uint8)
     cv2.imwrite(str(frames.cache_dir / "clip1_strip1s.jpg"), strip)
-    db = CaptureDB(tmp_path / "captures.db")
+    db = CaptureDB(tmp_path / "captures.db", gap_seconds=GAP, box_distance_px=DISTANCE)
     try:
         db.ingest(tmp_path / "captures")
-        client = create_app(None, (db, frames)).test_client()
+        review = Review(db, frames, tmp_path / "captures")
+        client = create_app(None, review).test_client()
 
         response = client.get("/review/1/clip/0/strip.jpg")
 
