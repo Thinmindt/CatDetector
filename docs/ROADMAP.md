@@ -194,10 +194,10 @@ Measured MOG2 defaults on this camera:
         size alone won't separate them, but brightness should help.
       - No motion went unrecorded for want of a trigger. Every frame over its run's threshold
         either started a clip or was already in one.
-- [ ] Label which clips contain a cat (the **review UI now exists** for this:
-      the Review tab at http://<pi-ip>:5000/review — keys c/n/u, z to undo),
-      then derive the distribution of largest-contour-area with a cat present vs absent.
-      That produces the size band A.3 needs.
+- [ ] Label which events contain a cat, then derive the distribution of largest-contour-area
+      with a cat present vs absent. That produces the size band A.3 needs. The labelling is
+      keeping up: every event was labelled on 2026-09-17, and on 2026-09-20 the database held
+      177 events, 31 of them `cat`, 13 awaiting review. The derivation has not been done.
 
 ## A.3 Detect a cat-sized thing, not "some pixels changed"
 
@@ -308,10 +308,10 @@ single-label training rather than silently mislabeling it.
 
 ## B.2 Storage
 
-- [ ] **SQLite on local disk, media on the NAS.** SQLite's locking is unreliable over CIFS,
+- [x] **SQLite on local disk, media on the NAS.** SQLite's locking is unreliable over CIFS,
       and `/mnt/nas` is CIFS — a database file there risks corruption under concurrent
-      access. Keep `captures.db` on the ext4 root (210 GB free) and store NAS *paths* in it.
-- [ ] Images and clips stay on the NAS. Do not put image blobs in SQLite.
+      access. `captures.db` lives on the ext4 root (210 GB free) and stores NAS *paths*.
+- [x] Images and clips stay on the NAS. Do not put image blobs in SQLite.
 - [ ] The DB is the only thing that is hard to recreate, so it is the thing to back up.
 - [ ] Watch SD-card wear: many small writes. Batch inserts per event rather than per frame.
 
@@ -359,31 +359,28 @@ Keeping `label` separate from `event` means model predictions and human labels c
 without one overwriting the other — which is what makes B.6's review-the-model loop possible.
 
 Since 2026-09-11 a visit may span several clips, so the clip is its own table and `event` is the
-grouping; the full plan is in A.4. The review UI built in B.3 currently treats each clip as its own
-event, so grouping changes its schema too.
+grouping; the full plan is in A.4.
 
 ## B.3 Labeling UI
 
 **Started 2026-08-26.** `src/review.py` is a Flask blueprint served as the Review tab of the one web app
 on :5000, by `main.py` beside the live feed or by `review.py` without the camera (merged
-2026-09-12). It labels at clip level (cat / not_cat / unsure)
-with single-key shortcuts, auto-advance, undo, live counts, and a click-to-zoom frame strip.
-Storage follows B.2: SQLite on local disk (`DB_PATH`, default `captures.db`), label table
-separate from event, media paths only. Still to come as Part A/B progress: per-cat label values,
-crop display (needs A.3 bounding boxes), and the `multiple` label. The `?filter=` audit view and the merge into the main app were
-done on 2026-09-12.
+2026-09-12). It labels at event level (`cat` / `not_cat` / `unsure` / `clean`) with single-key
+shortcuts, auto-advance, undo, live counts, and a tile grid per clip that zooms to the full
+frame. Storage follows B.2: SQLite on local disk (`DB_PATH`, default `captures.db`), label table
+separate from event, media paths only. In daily use since 2026-09-17.
 
 **The only requirement that really matters is speed.** Hundreds of events reviewed by one
 person means labeling must be a single keystroke, or it will not happen and the classifier
 never gets its data. Design to that:
 
-- [ ] `/review` — serves the oldest unlabeled event: crop grid + context frame + a link to
-      the clip.
-- [ ] One **keyboard shortcut per label** (`a`, `b`, `n` for not-a-cat, `m` for multiple,
-      `u` for unsure), auto-advancing to the next event. No mouse, no confirm dialog.
-- [ ] **Undo.** A mislabel poisons training data, and speed guarantees mislabels.
-- [ ] Show the crop *and* the full frame — a crop alone is often ambiguous.
-- [ ] A counter of labeled/remaining per class, so imbalance is visible while labeling.
+- [x] `/review` — serves the oldest unlabeled event, with every clip's tiles and a link to
+      watch it. The crop grid waits on A.3's bounding boxes.
+- [x] One **keyboard shortcut per label**, auto-advancing to the next event. No mouse, no
+      confirm dialog. Today `c`, `n`, `u`, `l`; per-cat keys and `m` are the next item below.
+- [x] **Undo** (`z`). A mislabel poisons training data, and speed guarantees mislabels.
+- [ ] Show the crop *and* the full frame — a crop alone is often ambiguous. Needs A.3.
+- [x] A counter of labeled/remaining per class, so imbalance is visible while labeling.
 - [x] `/review?filter=...` to revisit a class, for auditing labels later. Done 2026-09-17:
       `filter=labeled` or `filter=<label>`, linked from the counts line; `→` walks, keys relabel.
 
@@ -403,11 +400,32 @@ at the moment of labeling and never hidden:
       to a `<video>` tag with byte ranges, so it seeks. The frame rate is pinned to `CAMERA_FPS`
       with `-r` as an input option; measured 2026-09-12, ffmpeg already read 30 fps from these
       clips (the Pi's encoder embeds timing), so the pin is belt and braces, not a fix.
-- [ ] Still to come: per-cat label values and the `multiple` label, crop display once A.3 has
-      bounding boxes, and a route that opens one event, for notification deep links (the review
-      UI now lives in the main app on the same port, so nothing else stands in the way).
+- [ ] Still to come: crop display once A.3 has bounding boxes, and a route that opens one
+      event, for notification deep links (the review UI now lives in the main app on the same
+      port, so nothing else stands in the way).
 
-**From use, 2026-09-19.** Two things make the page hard to work with now that it is used daily:
+**Next: label which cat** (asked for 2026-09-20, ahead of everything else on this page). Every
+`cat` label so far says only that a cat was there. Part B needs the name, A.2's stop rule wants
+15+ visits per cat and cannot be checked without it, and every visit labelled `cat` in the
+meantime has to be revisited, so this goes before the usability items.
+
+- [ ] **The label values are the cats' names**, read from config (`CAT_NAMES`, a comma-separated
+      list of any length; the names and their number are the installation's, never the code's).
+      The review page gives each cat a **digit key** in the configured order, shown beside the
+      name, so labelling stays one keystroke; the counts line and the `?filter=` walks grow one
+      entry per cat, which is the per-cat count A.2 asks for. The `label.value` column already
+      takes any text, so the schema does not change; the page and the API validate against the
+      configured list, and an empty list leaves the page as it is today.
+- [ ] **`cat` stays, meaning "a cat, which one not decided".** It is the value of every visit
+      labelled before this lands (31 events on 2026-09-20), and it remains the honest answer when
+      the tiles do not show the coat. `/review?filter=cat` is then the per-cat backlog: walk it
+      and press a digit, and the visit leaves the filter. Nothing is migrated.
+- [ ] **`multiple`** (`m`) for two cats in one event, the B.1 edge case: excluded from
+      single-label training, kept as a visit.
+- [ ] B.6's timeline filters by name for free once the values exist.
+
+**From use, 2026-09-19.** Three things make the page hard to work with now that it is used
+daily, and one from 2026-09-20. They follow the per-cat labels:
 
 - [ ] **It is used from a phone, and the buttons are too small to hit.** Larger touch targets
       for the label, cleaning and split/join actions, and a layout that reflows at phone width:
@@ -424,6 +442,18 @@ at the moment of labeling and never hidden:
       reload can replay.
 - [ ] **Dates are machine-shaped.** Show times in a readable local form (`Tue 15 Sep, 06:11`),
       with the relative time (`3 days ago`) on hover, here and on the timeline below (B.6).
+- [ ] **The tiles are slow to appear, worst on multi-clip events** (noted 2026-09-20). A strip
+      is built on its first request: ffmpeg reads the whole clip off the share and decodes every
+      keyframe, and an event with several clips fires several of those at once. Build them
+      ahead instead: after every ingest (startup and `rescan`), a background thread walks the
+      unlabeled events in review order and builds the strip for each clip that has none, so the
+      page's request is a cache hit. One build at a time, so it does not starve a request or,
+      under `main.py`, the encoder; the reviewer's own request for a strip still builds it on
+      demand and only wastes work if the two collide (the staging names are unique and the
+      publish atomic, so a collision is safe, just slow). Bound the walk to the next few dozen
+      events, not the backlog, and never hold the `CaptureDB` lock while ffmpeg reads the
+      share. The `?filter=` walks get no pre-caching: their events were already built when
+      they were labelled.
 
 Non-goals for v1: multi-user, accounts, editing bounding boxes by hand.
 
@@ -549,7 +579,9 @@ labeled and cropped.
 Still open from Part A:
 
 - Camera mounting height and floor coverage — every pixel-area estimate depends on it.
-- How many cats, and do they need telling apart individually or just "cat A vs not cat A"?
+- ~~How many cats, and do they need telling apart individually?~~ Resolved 2026-09-20: each cat
+  is identified by name, and the number is not the app's to know. `CAT_NAMES` is a list of any
+  length, set per installation (B.3); the code never assumes a count.
 - Is the floor around the box plain, or patterned/reflective in ways that fight background
   subtraction?
 - Consistent lighting, or does daylight sweep across it?
