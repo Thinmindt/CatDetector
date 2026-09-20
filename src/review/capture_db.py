@@ -10,7 +10,6 @@ from functools import wraps
 from pathlib import Path
 from typing import Any, NamedTuple
 
-from config import Config
 from src.review.clip_scan import FoundClip, scan_clips
 from src.review.event_grouping import ClipRow, group_clips
 
@@ -139,18 +138,11 @@ class CaptureDB:
     """
 
     def __init__(
-        self,
-        path: str | Path,
-        gap_seconds: float | None = None,
-        box_distance_px: float | None = None,
+        self, path: str | Path, *, gap_seconds: float, box_distance_px: float
     ) -> None:
         self.path = Path(path)
-        self.gap_seconds = (
-            Config.EVENT_GAP_SECONDS if gap_seconds is None else gap_seconds
-        )
-        self.box_distance_px = (
-            Config.EVENT_BOX_DISTANCE_PX if box_distance_px is None else box_distance_px
-        )
+        self.gap_seconds = gap_seconds
+        self.box_distance_px = box_distance_px
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self._lock = threading.RLock()
         self._conn = sqlite3.connect(self.path, check_same_thread=False)

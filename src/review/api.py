@@ -2,12 +2,13 @@
 
 import logging
 from collections.abc import Callable
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 from flask import Blueprint, Response, jsonify, request, send_file
+from flask.typing import ResponseReturnValue
 
-from config import Config
 from src.review.capture_db import CaptureDB, Clip, Event
 from src.review.clip_frames import ClipFrames
 
@@ -15,18 +16,26 @@ log = logging.getLogger(__name__)
 
 VALID_LABELS = ("cat", "not_cat", "unsure", "clean")
 
-# The database and the frame extractor the review routes are built on.
-Review = tuple[CaptureDB, ClipFrames]
+
+@dataclass(frozen=True)
+class Review:
+    """What the review routes are built on: the database, the frame extractor
+    and the directory on the share that a rescan reads."""
+
+    db: CaptureDB
+    frames: ClipFrames
+    captures_dir: Path
+
 
 # Litter boxes by position in frame, left to right; the camera knows no more.
 BOXES = (1, 2, 3)
 
 
-def error(message: str, status: int) -> Any:
+def error(message: str, status: int) -> ResponseReturnValue:
     return jsonify({"error": message}), status
 
 
-def no_such_event() -> Any:
+def no_such_event() -> ResponseReturnValue:
     return error("no such event", 404)
 
 
@@ -50,31 +59,32 @@ def validated_counts(raw: Any) -> dict[int, int] | None:
 class ReviewPages:
     """Route handlers bound to one database and one frame extractor."""
 
-    def __init__(self, db: CaptureDB, frames: ClipFrames) -> None:
-        self.db = db
-        self.frames = frames
+    def __init__(self, review: Review) -> None:
+        self.db = review.db
+        self.frames = review.frames
+        self.captures_dir = review.captures_dir
 
-    def next_event(self) -> Any:
+    def next_event(self) -> ResponseReturnValue:
         return self._event_payload(self.db.next_unlabeled())
 
-    def next_multi(self) -> Any:
+    def next_multi(self) -> ResponseReturnValue:
         after = request.args.get("after", type=int)
         return self._event_payload(self.db.next_multi(after))
 
-    def next_labeled(self) -> Any:
+    def next_labeled(self) -> ResponseReturnValue:
         after = request.args.get("after", type=int)
         value = request.args.get("value")
         if value is not None and value not in VALID_LABELS:
             return error(f"value must be one of {VALID_LABELS}", 400)
         return self._event_payload(self.db.next_labeled(after, value))
 
-    def one_event(self, event_id: int) -> Any:
+    def one_event(self, event_id: int) -> ResponseReturnValue:
         event = self.db.get(event_id)
         if event is None:
             return no_such_event()
         return self._event_payload(event)
 
-    def set_label(self, event_id: int) -> Any:
+    def set_label(self, event_id: int) -> ResponseReturnValue:
         value = request_body().get("value")
         if value not in VALID_LABELS:
             return error(f"value must be one of {VALID_LABELS}", 400)
@@ -83,7 +93,7 @@ class ReviewPages:
         self.db.set_label(event_id, value)
         return jsonify({"ok": True, "counts": self.db.counts()})
 
-    def set_counts(self, event_id: int) -> Any:
+    def set_counts(self, event_id: int) -> ResponseReturnValue:
         """Poops found per box at a cleaning, signalled by hand in the clip."""
         if self.db.get(event_id) is None:
             return no_such_event()
@@ -93,7 +103,7 @@ class ReviewPages:
         self.db.set_poop_counts(event_id, counts)
         return self._event_payload(self.db.get(event_id))
 
-    def split(self, event_id: int) -> Any:
+    def split(self, event_id: int) -> ResponseReturnValue:
         """A new visit starts at the index-th clip; the rest stay in this event."""
         event = self.db.get(event_id)
         if event is None:
@@ -104,13 +114,13 @@ class ReviewPages:
         self.db.split(event.clips[index].id)
         return self._event_payload(self.db.get(event_id))
 
-    def join(self, event_id: int) -> Any:
+    def join(self, event_id: int) -> ResponseReturnValue:
         if self.db.get(event_id) is None:
             return no_such_event()
         return self._event_payload(self.db.join(event_id))
 
-    def rescan(self) -> Any:
-        added = self.db.ingest(Config.CAPTURES_DIR)
+    def rescan(self) -> ResponseReturnValue:
+        added = self.db.ingest(self.captures_dir)
         return jsonify({"added": added, "counts": self.db.counts()})
 
     def strip(self, event_id: int, index: int) -> Response:
@@ -152,7 +162,7 @@ class ReviewPages:
             return Response("unavailable", status=404)
         return send_file(path, mimetype=mimetype)
 
-    def _event_payload(self, event: Event | None) -> Any:
+    def _event_payload(self, event: Event | None) -> ResponseReturnValue:
         body = None
         if event is not None:
             body = {
@@ -175,16 +185,9 @@ class ReviewPages:
         return jsonify({"event": body, "counts": self.db.counts()})
 
 
-def open_review() -> Review:
-    """The capture database, brought up to date from the share, and its extractor."""
-    db = CaptureDB(Config.DB_PATH)
-    log.info("Ingest found %d new clip(s)", db.ingest(Config.CAPTURES_DIR))
-    return db, ClipFrames(Config.REVIEW_CACHE_DIR)
-
-
 def create_review_blueprint(review: Review) -> Blueprint:
     """The review API and media routes. The page itself is served by web_app."""
-    pages = ReviewPages(*review)
+    pages = ReviewPages(review)
     bp = Blueprint("review", __name__)
     bp.add_url_rule("/api/review/next", view_func=pages.next_event)
     bp.add_url_rule("/api/review/multi/next", view_func=pages.next_multi)
