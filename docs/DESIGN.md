@@ -188,8 +188,8 @@ History sets how long a still cat takes to fade into the background: roughly his
 seconds. The timeout then closes the clip. The goal allows a visit to span several clips, so
 neither setting has to be stretched to cover a cat sitting still.
 
-**A dark scene cannot trigger** (2026-09-14). The camera is the IR-filtered imx708 and the room is
-unlit at night. After a light went off, the mean grey level sat at 1.1–2.7 and sensor speckle alone
+**A dark scene cannot trigger** (2026-09-14). The camera is the IR-filtered imx708 and, until a
+light was fitted on 2026-09-16, the room was unlit at night. After a light went off, the mean grey level sat at 1.1–2.7 and sensor speckle alone
 gave 200–295 foreground px on every frame. At a threshold of 150 that recorded back-to-back 300 s
 clips of black, about 2 GB/h. Raising the threshold would cost daytime recall and gain nothing,
 because no cat is visible in that footage anyway. So `detect_motion` ignores motion while the
@@ -198,7 +198,8 @@ brightest frame that night (2.7) and the dimmest lit frame that evening (46.1), 
 dim night-light. MOG2 keeps learning in the dark, so its background is current when the light
 returns; the light coming on is itself a whole-frame change and records one clip. Each change
 between dark and lit is logged. This removes the waste, not the gap: visits in the dark go
-unrecorded until the boxes are lit (ROADMAP A.2).
+unrecorded. The gap closed when the boxes were lit around the clock on 2026-09-16 (ROADMAP A.2);
+since then nights average ~125/255 and the gate only matters if the light fails.
 
 ## Process
 

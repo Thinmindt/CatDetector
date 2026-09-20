@@ -115,9 +115,11 @@ Measured MOG2 defaults on this camera:
       cat that the camera cannot see: night recall needs light, either a constant dim visible
       light (keeps colour for the coat-colour baseline in B.5) or a NoIR module plus an IR
       illuminator (monochrome at night). A light that switches on with motion would be worse,
-      since the pre-roll stays dark and the switch-on changes the whole frame. Until the boxes are
-      lit, motion is ignored while mean brightness is below `DARK_BRIGHTNESS` (default 10; see
-      DESIGN.md), which stops the black clips but not the gap. The loop was
+      since the pre-roll stays dark and the switch-on changes the whole frame. Motion is ignored
+      while mean brightness is below `DARK_BRIGHTNESS` (default 10; see DESIGN.md), which stops the
+      black clips but not the gap. **The boxes have been lit around the clock since 2026-09-16:**
+      nights since 09-18 average ~125/255 in the metrics CSV and record like days, so the gap is
+      closed as long as the light stays on. The loop was
       confirmed at 30.0 fps on hardware (2026-09-12) with `METRICS_CSV` on and recording, all 16
       columns written, so the cleaned-blob and brightness work carries no measurable cost.
       Collected so far (2026-09-10):
