@@ -6,14 +6,14 @@ import datetime
 import json
 from pathlib import Path
 
-from src.clip_sidecar import (
+from src.clips.blob import Blob
+from src.clips.sidecar import (
     ClipFacts,
     CloseReason,
     read_sidecar,
     sidecar_name,
     write_sidecar,
 )
-from src.motion_metrics import Blob
 
 
 def facts() -> ClipFacts:

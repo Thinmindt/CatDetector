@@ -10,10 +10,10 @@ import numpy as np
 import pytest
 from conftest import StubRecorder
 
-from src.capture_db import CaptureDB
-from src.clip_frames import ClipFrames
+from src.capture.web_streamer import WebStreamer
+from src.review.capture_db import CaptureDB
+from src.review.clip_frames import ClipFrames
 from src.web_app import create_app
-from src.web_streamer import WebStreamer
 
 
 @pytest.fixture

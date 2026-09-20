@@ -11,8 +11,10 @@ import cv2
 from picamera2.encoders import H264Encoder
 from picamera2.outputs import CircularOutput
 
-from src.camera_manager import CameraManager
-from src.clip_format import (
+from src.capture.camera_manager import CameraManager
+from src.capture.motion_metrics import MetricsLog, measure
+from src.clips.blob import Blob
+from src.clips.format import (
     CAMERA_FPS,
     CLIP_SUFFIX,
     H264_BITRATE,
@@ -20,9 +22,8 @@ from src.clip_format import (
     final_name,
     partial_name,
 )
-from src.clip_sidecar import ClipFacts, CloseReason, write_sidecar
-from src.frame import Frame
-from src.motion_metrics import Blob, MetricsLog, measure
+from src.clips.frame import Frame
+from src.clips.sidecar import ClipFacts, CloseReason, write_sidecar
 
 log = logging.getLogger(__name__)
 

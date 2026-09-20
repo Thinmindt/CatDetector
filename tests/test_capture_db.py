@@ -20,8 +20,8 @@ from conftest import (
 )
 
 import review
-from src.capture_db import CaptureDB
-from src.clip_sidecar import CloseReason, read_sidecar
+from src.clips.sidecar import CloseReason, read_sidecar
+from src.review.capture_db import CaptureDB
 
 # --- ingest and labels ------------------------------------------------------
 
@@ -120,7 +120,7 @@ def test_a_rescan_does_not_re_read_the_sidecars_it_already_has(
         read.append(clip.name)
         return read_sidecar(clip)
 
-    monkeypatch.setattr("src.clip_scan.read_sidecar", spy)
+    monkeypatch.setattr("src.review.clip_scan.read_sidecar", spy)
     make_clip_with_facts(directory, at(200), seconds=15)
 
     assert db.ingest(directory) == 1
@@ -462,7 +462,7 @@ def test_ingest_reads_the_share_without_holding_the_lock(
         reading.set()
         assert release.wait(timeout=10)
 
-    monkeypatch.setattr("src.clip_scan.read_sidecar", stalled_sidecar)
+    monkeypatch.setattr("src.review.clip_scan.read_sidecar", stalled_sidecar)
     ingest = threading.Thread(target=db.ingest, args=(directory,), daemon=True)
     ingest.start()
     assert reading.wait(timeout=10)

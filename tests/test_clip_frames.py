@@ -10,7 +10,7 @@ import cv2
 import pytest
 from conftest import make_clip_file
 
-from src.clip_frames import (
+from src.review.clip_frames import (
     MAX_TILES,
     STAGING_SUFFIX,
     THUMB_WIDTH,
@@ -72,7 +72,7 @@ def test_long_clips_get_sparser_tiles(
     tmp_path: Path, long_clip: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     frames = ClipFrames(tmp_path / "cache")
-    monkeypatch.setattr("src.clip_frames.MAX_TILES", 3)
+    monkeypatch.setattr("src.review.clip_frames.MAX_TILES", 3)
 
     strip = frames.strip(1, long_clip)
 
@@ -118,7 +118,7 @@ def test_full_frame_follows_the_strip_stride(
     tmp_path: Path, long_clip: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     frames = ClipFrames(tmp_path / "cache")
-    monkeypatch.setattr("src.clip_frames.MAX_TILES", 3)
+    monkeypatch.setattr("src.review.clip_frames.MAX_TILES", 3)
 
     frame = frames.frame(1, long_clip, slot=2)
 

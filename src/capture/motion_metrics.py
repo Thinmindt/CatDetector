@@ -11,7 +11,8 @@ from typing import Any, TextIO, cast
 
 import cv2
 
-from src.frame import Frame
+from src.clips.blob import Blob
+from src.clips.frame import Frame
 
 log = logging.getLogger(__name__)
 
@@ -35,25 +36,6 @@ SENTINEL_TIMEOUT_SECONDS = 2
 
 SPECKLE_KERNEL = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
 MERGE_KERNEL = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (9, 9))
-
-
-@dataclass(frozen=True)
-class Blob:
-    """The largest foreground region in a frame."""
-
-    area: int
-    x: int
-    y: int
-    w: int
-    h: int
-
-    @property
-    def bounds(self) -> tuple[int, int, int, int]:
-        return self.x, self.y, self.w, self.h
-
-    @property
-    def centroid(self) -> tuple[int, int]:
-        return self.x + self.w // 2, self.y + self.h // 2
 
 
 @dataclass(frozen=True)

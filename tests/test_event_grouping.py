@@ -6,7 +6,7 @@ import datetime
 
 from conftest import BOX_1, BOX_2, BOX_3, DISTANCE, GAP, T0
 
-from src.event_grouping import ClipRow, group_clips
+from src.review.event_grouping import ClipRow, group_clips
 
 
 def clip(

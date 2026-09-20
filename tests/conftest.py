@@ -20,10 +20,10 @@ from typing import Any, cast
 import numpy as np
 import pytest
 
-from src.capture_db import CaptureDB
-from src.clip_sidecar import ClipFacts, CloseReason, write_sidecar
-from src.frame import Frame
-from src.motion_metrics import Blob
+from src.clips.blob import Blob
+from src.clips.frame import Frame
+from src.clips.sidecar import ClipFacts, CloseReason, write_sidecar
+from src.review.capture_db import CaptureDB
 
 PICAMERA2_IS_STUBBED = importlib.util.find_spec("picamera2") is None
 
@@ -198,7 +198,7 @@ class StubSubtractor:
 def fake_camera(monkeypatch: pytest.MonkeyPatch) -> FakePicamera2:
     """Patch CameraManager's Picamera2 so constructing one touches no hardware."""
     camera = FakePicamera2()
-    monkeypatch.setattr("src.camera_manager.Picamera2", lambda: camera)
+    monkeypatch.setattr("src.capture.camera_manager.Picamera2", lambda: camera)
     return camera
 
 
@@ -210,15 +210,15 @@ def fake_encoders(monkeypatch: pytest.MonkeyPatch) -> None:
     constructs. Patching CircularOutput would not help: the subclass bound the
     real base class at import time.
     """
-    monkeypatch.setattr("src.motion_recorder.H264Encoder", FakeH264Encoder)
+    monkeypatch.setattr("src.capture.motion_recorder.H264Encoder", FakeH264Encoder)
     monkeypatch.setattr(
-        "src.motion_recorder._ResilientCircularOutput", FakeCircularOutput
+        "src.capture.motion_recorder._ResilientCircularOutput", FakeCircularOutput
     )
 
 
 @pytest.fixture
 def camera_manager(fake_camera: FakePicamera2) -> Iterator[Any]:
-    from src.camera_manager import CameraManager
+    from src.capture.camera_manager import CameraManager
 
     manager = CameraManager()
     yield manager
@@ -234,7 +234,7 @@ def make_recorder(
     MOG2 is swapped for StubSubtractor so tests dictate the foreground pixel
     count exactly; stub_mog2=False keeps the real one.
     """
-    from src.motion_recorder import MotionRecorder
+    from src.capture.motion_recorder import MotionRecorder
 
     def build(*, stub_mog2: bool = True, **overrides: Any) -> Any:
         settings: dict[str, Any] = {

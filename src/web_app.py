@@ -4,9 +4,9 @@ import logging
 
 from flask import Flask, Response, jsonify, render_template
 
-from src.clip_frames import THUMB_WIDTH
-from src.review import VALID_LABELS, Review, create_review_blueprint
-from src.web_streamer import WebStreamer
+from src.capture.web_streamer import WebStreamer
+from src.review.api import VALID_LABELS, Review, create_review_blueprint
+from src.review.clip_frames import THUMB_WIDTH
 
 log = logging.getLogger(__name__)
 

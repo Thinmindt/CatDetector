@@ -22,9 +22,9 @@ from conftest import (
     needs_real_picamera2,
 )
 
-from src.clip_format import CAMERA_FPS, partial_name
-from src.clip_sidecar import ClipFacts, CloseReason, read_sidecar, sidecar_name
-from src.motion_recorder import _ResilientCircularOutput
+from src.capture.motion_recorder import _ResilientCircularOutput
+from src.clips.format import CAMERA_FPS, partial_name
+from src.clips.sidecar import ClipFacts, CloseReason, read_sidecar, sidecar_name
 
 # Mean grey levels either side of a dark cutoff of 10, as measured at night and by day.
 DARK_CUTOFF = 10
@@ -114,7 +114,7 @@ def test_logs_each_change_between_dark_and_lit(
     recorder.dark_brightness = DARK_CUTOFF
     arm(recorder)
 
-    with caplog.at_level(logging.INFO, logger="src.motion_recorder"):
+    with caplog.at_level(logging.INFO, logger="src.capture.motion_recorder"):
         for grey in (NIGHT_GREY, NIGHT_GREY, DAY_GREY, DAY_GREY, NIGHT_GREY):
             recorder.detect_motion(make_frame(LORES_SIZE, grey))
 

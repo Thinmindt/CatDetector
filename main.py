@@ -6,14 +6,14 @@ import time
 from types import FrameType
 
 from config import Config
-from src.camera_manager import CameraManager
-from src.clip_transfer import ClipTransfer
+from src.capture.camera_manager import CameraManager
+from src.capture.clip_transfer import ClipTransfer
+from src.capture.motion_metrics import MetricsLog
+from src.capture.motion_recorder import MotionRecorder
+from src.capture.web_streamer import WebStreamer
 from src.logging_setup import configure_logging
-from src.motion_metrics import MetricsLog
-from src.motion_recorder import MotionRecorder
-from src.review import Review, open_review
+from src.review.api import Review, open_review
 from src.web_app import WEB_PORT, create_app, run
-from src.web_streamer import WebStreamer
 
 log = logging.getLogger(__name__)
 

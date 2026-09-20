@@ -10,7 +10,7 @@ import numpy as np
 import pytest
 from conftest import LORES_SIZE, MAIN_SIZE, StubRecorder, make_frame
 
-from src.web_streamer import WebStreamer
+from src.capture.web_streamer import WebStreamer
 
 
 @pytest.fixture

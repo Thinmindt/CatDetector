@@ -95,7 +95,14 @@ ignore = [
 # rather than absorbed. Raise it deliberately, never to make a warning go away.
 max-complexity = 5
 
+# The camera stack is the capture side's alone: the review side must import
+# without it, so it can run on a machine that has no camera.
+[tool.ruff.lint.flake8-tidy-imports.banned-api]
+"picamera2".msg = "only src/capture may import the camera stack"
+
 [tool.ruff.lint.per-file-ignores]
+"src/capture/**" = ["TID251"]
+"tests/manual/**" = ["TID251"]  # hardware smoke scripts
 # In tests the literals *are* the expected values -- naming HTTP 200 or a frame
 # count adds indirection without meaning. S101 is `assert`, which is how pytest
 # works at all.
@@ -104,6 +111,7 @@ max-complexity = 5
     "PLR2004",  # assertion literals are the expected values
     "ARG",      # fixtures and stub callbacks are unused by design
     "S108",     # a fake /tmp path in an env-var test touches no filesystem
+    "TID251",   # the conftest fakes the camera stack
 ]
 
 [tool.mypy]

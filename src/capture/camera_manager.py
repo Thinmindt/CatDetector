@@ -5,7 +5,7 @@ from collections.abc import Callable
 
 from picamera2 import Picamera2
 
-from src.frame import Frame
+from src.clips.frame import Frame
 
 log = logging.getLogger(__name__)
 
