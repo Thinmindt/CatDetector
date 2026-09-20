@@ -10,8 +10,8 @@ import pytest
 from conftest import make_clip_file, visit
 from flask import Flask
 
-from src.clip_frames import ClipFrames
-from src.review import create_review_blueprint
+from src.review.api import create_review_blueprint
+from src.review.clip_frames import ClipFrames
 
 
 def client_for(db: Any, tmp_path: Path) -> Any:

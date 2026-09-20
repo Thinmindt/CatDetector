@@ -7,8 +7,8 @@ from collections.abc import Collection
 from dataclasses import dataclass
 from pathlib import Path
 
-from src.clip_format import CLIP_SUFFIX, H264_BITRATE
-from src.clip_sidecar import ClipFacts, read_sidecar
+from src.clips.format import CLIP_SUFFIX, H264_BITRATE
+from src.clips.sidecar import ClipFacts, read_sidecar
 
 log = logging.getLogger(__name__)
 

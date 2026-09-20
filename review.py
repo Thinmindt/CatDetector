@@ -10,9 +10,9 @@ import sys
 from flask import Flask
 
 from config import Config
-from src.capture_db import CaptureDB
 from src.logging_setup import configure_logging
-from src.review import open_review
+from src.review.api import open_review
+from src.review.capture_db import CaptureDB
 from src.web_app import WEB_PORT, create_app, run
 
 log = logging.getLogger(__name__)

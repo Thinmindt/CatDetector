@@ -8,8 +8,8 @@ from typing import Any
 from flask import Blueprint, Response, jsonify, request, send_file
 
 from config import Config
-from src.capture_db import CaptureDB, Clip, Event
-from src.clip_frames import ClipFrames
+from src.review.capture_db import CaptureDB, Clip, Event
+from src.review.clip_frames import ClipFrames
 
 log = logging.getLogger(__name__)
 

@@ -14,14 +14,14 @@ import numpy as np
 import pytest
 from conftest import LORES_SIZE, make_frame
 
-from src.motion_metrics import (
-    Blob,
+from src.capture.motion_metrics import (
     FrameMetrics,
     MetricsLog,
     clean_mask,
     largest_blob,
     measure,
 )
+from src.clips.blob import Blob
 
 SHADOW_VALUE = 127
 
@@ -273,7 +273,7 @@ def test_close_returns_when_the_writer_thread_has_died(
     close() runs on the main thread during cleanup(), so a blocking enqueue
     there hangs the process.
     """
-    monkeypatch.setattr("src.motion_metrics.SENTINEL_TIMEOUT_SECONDS", 0.1)
+    monkeypatch.setattr("src.capture.motion_metrics.SENTINEL_TIMEOUT_SECONDS", 0.1)
     directory = tmp_path / "readonly"
     directory.mkdir()
     directory.chmod(0o500)

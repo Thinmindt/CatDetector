@@ -10,7 +10,7 @@ from typing import Any
 import pytest
 from conftest import LORES_SIZE, MAIN_SIZE, FakePicamera2
 
-from src.frame import Frame
+from src.clips.frame import Frame
 
 # The bound that matters is "gave up on the wedged consumer", not the exact join
 # timeout, which the test shortens.
@@ -128,7 +128,9 @@ def test_a_wedged_consumer_cannot_hang_shutdown(
     camera_manager: Any, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """A consumer that never returns must not make stop() block forever."""
-    monkeypatch.setattr("src.camera_manager.JOIN_TIMEOUT_SECONDS", JOIN_TIMEOUT_SECONDS)
+    monkeypatch.setattr(
+        "src.capture.camera_manager.JOIN_TIMEOUT_SECONDS", JOIN_TIMEOUT_SECONDS
+    )
     release = threading.Event()
     entered = threading.Event()
 

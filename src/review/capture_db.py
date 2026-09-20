@@ -11,8 +11,8 @@ from pathlib import Path
 from typing import Any, NamedTuple
 
 from config import Config
-from src.clip_scan import FoundClip, scan_clips
-from src.event_grouping import ClipRow, group_clips
+from src.review.clip_scan import FoundClip, scan_clips
+from src.review.event_grouping import ClipRow, group_clips
 
 log = logging.getLogger(__name__)
 

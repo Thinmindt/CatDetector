@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
 
-from src.motion_metrics import Blob
+from src.clips.blob import Blob
 
 SIDECAR_SUFFIX = ".json"
 
