@@ -244,7 +244,7 @@ may bake an event id into a clip.
    gap splits a visit (double-counts frequency, shortens duration); too large merges two cats'
    visits (the labeler marks it `multiple`). The frequency signal is the point of the project,
    so lean toward merging.
-3. **Schema** (done 2026-09-12, with the grouping rule and `review.py --regroup`). `event` stops
+3. **Schema** (done 2026-09-12, with the grouping rule and `--regroup`). `event` stops
    being the clip. New `clip` table: path, `started_at`, `ended_at`,
    trigger and last centroids, `close_reason`, `event_id`. `event` holds the span of its clips,
    the box centroid and the clip count. `label` stays on `event_id` (B.1). `regroup` clears every
@@ -363,9 +363,9 @@ grouping; the full plan is in A.4.
 
 ## B.3 Labeling UI
 
-**Started 2026-08-26.** `src/review.py` is a Flask blueprint served as the Review tab of the one web app
-on :5000, by `main.py` beside the live feed or by `review.py` without the camera (merged
-2026-09-12). It labels at event level (`cat` / `not_cat` / `unsure` / `clean`) with single-key
+**Started 2026-08-26.** `src/review/api.py` is a Flask blueprint served as the Review tab of the one
+web app on :5000, by `main.py` beside the live feed (merged 2026-09-12; the camera-less `review.py`
+was dropped 2026-09-20). It labels at event level (`cat` / `not_cat` / `unsure` / `clean`) with single-key
 shortcuts, auto-advance, undo, live counts, and a tile grid per clip that zooms to the full
 frame. Storage follows B.2: SQLite on local disk (`DB_PATH`, default `captures.db`), label table
 separate from event, media paths only. In daily use since 2026-09-17.

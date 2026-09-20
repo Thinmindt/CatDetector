@@ -73,13 +73,13 @@ sudo systemctl edit catdetector      # opens an override; add Environment= lines
 ## Reviewing captures
 
 ```
-uv run python review.py      # the same web UI without the camera, on :5000
+uv run python main.py --regroup      # rebuild events from the current thresholds, then exit
 ```
 
 The Review tab of the web UI (`http://<pi-ip>:5000/review`) scans the captures directory into
 a local database and serves a keyboard-driven labeler — `c` cat, `n` not a cat, `u` unsure, `z`
 undo, click a frame strip to zoom, "watch" to play the clip. `main.py` serves it beside the live
-feed; when the detector is not running, `review.py` serves the same page on the same port.
+feed, so it is available whenever the detector is running.
 Requires `ffmpeg` (`sudo apt install ffmpeg`).
 
 ## Test, lint, format, type-check

@@ -201,6 +201,36 @@ between dark and lit is logged. This removes the waste, not the gap: visits in t
 unrecorded. The gap closed when the boxes were lit around the clock on 2026-09-16 (ROADMAP A.2);
 since then nights average ~125/255 and the gate only matters if the light fails.
 
+## Layout
+
+**`src/` is split by which side of the share a module lives on** (2026-09-20). `src/capture`
+touches the camera; `src/review` reads the share and serves the labeler; `src/clips` is what both
+agree a clip is: its names, its sidecar, the `Blob` and `Frame` types. The sides share no objects;
+the clip and its sidecar on the share are the whole contract, so either side can change without
+the other noticing. The rule that the review side imports without `picamera2` had been a sentence
+in CLAUDE.md; it is now ruff's `banned-api` (`TID251`) with a per-file allowance for
+`src/capture`, so a stray import fails the lint gate rather than a machine without a camera.
+`Blob` moved out of `motion_metrics` for this: the sidecar needed it, and importing it dragged the
+CSV writer and the morphology kernels into the review side.
+
+**Detection is its own class** (2026-09-20). `MotionDetector` holds MOG2, the warmup, the dark
+gate and the last blob, and answers a `Detection` per frame; `MotionRecorder` takes one and turns
+its answer into a clip lifecycle. Before the split every test of a threshold or a warmup count had
+to fake the camera, the encoder and the ring buffer to reach the detector. The split was made
+ahead of A.3, which grows exactly that half.
+
+**Nothing under `src/` reads `Config`** (2026-09-20). `main.py` reads it and passes settings down,
+for both sides; `CaptureDB` requires its grouping thresholds and the review routes take the
+captures directory in a `Review` dataclass. The capture side had always worked this way, and the
+review side's `Config` fallbacks were the only hidden inputs left.
+
+**Domain types inside, ISO text at the edges** (2026-09-20). `Clip`, `Event` and `FoundClip` carry
+`datetime`s, a `CloseReason` and a `Boundary` enum; SQLite and the JSON API see ISO 8601 text to
+the millisecond, formatted by the one `iso()` in the sidecar module. Before this the scan
+flattened the sidecar's datetimes to strings and the database parsed them back for the grouping
+rule. `RECOVERED` joined `CloseReason` so a clip's reason is one type whether the recorder or
+ingest assigned it.
+
 ## Process
 
 **`main.py` degrades rather than dying.** If the share is not mounted, `mkdir` would create
@@ -300,7 +330,7 @@ CSV, so `MetricsLog` leaves the old file alone, writes to a timestamped sibling 
 holds the rule as a pure function over `ClipRow`s so it can be tested against synthetic timelines
 with no database. `CaptureDB` calls it from two places: `ingest`, for every rescan, and `regroup`,
 on demand. The thresholds (`EVENT_GAP_SECONDS`, `EVENT_BOX_DISTANCE_PX`) are read when the
-database opens, not when the module loads, so `review.py --regroup` sees a changed setting.
+database opens, not when the module loads, so `main.py --regroup` sees a changed setting.
 
 **Ingest reads only the sidecars of clips it has not seen** (2026-09-16). Reading every sidecar
 and letting `INSERT OR IGNORE` discard the known ones costs one CIFS round trip per clip in the
@@ -410,11 +440,14 @@ not a box identity: nothing in the pipeline knows one box from another, and the 
 the box concerned.
 
 **One app, one port, two tabs** (2026-09-12). `web_app.create_app` takes the streamer and the
-review parts as optionals and serves whatever it was given: `main.py` passes both, `review.py`
-passes no streamer, and a review database that fails to open leaves the Live tab up rather than
-taking the detector down, in the same spirit as a broken recorder leaving the stream up. The two
-entry points cannot run at once because they want the same port, and that is intended: review is
-a tab of the detector's page whenever the detector is running. The page is a Jinja template
+review parts as optionals and serves whatever it was given, and a review database that fails to
+open leaves the Live tab up rather than taking the detector down, in the same spirit as a broken
+recorder leaving the stream up. Until 2026-09-20 a second entry point, `review.py`, passed no
+streamer and served the labeler on the same port while the detector was off; it was dropped once
+the detector ran as a service around the clock, because the tab was always up anyway and two
+scripts that could not run together were one more thing to explain. `main.py --regroup` took
+over the one job it still had. The cost is that a machine with no camera cannot run the labeler;
+the review package still imports without the camera stack, so that could be restored. The page is a Jinja template
 rather than a string in a Python module: ruff's line limit applies inside strings, and JavaScript
 wrapped to satisfy it is unreadable.
 
