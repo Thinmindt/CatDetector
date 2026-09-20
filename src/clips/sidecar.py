@@ -17,6 +17,8 @@ class CloseReason(StrEnum):
     SHUTDOWN = "shutdown"
     # Writes failed partway through, so the clip stops short of its end time.
     ABANDONED = "abandoned"
+    # Never written by the recorder: ingest assigns it to a clip with no sidecar.
+    RECOVERED = "recovered"
 
 
 @dataclass(frozen=True)
@@ -33,10 +35,15 @@ def sidecar_name(clip: Path) -> Path:
     return clip.with_name(clip.name + SIDECAR_SUFFIX)
 
 
+def iso(when: datetime.datetime) -> str:
+    """The one text form for a timestamp: ISO 8601 to the millisecond."""
+    return when.isoformat(timespec="milliseconds")
+
+
 def write_sidecar(clip: Path, facts: ClipFacts) -> None:
     payload = {
-        "started_at": facts.started_at.isoformat(timespec="milliseconds"),
-        "ended_at": facts.ended_at.isoformat(timespec="milliseconds"),
+        "started_at": iso(facts.started_at),
+        "ended_at": iso(facts.ended_at),
         "close_reason": facts.close_reason.value,
         "trigger_blob": _blob_fields(facts.trigger_blob),
         "last_blob": _blob_fields(facts.last_blob),

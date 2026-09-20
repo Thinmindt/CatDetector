@@ -6,7 +6,7 @@ import datetime
 
 from conftest import BOX_1, BOX_2, BOX_3, DISTANCE, GAP, T0
 
-from src.review.event_grouping import ClipRow, group_clips
+from src.review.event_grouping import Boundary, ClipRow, group_clips
 
 
 def clip(
@@ -14,7 +14,7 @@ def clip(
     start: int,
     end: int,
     place: tuple[int, int] | None = BOX_1,
-    boundary: str | None = None,
+    boundary: Boundary | None = None,
     joins: str | None = None,
 ) -> ClipRow:
     """A clip running from T0+start to T0+end seconds, seen at one place."""
@@ -87,7 +87,7 @@ def test_an_unknown_position_matches_on_time_alone() -> None:
 
 def test_a_split_boundary_starts_a_new_visit_regardless_of_the_rule() -> None:
     groups = group_clips(
-        [clip("a", 0, 20), clip("b", 30, 40, boundary="split")], GAP, DISTANCE
+        [clip("a", 0, 20), clip("b", 30, 40, boundary=Boundary.SPLIT)], GAP, DISTANCE
     )
     assert names(groups) == [["a"], ["b"]]
 
@@ -96,14 +96,14 @@ def test_a_join_boundary_continues_the_named_clip_regardless_of_the_rule() -> No
     clips = [
         clip("a", 0, 20, BOX_1),
         clip("c", 30, 40, BOX_3),
-        clip("b", 600, 610, BOX_1, boundary="join", joins="a"),
+        clip("b", 600, 610, BOX_1, boundary=Boundary.JOIN, joins="a"),
     ]
     assert names(group_clips(clips, GAP, DISTANCE)) == [["a", "b"], ["c"]]
 
 
 def test_a_join_to_an_unknown_clip_falls_back_to_the_rule() -> None:
     groups = group_clips(
-        [clip("a", 0, 20), clip("b", 600, 610, boundary="join", joins="nope")],
+        [clip("a", 0, 20), clip("b", 600, 610, boundary=Boundary.JOIN, joins="nope")],
         GAP,
         DISTANCE,
     )

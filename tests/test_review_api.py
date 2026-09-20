@@ -30,7 +30,7 @@ def client(db: Any, clip_dir: Path, tmp_path: Path) -> Any:
 
 def test_next_returns_the_oldest_event(client: Any) -> None:
     data = client.get("/api/review/next").get_json()
-    assert data["event"]["started_at"] == "2026-08-25T07:24:52"
+    assert data["event"]["started_at"] == "2026-08-25T07:24:52.000"
     assert data["counts"]["total"] == 2
 
 

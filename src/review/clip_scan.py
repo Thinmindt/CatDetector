@@ -8,14 +8,13 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from src.clips.format import CLIP_SUFFIX, H264_BITRATE
-from src.clips.sidecar import ClipFacts, read_sidecar
+from src.clips.sidecar import ClipFacts, CloseReason, read_sidecar
 
 log = logging.getLogger(__name__)
 
 CLIP_TIMESTAMP = re.compile(r"_(\d{8})_(\d{6})(?:_\d+)?\.h264$")
 
 # A clip with no sidecar was cut off by a crash; its end is estimated from size.
-RECOVERED = "recovered"
 BYTES_PER_SECOND = H264_BITRATE / 8
 
 
@@ -28,20 +27,20 @@ class FoundClip:
     facts: ClipFacts | None
 
     @property
-    def started_at(self) -> str | None:
+    def started_at(self) -> datetime.datetime | None:
         if self.facts is not None:
-            return self.facts.started_at.isoformat(timespec="milliseconds")
+            return self.facts.started_at
         return _started_at_from_name(self.path.name)
 
     @property
-    def ended_at(self) -> str | None:
+    def ended_at(self) -> datetime.datetime | None:
         if self.facts is not None:
-            return self.facts.ended_at.isoformat(timespec="milliseconds")
+            return self.facts.ended_at
         return _estimated_end(self.started_at, self.size)
 
     @property
-    def close_reason(self) -> str:
-        return RECOVERED if self.facts is None else self.facts.close_reason.value
+    def close_reason(self) -> CloseReason:
+        return CloseReason.RECOVERED if self.facts is None else self.facts.close_reason
 
     @property
     def trigger(self) -> tuple[int, int] | None:
@@ -85,22 +84,20 @@ def _facts_for(clip: Path) -> ClipFacts | None:
         return None
 
 
-def _started_at_from_name(name: str) -> str | None:
-    """ISO timestamp parsed from a clip filename, or None if it has none."""
+def _started_at_from_name(name: str) -> datetime.datetime | None:
+    """The start parsed from a clip filename, or None if it has none."""
     match = CLIP_TIMESTAMP.search(name)
     if match is None:
         return None
     try:
-        stamp = datetime.datetime.strptime(match[1] + match[2], "%Y%m%d%H%M%S")
+        return datetime.datetime.strptime(match[1] + match[2], "%Y%m%d%H%M%S")
     except ValueError:
         return None
-    return stamp.isoformat()
 
 
-def _estimated_end(started: str | None, size: int) -> str | None:
+def _estimated_end(
+    started: datetime.datetime | None, size: int
+) -> datetime.datetime | None:
     if started is None:
         return None
-    end = datetime.datetime.fromisoformat(started) + datetime.timedelta(
-        seconds=size / BYTES_PER_SECOND
-    )
-    return end.isoformat(timespec="milliseconds")
+    return started + datetime.timedelta(seconds=size / BYTES_PER_SECOND)

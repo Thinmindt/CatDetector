@@ -1,5 +1,6 @@
 """Review API: events to label, their clips' media, and grouping corrections."""
 
+import datetime
 import logging
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -9,6 +10,7 @@ from typing import Any
 from flask import Blueprint, Response, jsonify, request, send_file
 from flask.typing import ResponseReturnValue
 
+from src.clips.sidecar import iso
 from src.review.capture_db import CaptureDB, Clip, Event
 from src.review.clip_frames import ClipFrames
 
@@ -29,6 +31,10 @@ class Review:
 
 # Litter boxes by position in frame, left to right; the camera knows no more.
 BOXES = (1, 2, 3)
+
+
+def _iso(when: datetime.datetime | None) -> str | None:
+    return None if when is None else iso(when)
 
 
 def error(message: str, status: int) -> ResponseReturnValue:
@@ -167,17 +173,17 @@ class ReviewPages:
         if event is not None:
             body = {
                 "id": event.id,
-                "started_at": event.started_at,
-                "ended_at": event.ended_at,
+                "started_at": _iso(event.started_at),
+                "ended_at": _iso(event.ended_at),
                 "label": event.label,
                 "poops": event.poops,
                 "clips": [
                     {
                         "index": index,
-                        "started_at": clip.started_at,
-                        "ended_at": clip.ended_at,
-                        "close_reason": clip.close_reason,
-                        "boundary": clip.boundary,
+                        "started_at": _iso(clip.started_at),
+                        "ended_at": _iso(clip.ended_at),
+                        "close_reason": clip.close_reason.value,
+                        "boundary": clip.boundary.value if clip.boundary else None,
                     }
                     for index, clip in enumerate(event.clips)
                 ],
