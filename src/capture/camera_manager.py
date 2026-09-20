@@ -19,9 +19,9 @@ class CameraManager:
     """Manages a single camera instance shared between multiple consumers"""
 
     def __init__(self) -> None:
-        self.picam2 = Picamera2()
-        self.picam2.configure(
-            self.picam2.create_video_configuration(
+        self._picam2 = Picamera2()
+        self._picam2.configure(
+            self._picam2.create_video_configuration(
                 main={"size": (1280, 720), "format": "RGB888"},
                 lores={"size": (640, 480), "format": "RGB888"},
                 # The full sensor. Chosen by size alone, picamera2 picks a mode
@@ -29,7 +29,7 @@ class CameraManager:
                 sensor={"output_size": (2304, 1296), "bit_depth": 10},
             )
         )
-        self.picam2.start()
+        self._picam2.start()
 
         self._consumers: list[FrameConsumer] = []
         self._running = False
@@ -77,7 +77,7 @@ class CameraManager:
     def _capture_next_frames(self) -> tuple[Frame, Frame]:
         """Both streams from one libcamera request. Blocks until the next frame."""
         with self._frame_lock:
-            arrays, _ = self.picam2.capture_arrays(["main", "lores"])
+            arrays, _ = self._picam2.capture_arrays(["main", "lores"])
         return arrays[0], arrays[1]
 
     def _dispatch(self, main_frame: Frame, lores_frame: Frame) -> None:
@@ -94,4 +94,4 @@ class CameraManager:
 
     def get_camera(self) -> Picamera2:
         """The camera itself, for the recorder's encoder pipeline."""
-        return self.picam2
+        return self._picam2

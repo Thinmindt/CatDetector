@@ -82,20 +82,20 @@ uv run python tests/manual/check_camera.py   # hardware smoke test; writes test_
 
 METRICS_CSV=$HOME/metrics.csv uv run python main.py          # + per-frame detection metrics
 
-uv run python review.py                      # the same web UI without the camera, on :5000
+uv run python main.py --regroup              # rebuild every event from the current thresholds, then exit
 ```
 
 The web UI is **one Flask app on one port** ([src/web_app.py](src/web_app.py)): a page with a
-Live tab and a Review tab, built from `src/templates/app.html`. `main.py` serves it with the
-camera; `review.py` serves the same app without one, for when the detector is off. Only one of
-them can hold port 5000, which is the point. The review half ingests
+Live tab and a Review tab, built from `src/templates/app.html`. `main.py` is the only entry
+point, so the Review tab is up whenever the detector is; there is no camera-less review server
+any more. The review half ingests
 `$NETWORK_SHARE_DIR/captures/*.h264` into a local SQLite DB (`DB_PATH`, default `captures.db` —
 local disk, never the share) and serves a keyboard-driven cat/not-cat labeler; frame extraction
 shells out to ffmpeg because cv2.VideoCapture cannot seek raw elementary streams.
 
 Ingest reads each clip's sidecar and groups clips into **events** (one visit, one or more clips)
-with the rule in `src/event_grouping.py`, tuned by `EVENT_GAP_SECONDS` and
-`EVENT_BOX_DISTANCE_PX`. Event ids are stable across rescans. `uv run python review.py --regroup`
+with the rule in `src/review/event_grouping.py`, tuned by `EVENT_GAP_SECONDS` and
+`EVENT_BOX_DISTANCE_PX`. Event ids are stable across rescans. `uv run python main.py --regroup`
 rebuilds every event from the current thresholds: ids change, labels follow their clips. A
 `captures.db` from before grouping is refused at startup; move it aside and re-ingest.
 
@@ -122,7 +122,7 @@ dropped rows is reported at shutdown.
 `CaptureDB` is one SQLite connection shared by Flask's request threads, so its public methods run
 under an `RLock` (`@serialized`). Anything that touches the share must stay **outside** that
 lock: a stalled CIFS mount would otherwise freeze every review request behind it. The glob and
-the sidecar reads live in `src/clip_scan.py`, which has no lock to hold; `ingest` calls it
+the sidecar reads live in `src/review/clip_scan.py`, which has no lock to hold; `ingest` calls it
 unlocked and takes the lock only to insert what it found. Keep share I/O in that module.
 
 **All four gates must pass before every commit** — tests, lint, format check, type check.
@@ -274,14 +274,24 @@ problem rather than a venv problem. Rebuild with the two-line recovery above.
 
 ## Architecture
 
+`src/` is three packages and the two modules that join them:
+
+| package | holds | may import |
+|---|---|---|
+| `src/capture/` | everything that touches the camera: `camera_manager`, `motion_detector`, `motion_recorder`, `motion_metrics`, `clip_transfer`, `web_streamer` | `picamera2`, `src.clips` |
+| `src/review/` | everything that reads the share and serves the labeler: `clip_scan`, `capture_db`, `event_grouping`, `clip_frames`, `api` | `src.clips`, never `picamera2` |
+| `src/clips/` | what both sides agree a clip is: `format` (suffixes, `partial_name()`, `CAMERA_FPS`, `H264_BITRATE`), `sidecar`, `blob`, `frame` | the standard library and numpy only |
+
+`src/web_app.py` assembles the one Flask app from both sides and `src/logging_setup.py` serves
+both entry points. The two sides share no objects: the contract between them is a clip and its
+sidecar on the share. **`picamera2` is banned outside `src/capture/`** by ruff's `banned-api`
+rule (`TID251`), so the review side stays importable on a machine with no camera stack; do not
+add a per-file ignore to get round it. Nothing under `src/` reads `Config`: `main.py` reads it
+and passes settings down.
+
 One camera, several consumers. `picamera2` allows a single `Picamera2` instance per process, so
-[src/camera_manager.py](src/camera_manager.py) owns it and everything else borrows from it. It
-also defines the `FrameConsumer` alias. The `Frame` array alias lives in
-[src/frame.py](src/frame.py), and what a clip is on disk — its suffixes, `partial_name()`,
-`CAMERA_FPS`, `H264_BITRATE` — in [src/clip_format.py](src/clip_format.py), so that the review
-side (`capture_db`, `clip_frames`, `clip_transfer`, `review`) imports nothing from the modules
-that import `picamera2`. `review.py` runs on a machine without the camera stack for that reason;
-keep it so.
+[src/capture/camera_manager.py](src/capture/camera_manager.py) owns it and everything else
+borrows via `get_camera()`. It also defines the `FrameConsumer` alias.
 
 **Frame fan-out.** `CameraManager` configures two streams — `main` at 1280x720 for
 display/recording and `lores` at 640x480 for cheap analysis. Components call `add_consumer(fn)` to
@@ -300,18 +310,22 @@ Consumer exceptions are caught and logged per frame, so a broken consumer fails 
 stopping the loop.
 
 **Two independent video paths.** The consumer fan-out is *not* how video gets recorded.
-[src/motion_recorder.py](src/motion_recorder.py) reaches through `camera_manager.get_camera()` and
+[src/capture/motion_recorder.py](src/capture/motion_recorder.py) reaches through `camera_manager.get_camera()` and
 drives picamera2's own encoder pipeline: an `H264Encoder` writes continuously into a
 `CircularOutput`. Recording is diverted to a file when motion starts
 (`circular_output.fileoutput = <local .part path>` then `.start()`, which flushes from the
 buffer's **oldest** keyframe) and back to buffering only when it stops (`.stop()`).
 
-So the recorder uses the consumer callback only for *detection* (MOG2 on the `lores` frame,
-thresholded on `countNonZero`), while the bytes flow through picamera2's encoder. Changing frame
+So the recorder uses the consumer callback only for *detection*, which it delegates to
+[src/capture/motion_detector.py](src/capture/motion_detector.py) (MOG2 on the `lores` frame,
+thresholded on `countNonZero`, gated by warmup and brightness), while the bytes flow through
+picamera2's encoder. The detector holds the background model and the last blob and knows nothing
+about clips; the recorder takes one in its constructor and turns its answer into a clip
+lifecycle. Detection tests need only `StubSubtractor`; recorder tests need the camera fakes. Changing frame
 distribution does not change what is recorded, and vice versa.
 
 **Clips reach the share in two stages.** The recorder writes `<clip>.h264.part` to local disk
-and renames it to `<clip>.h264` when the file closes. [src/clip_transfer.py](src/clip_transfer.py)
+and renames it to `<clip>.h264` when the file closes. [src/capture/clip_transfer.py](src/capture/clip_transfer.py)
 scans for those finished names every 60 s, copies each to `<clip>.h264.part` on the share, then
 renames *within* the share. Both renames are same-filesystem and therefore atomic, so no reader
 ever sees a final-named clip that is still growing — which is what keeps the review server from
@@ -329,7 +343,7 @@ the recorder writes the sidecar *before* the clip takes its final name, and `Cli
 the sidecar *before* the clip. Do not reorder either. A clip with no sidecar means it was cut off
 by a crash; that is expected, not a bug.
 
-**Web stream.** [src/web_streamer.py](src/web_streamer.py) is another consumer: it keeps the
+**Web stream.** [src/capture/web_streamer.py](src/capture/web_streamer.py) is another consumer: it keeps the
 newest `main` frame under a lock, optionally annotates it with recorder status via OpenCV, and
 serves it as MJPEG at `/video_feed` with JSON status at `/api/status`, as a blueprint on the one
 Flask app from [src/web_app.py](src/web_app.py). The page at `/` and `/review` is the same
