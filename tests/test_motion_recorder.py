@@ -1,4 +1,4 @@
-"""MotionRecorder: detection gating, clip lifecycle, and shared-camera cleanup."""
+"""MotionRecorder: clip lifecycle driven by the detector, and shared-camera cleanup."""
 
 from __future__ import annotations
 
@@ -26,16 +26,11 @@ from src.capture.motion_recorder import _ResilientCircularOutput
 from src.clips.format import CAMERA_FPS, partial_name
 from src.clips.sidecar import ClipFacts, CloseReason, read_sidecar, sidecar_name
 
-# Mean grey levels either side of a dark cutoff of 10, as measured at night and by day.
-DARK_CUTOFF = 10
-NIGHT_GREY = 2
-DAY_GREY = 60
-
 
 def arm(recorder: Any) -> None:
     """Push the detector past its warmup with quiet frames."""
-    recorder.background_subtractor.motion_pixels = 0
-    for _ in range(recorder.warmup_frames):
+    recorder.detector.background_subtractor.motion_pixels = 0
+    for _ in range(recorder.detector.warmup_frames):
         recorder.detect_motion(make_frame(LORES_SIZE))
 
 
@@ -66,64 +61,6 @@ def test_creates_the_video_directory(
     target = tmp_path / "nested" / "clips"
     make_recorder(video_directory=target)
     assert target.is_dir()
-
-
-# --- detection --------------------------------------------------------------
-
-
-def test_warmup_suppresses_motion_then_arms(recorder: Any) -> None:
-    """Regression: MOG2 calls the whole first frame foreground, which used to
-    trigger a clip on every startup."""
-    recorder.background_subtractor.motion_pixels = 10**6  # far over threshold
-    frame = make_frame(LORES_SIZE)
-
-    during = [recorder.detect_motion(frame) for _ in range(recorder.warmup_frames)]
-    assert during == [False] * recorder.warmup_frames
-
-    # The very next frame is armed.
-    assert recorder.detect_motion(frame) is True
-
-
-def test_quiet_frames_do_not_report_motion(recorder: Any) -> None:
-    arm(recorder)
-    recorder.background_subtractor.motion_pixels = 10
-    assert recorder.detect_motion(make_frame(LORES_SIZE)) is False
-
-
-def test_motion_pixels_are_recorded_for_tuning(recorder: Any) -> None:
-    arm(recorder)
-    recorder.background_subtractor.motion_pixels = 2500
-    recorder.detect_motion(make_frame(LORES_SIZE))
-    assert recorder.last_motion_pixels == 2500
-
-
-def test_motion_in_a_dark_scene_does_not_trigger(recorder: Any) -> None:
-    """Regression: in the unlit room, sensor speckle alone crossed the threshold
-    and recorded black video nonstop."""
-    recorder.dark_brightness = DARK_CUTOFF
-    arm(recorder)
-    recorder.background_subtractor.motion_pixels = 10**6
-
-    assert recorder.detect_motion(make_frame(LORES_SIZE, NIGHT_GREY)) is False
-    assert recorder.detect_motion(make_frame(LORES_SIZE, DAY_GREY)) is True
-
-
-def test_logs_each_change_between_dark_and_lit(
-    recorder: Any, caplog: pytest.LogCaptureFixture
-) -> None:
-    recorder.dark_brightness = DARK_CUTOFF
-    arm(recorder)
-
-    with caplog.at_level(logging.INFO, logger="src.capture.motion_recorder"):
-        for grey in (NIGHT_GREY, NIGHT_GREY, DAY_GREY, DAY_GREY, NIGHT_GREY):
-            recorder.detect_motion(make_frame(LORES_SIZE, grey))
-
-    changes = [r.getMessage() for r in caplog.records if "Scene" in r.getMessage()]
-    assert changes == [
-        "Scene is dark; ignoring motion",
-        "Scene is lit; detecting motion",
-        "Scene is dark; ignoring motion",
-    ]
 
 
 def test_a_clip_abandoned_mid_write_says_so_in_its_sidecar(recorder: Any) -> None:
@@ -204,7 +141,7 @@ def test_a_failing_start_leaves_the_recorder_idle(recorder: Any) -> None:
 
 def test_motion_starts_a_clip(recorder: Any) -> None:
     arm(recorder)
-    recorder.background_subtractor.motion_pixels = 5000
+    recorder.detector.background_subtractor.motion_pixels = 5000
 
     recorder._process_frames(make_frame(MAIN_SIZE), make_frame(LORES_SIZE))
 
@@ -215,11 +152,11 @@ def test_clip_stops_once_motion_has_been_quiet_for_the_timeout(
     recorder: Any,
 ) -> None:
     arm(recorder)
-    recorder.background_subtractor.motion_pixels = 5000
+    recorder.detector.background_subtractor.motion_pixels = 5000
     recorder._process_frames(make_frame(MAIN_SIZE), make_frame(LORES_SIZE))
     assert recorder.recording
 
-    recorder.background_subtractor.motion_pixels = 0
+    recorder.detector.background_subtractor.motion_pixels = 0
     recorder.last_motion_time = time.monotonic() - (recorder.motion_timeout + 1)
     recorder._process_frames(make_frame(MAIN_SIZE), make_frame(LORES_SIZE))
 
@@ -228,7 +165,7 @@ def test_clip_stops_once_motion_has_been_quiet_for_the_timeout(
 
 def test_clip_keeps_running_while_motion_continues(recorder: Any) -> None:
     arm(recorder)
-    recorder.background_subtractor.motion_pixels = 5000
+    recorder.detector.background_subtractor.motion_pixels = 5000
     for _ in range(5):
         recorder._process_frames(make_frame(MAIN_SIZE), make_frame(LORES_SIZE))
 
@@ -316,7 +253,7 @@ def test_clip_stops_at_the_maximum_length(recorder: Any) -> None:
     """Regression: nothing bounded a clip, so a sunbeam could record all night."""
     arm(recorder)
     recorder.max_clip_seconds = 0.0
-    recorder.background_subtractor.motion_pixels = 5000
+    recorder.detector.background_subtractor.motion_pixels = 5000
 
     recorder._process_frames(make_frame(MAIN_SIZE), make_frame(LORES_SIZE))
     recorder._process_frames(make_frame(MAIN_SIZE), make_frame(LORES_SIZE))
@@ -355,7 +292,7 @@ def test_timeout_survives_a_wall_clock_step(
     elapsed difference goes negative and the clip never closes.
     """
     arm(recorder)
-    recorder.background_subtractor.motion_pixels = 5000
+    recorder.detector.background_subtractor.motion_pixels = 5000
     recorder._process_frames(make_frame(MAIN_SIZE), make_frame(LORES_SIZE))
     assert recorder.recording
 
@@ -366,26 +303,10 @@ def test_timeout_survives_a_wall_clock_step(
     real_time = time.time
     monkeypatch.setattr(time, "time", lambda: real_time() - 2700)
 
-    recorder.background_subtractor.motion_pixels = 0
+    recorder.detector.background_subtractor.motion_pixels = 0
     recorder._process_frames(make_frame(MAIN_SIZE), make_frame(LORES_SIZE))
 
     assert not recorder.recording
-
-
-def test_negative_warmup_is_rejected(make_recorder: Callable[..., Any]) -> None:
-    with pytest.raises(ValueError):
-        make_recorder(warmup_frames=-1)
-
-
-def test_zero_warmup_announces_that_it_is_armed(
-    make_recorder: Callable[..., Any], caplog: pytest.LogCaptureFixture
-) -> None:
-    """warmup_frames=0 legitimately means "no warmup", but it must still say so:
-    the armed line is otherwise only logged from inside the warmup branch."""
-    with caplog.at_level(logging.INFO):
-        make_recorder(warmup_frames=0)
-
-    assert "armed" in caplog.text
 
 
 @needs_real_picamera2
@@ -501,12 +422,12 @@ def facts_of(clip: Path) -> ClipFacts:
 def record_one_clip(recorder: Any) -> Path:
     """Trigger a clip through the consumer callback and let it time out."""
     arm(recorder)
-    recorder.background_subtractor.motion_pixels = 5000
+    recorder.detector.background_subtractor.motion_pixels = 5000
     recorder._process_frames(make_frame(MAIN_SIZE), make_frame(LORES_SIZE))
     path: Path | None = recorder.current_filename
     assert path is not None
 
-    recorder.background_subtractor.motion_pixels = 0
+    recorder.detector.background_subtractor.motion_pixels = 0
     recorder.last_motion_time = time.monotonic() - (recorder.motion_timeout + 1)
     recorder._process_frames(make_frame(MAIN_SIZE), make_frame(LORES_SIZE))
     recorder._drain_thread.join(timeout=5)
@@ -523,21 +444,6 @@ def test_a_finished_clip_gets_a_sidecar_with_its_facts(recorder: Any) -> None:
     assert facts.trigger_blob is not None
     assert facts.trigger_blob.area > 0
     assert facts.last_blob == facts.trigger_blob
-
-
-def test_last_blob_follows_motion_frames_only(recorder: Any) -> None:
-    """A quiet frame must not wipe the position of the last thing that moved:
-    it is what places the clip in a box once it closes."""
-    arm(recorder)
-    recorder.background_subtractor.motion_pixels = 5000
-    recorder.detect_motion(make_frame(LORES_SIZE))
-    seen = recorder.last_blob
-
-    recorder.background_subtractor.motion_pixels = 0
-    recorder.detect_motion(make_frame(LORES_SIZE))
-
-    assert seen is not None
-    assert recorder.last_blob is seen
 
 
 def test_the_sidecar_is_written_before_the_clip_is_promoted(
@@ -573,7 +479,7 @@ def test_an_empty_clip_leaves_no_sidecar_behind(recorder: Any) -> None:
 
 def test_each_way_a_clip_can_close_is_named(recorder: Any) -> None:
     arm(recorder)
-    recorder.background_subtractor.motion_pixels = 5000
+    recorder.detector.background_subtractor.motion_pixels = 5000
     recorder._process_frames(make_frame(MAIN_SIZE), make_frame(LORES_SIZE))
     by_length = recorder.current_filename
     recorder._clip = replace(
@@ -634,7 +540,7 @@ def test_recorder_is_inert_after_cleanup(
     arm(recorder)
     recorder.cleanup()
 
-    recorder.background_subtractor.motion_pixels = 10**6
+    recorder.detector.background_subtractor.motion_pixels = 10**6
     with caplog.at_level(logging.DEBUG):
         recorder._process_frames(make_frame(MAIN_SIZE), make_frame(LORES_SIZE))
 
