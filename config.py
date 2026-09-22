@@ -42,6 +42,11 @@ class Config:
     # "Same box": centroids this close, in the 640x480 analysis frame.
     EVENT_BOX_DISTANCE_PX = float(os.getenv("EVENT_BOX_DISTANCE_PX", "120"))
 
+    # The cats, comma-separated. Each becomes a review label with a digit key.
+    CAT_NAMES = tuple(
+        name.strip() for name in os.getenv("CAT_NAMES", "").split(",") if name.strip()
+    )
+
     # Local disk, never the share: SQLite locking is unreliable over CIFS.
     DB_PATH = os.getenv("DB_PATH", "captures.db")
     REVIEW_CACHE_DIR = os.getenv("REVIEW_CACHE_DIR", ".review_cache")

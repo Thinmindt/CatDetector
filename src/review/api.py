@@ -16,17 +16,36 @@ from src.review.clip_frames import ClipFrames
 
 log = logging.getLogger(__name__)
 
-VALID_LABELS = ("cat", "not_cat", "unsure", "clean")
+FIXED_LABELS = ("cat", "not_cat", "unsure", "clean")
+
+# Two cats in one event: kept as a visit, excluded from single-label training.
+MULTIPLE = "multiple"
 
 
 @dataclass(frozen=True)
 class Review:
-    """What the review routes are built on: the database, the frame extractor
-    and the directory on the share that a rescan reads."""
+    """What the review routes are built on: the database, the frame extractor,
+    the directory on the share that a rescan reads, and the cats' names."""
 
     db: CaptureDB
     frames: ClipFrames
     captures_dir: Path
+    cat_names: tuple[str, ...] = ()
+
+    def __post_init__(self) -> None:
+        reserved = {*FIXED_LABELS, MULTIPLE}
+        for name in self.cat_names:
+            if not name or name in reserved:
+                raise ValueError(f"CAT_NAMES: {name!r} cannot be a cat's name")
+        if len(set(self.cat_names)) != len(self.cat_names):
+            raise ValueError(f"CAT_NAMES: names repeat in {self.cat_names}")
+
+    @property
+    def labels(self) -> tuple[str, ...]:
+        """Every value a label may take. Without cats, the fixed set alone."""
+        if not self.cat_names:
+            return FIXED_LABELS
+        return (*FIXED_LABELS, *self.cat_names, MULTIPLE)
 
 
 # Litter boxes by position in frame, left to right; the camera knows no more.
@@ -69,6 +88,7 @@ class ReviewPages:
         self.db = review.db
         self.frames = review.frames
         self.captures_dir = review.captures_dir
+        self.labels = review.labels
 
     def next_event(self) -> ResponseReturnValue:
         return self._event_payload(self.db.next_unlabeled())
@@ -80,8 +100,8 @@ class ReviewPages:
     def next_labeled(self) -> ResponseReturnValue:
         after = request.args.get("after", type=int)
         value = request.args.get("value")
-        if value is not None and value not in VALID_LABELS:
-            return error(f"value must be one of {VALID_LABELS}", 400)
+        if value is not None and value not in self.labels:
+            return error(f"value must be one of {self.labels}", 400)
         return self._event_payload(self.db.next_labeled(after, value))
 
     def one_event(self, event_id: int) -> ResponseReturnValue:
@@ -92,8 +112,8 @@ class ReviewPages:
 
     def set_label(self, event_id: int) -> ResponseReturnValue:
         value = request_body().get("value")
-        if value not in VALID_LABELS:
-            return error(f"value must be one of {VALID_LABELS}", 400)
+        if value not in self.labels:
+            return error(f"value must be one of {self.labels}", 400)
         if self.db.get(event_id) is None:
             return no_such_event()
         self.db.set_label(event_id, value)

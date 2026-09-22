@@ -41,6 +41,23 @@ def test_both_routes_serve_the_tabbed_page(review_parts: Any) -> None:
         assert b'data-tab="review"' in response.data
     assert b"THUMB_WIDTH = 320" in response.data
     assert b'LABELS = ["cat", "not_cat", "unsure", "clean"]' in response.data
+    assert b"CATS = []" in response.data
+
+
+def test_the_page_carries_the_cats_in_configured_order(tmp_path: Path) -> None:
+    db = CaptureDB(tmp_path / "captures.db", gap_seconds=GAP, box_distance_px=DISTANCE)
+    review = Review(
+        db, ClipFrames(tmp_path / "cache"), tmp_path / "captures", ("Zed", "Ada")
+    )
+    try:
+        response = create_app(None, review).test_client().get("/review")
+    finally:
+        db.close()
+    assert b'CATS = ["Zed", "Ada"]' in response.data
+    assert (
+        b'LABELS = ["cat", "not_cat", "unsure", "clean", "Zed", "Ada", "multiple"]'
+        in response.data
+    )
 
 
 def test_without_a_streamer_the_live_tab_learns_there_is_no_detector(

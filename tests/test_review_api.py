@@ -13,11 +13,13 @@ from flask import Flask
 from src.review.api import Review, create_review_blueprint
 from src.review.clip_frames import ClipFrames
 
+CATS = ("Ada", "Bea")
 
-def client_for(db: Any, tmp_path: Path) -> Any:
+
+def client_for(db: Any, tmp_path: Path, cats: tuple[str, ...] = ()) -> Any:
     """A test client for the review API alone, over this database."""
     app = Flask(__name__)
-    review = Review(db, ClipFrames(tmp_path / "cache"), tmp_path / "captures")
+    review = Review(db, ClipFrames(tmp_path / "cache"), tmp_path / "captures", cats)
     app.register_blueprint(create_review_blueprint(review))
     return app.test_client()
 
@@ -220,3 +222,51 @@ def test_the_labeled_walk_takes_a_label_value(db: Any, tmp_path: Path) -> None:
     )
     assert client.get("/api/review/labeled/next?value=cat").get_json()["event"] is None
     assert client.get("/api/review/labeled/next?value=dog").status_code == 400
+
+
+def test_cat_names_and_multiple_are_labels_and_count_by_name(
+    db: Any, clip_dir: Path, tmp_path: Path
+) -> None:
+    db.ingest(clip_dir)
+    client = client_for(db, tmp_path, CATS)
+    first = client.get("/api/review/next").get_json()["event"]["id"]
+    assert (
+        client.post(f"/api/review/{first}/label", json={"value": "Bea"}).status_code
+        == 200
+    )
+
+    second = client.get("/api/review/next").get_json()["event"]["id"]
+    response = client.post(f"/api/review/{second}/label", json={"value": "multiple"})
+    assert response.status_code == 200
+    assert response.get_json()["counts"] == {
+        "total": 2,
+        "labeled": 2,
+        "multi_clip": 0,
+        "Bea": 1,
+        "multiple": 1,
+    }
+    assert (
+        client.get("/api/review/labeled/next?value=Bea").get_json()["event"]["id"]
+        == first
+    )
+    assert client.get("/api/review/labeled/next?value=Ada").get_json()["event"] is None
+
+
+def test_without_cat_names_a_name_and_multiple_are_rejected(client: Any) -> None:
+    event = client.get("/api/review/next").get_json()["event"]
+    for value in ("Ada", "multiple"):
+        response = client.post(
+            f"/api/review/{event['id']}/label", json={"value": value}
+        )
+        assert response.status_code == 400, value
+    assert client.get("/api/review/labeled/next?value=multiple").status_code == 400
+
+
+@pytest.mark.parametrize(
+    "names", [("cat", "Ada"), ("Ada", "multiple"), ("Ada", "Ada"), ("",)]
+)
+def test_a_cat_may_not_take_a_reserved_or_repeated_name(
+    db: Any, tmp_path: Path, names: tuple[str, ...]
+) -> None:
+    with pytest.raises(ValueError, match="CAT_NAMES"):
+        Review(db, ClipFrames(tmp_path / "cache"), tmp_path / "captures", names)

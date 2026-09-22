@@ -430,6 +430,19 @@ is one keypress with no page load between events.
 **The label table is separate from event** (per the roadmap): model predictions and human labels
 can later coexist via the `source` column without overwriting each other.
 
+**The cats' names are configuration, not code** (2026-09-21, ROADMAP B.3). `CAT_NAMES` is a
+comma-separated list of any length; the review side takes it as `Review.cat_names` and derives the
+set of label values from it: the four fixed labels, then a name per cat, then `multiple`. The
+`label.value` column always took any text, so no schema changed, and `counts()` already grouped by
+value, so the per-cat counts A.2 asks for came free. A cat's name may not be one of the fixed
+values or `multiple`, and names may not repeat; `Review` refuses such a list at construction, which
+`build_review` reports as "Review unavailable" rather than serving a page whose keys collide.
+`cat` was kept with the meaning "a cat, which one not decided": it was the value of every visit
+labelled before names existed, it stays the honest answer when the tiles do not show the coat, and
+keeping it meant migrating nothing. The page builds the cat buttons and their digit keys from the
+list in JavaScript with `textContent`, rather than in the template, so a name is never interpolated
+into a script string. An empty list leaves the page exactly as it was.
+
 **Poop counts hang off a clip, not an event** (2026-09-16, ROADMAP B.5b). Whoever scoops signals
 the count by hand over the box; the reviewer reads it out of the cleaning clip and types one
 number per box. Events are renumbered by

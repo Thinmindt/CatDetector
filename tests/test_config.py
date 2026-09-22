@@ -51,7 +51,7 @@ def defaults(monkeypatch: pytest.MonkeyPatch) -> Any:
         return False
 
     monkeypatch.setattr("dotenv.load_dotenv", skip_dotenv)
-    for name in DETECTION_SETTINGS:
+    for name in (*DETECTION_SETTINGS, "CAT_NAMES"):
         monkeypatch.delenv(name, raising=False)
     import config
 
@@ -113,6 +113,16 @@ def test_detection_settings_come_from_the_environment(
     assert config.Config.DARK_BRIGHTNESS == 12.5
     assert config.Config.MOTION_TIMEOUT == 30.5
     assert config.Config.MOG2_HISTORY == 1500
+
+
+def test_cat_names_are_trimmed_and_ordered(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("CAT_NAMES", " Seneca, Freya ,,Pokes ")
+    import config
+
+    assert importlib.reload(config).Config.CAT_NAMES == ("Seneca", "Freya", "Pokes")
+
+    monkeypatch.setenv("CAT_NAMES", "")
+    assert importlib.reload(config).Config.CAT_NAMES == ()
 
 
 def test_default_threshold_is_below_a_walking_cat(defaults: Any) -> None:
