@@ -459,6 +459,20 @@ labels, in the order listed:
       with `source=model`: the same queue serves re-audits, agent findings and low-confidence
       predictions. Time of day is a **query** over `started_at` on the timeline, never stored
       state.
+- [ ] **Four findings from the 2026-09-21 code review**, deferred until the unified route and
+      the queue are in, because two of them are simpler once the route carries ids:
+      - Media URLs are keyed by event and index while the cached file is keyed by clip, and
+        the responses carry no cache headers, so after a split, join or `regroup` a browser
+        can show the previous clip's tiles. Put the clip id in the media URL, or send
+        `no-store`.
+      - A join where either side is an undated clip (a recovered clip whose name did not
+        parse) writes the override, but the grouping skips undated clips, so the page shows
+        an unchanged event as merged. Refuse the join and say why.
+      - `--regroup` while the service is up can lose a label posted between its read of the
+        labels and its commit. Either wrap the regroup in one `BEGIN IMMEDIATE` transaction or
+        make `--regroup` refuse to run while the service holds the database.
+      - A persistent clip-open failure (directory gone, permissions) logs a full traceback on
+        every motion frame, at 30 Hz, for as long as motion lasts. Log once per failure streak.
 - [ ] **Dates are machine-shaped.** Show times in a readable local form (`Tue 15 Sep, 06:11`),
       with the relative time (`3 days ago`) on hover, here and on the timeline below (B.6).
 - [ ] **The tiles are slow to appear, worst on multi-clip events** (noted 2026-09-20). A strip
