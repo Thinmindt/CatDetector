@@ -14,3 +14,22 @@ __pycache__/
 
 # Test files
 test_images/
+
+# docs/ is private by default; these three are tracked.
+docs/*
+!docs/STYLE.md
+!docs/DESIGN.md
+!docs/ROADMAP.md
+
+# Agent notes about this particular Pi and its owner
+CLAUDE.local.md
+
+# Local agent files (skills, per-Pi state) -- never publish to the public repo
+.claude/
+
+# Review database and frame cache (local, per-Pi)
+captures.db*
+.review_cache/
+
+# Clips staged on local disk before they reach the share
+.clip_cache/

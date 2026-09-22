@@ -1,0 +1,344 @@
+<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>Cat Detector</title><style>
+body { font-family: system-ui, sans-serif; margin: 24px;
+       background: #141414; color: #eee; }
+h1 { font-size: 1.2rem; display: inline-block; margin-right: 24px; }
+nav { display: inline-block; }
+nav a { color: #aaa; text-decoration: none; padding: 6px 14px;
+        border-radius: 6px 6px 0 0; }
+nav a.active { color: #eee; background: #1e1e1e; }
+#status, #meta, #counts, .clipmeta, #mode { color: #aaa; }
+#status { margin: 12px 0; }
+#feed { width: 100%; max-width: 960px; border-radius: 4px; }
+#meta { margin: 8px 0; }
+#counts { margin-top: 16px; }
+.clip { margin: 12px 0; padding: 10px; background: #1e1e1e; border-radius: 6px; }
+.clipmeta { margin-bottom: 6px; }
+.tiles { display: grid; gap: 6px;
+         grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); }
+.tile { aspect-ratio: 16 / 9; background-size: auto 100%; cursor: zoom-in;
+        border-radius: 4px; }
+.tiles .note { grid-column: 1 / -1; }
+video { width: 100%; margin-top: 8px; }
+#counts a { color: #aaa; }
+.boundary { margin: 4px 0 4px 12px; }
+.boundary button, .clipmeta button { font-size: 0.85rem; padding: 3px 10px; }
+.label { display: inline-block; padding: 2px 10px;
+         border-radius: 10px; background: #333; }
+.warn { color: #f0b429; }
+button { font-size: 1rem; margin-right: 8px; padding: 6px 14px; cursor: pointer; }
+kbd { background: #333; border-radius: 3px; padding: 1px 5px; }
+#clean { margin: 12px 0; padding: 10px; background: #1e1e1e; border-radius: 6px; }
+#clean input { width: 4rem; font-size: 1rem; margin: 0 16px 0 4px; }
+</style></head><body>
+<h1>Cat Detector</h1>
+<nav>
+  <a href="/" data-tab="live">Live</a>
+  <a href="/review" data-tab="review">Review <span id="mode"></span></a>
+</nav>
+
+<section id="live" hidden>
+  <div id="status">checking&hellip;</div>
+  <img id="feed" alt="live feed">
+</section>
+
+<section id="review" hidden>
+{% if review_available %}
+<div id="viewer">
+  <div id="meta"></div>
+  <div id="clips"></div>
+  <p>
+    <button onclick="label('cat')">cat <kbd>c</kbd></button>
+    <span id="cats"></span>
+    <button onclick="label('not_cat')">not a cat <kbd>n</kbd></button>
+    <button onclick="label('unsure')">unsure <kbd>u</kbd></button>
+    <button onclick="startClean()">cleaning <kbd>l</kbd></button>
+    <button onclick="undo()">undo <kbd>z</kbd></button>
+    <button id="skip" onclick="load()" hidden>next <kbd>&rarr;</kbd></button>
+    <button onclick="join()">same visit as the next event</button>
+  </p>
+  <div id="clean" hidden>
+    <p>Poops found, per box, left to right as in frame &mdash; the hand signal in
+      the clip. <kbd>Enter</kbd> saves and moves on.</p>
+    <label>box 1<input id="box1" type="number" min="0" value="0"></label>
+    <label>box 2<input id="box2" type="number" min="0" value="0"></label>
+    <label>box 3<input id="box3" type="number" min="0" value="0"></label>
+    <button onclick="saveCounts()">save counts</button>
+  </div>
+</div>
+<div id="done" hidden><p>Nothing left to review here.</p>
+  <button onclick="rescan()">rescan clip directory</button></div>
+<div id="counts"></div>
+{% else %}
+<p class="warn">Review is unavailable: the capture database could not be opened.
+  See the log.</p>
+{% endif %}
+</section>
+
+<script>
+const REVIEW = {{ 'true' if review_available else 'false' }};
+const LABELS = {{ labels | tojson }};
+const CATS = {{ cats | tojson }};  // digit keys 1.., in this order; then m = multiple
+const FILTERS = ['multi', 'labeled', ...LABELS];
+const asked = new URLSearchParams(location.search).get('filter');
+const FILTER = FILTERS.includes(asked) ? asked : null;  // null = the unlabeled queue
+const MULTI = FILTER === 'multi';
+const WALKING = FILTER !== null;
+const THUMB_WIDTH = {{ thumb_width }};
+let current = null;
+const history_ = [];
+let statusTimer = null;
+
+// --- tabs -------------------------------------------------------------------
+
+function tabFromPath() { return location.pathname === '/review' ? 'review' : 'live'; }
+
+function activate(tab, push) {
+  for (const name of ['live', 'review']) {
+    document.getElementById(name).hidden = name !== tab;
+    document.querySelector(`nav a[data-tab=${name}]`)
+      .classList.toggle('active', name === tab);
+  }
+  const feed = document.getElementById('feed');
+  if (tab === 'live') {
+    feed.src = '/video_feed';
+    pollStatus();
+    statusTimer = setInterval(pollStatus, 2000);
+  } else {
+    feed.removeAttribute('src');  // closes the MJPEG connection
+    clearInterval(statusTimer);
+    statusTimer = null;
+    if (REVIEW && !current) load();
+  }
+  if (push) {
+    const url = tab === 'live' ? '/' : '/review' + (FILTER ? `?filter=${FILTER}` : '');
+    history.pushState(null, '', url);
+  }
+}
+
+document.querySelectorAll('nav a').forEach(a => a.addEventListener('click', e => {
+  e.preventDefault();
+  activate(a.dataset.tab, true);
+}));
+window.addEventListener('popstate', () => activate(tabFromPath(), false));
+
+// --- live -------------------------------------------------------------------
+
+async function pollStatus() {
+  const s = await get('/api/status');
+  const box = document.getElementById('status');
+  const feed = document.getElementById('feed');
+  feed.hidden = !s.detector;
+  if (!s.detector) {
+    box.textContent = 'The detector is not running; this is the review-only server.';
+  } else if (!s.recorder) {
+    box.textContent = 'Camera up; the recorder is unavailable, so this is stream only.';
+  } else {
+    const state = s.recording ? `RECORDING ${s.clip || ''}` : 'watching';
+    box.textContent =
+      `${state} · threshold ${s.motion_threshold} px · timeout ${s.motion_timeout} s`;
+  }
+}
+
+// --- review -----------------------------------------------------------------
+
+function hms(iso) { return iso ? iso.slice(11, 19) : '?'; }
+function secs(a, b) { return Math.round((new Date(b) - new Date(a)) / 1000); }
+
+function clipBlock(c, prev) {
+  const length = c.started_at && c.ended_at
+    ? `${secs(c.started_at, c.ended_at)} s` : '?';
+  const gap = prev && c.started_at && prev.ended_at
+    ? `, ${secs(prev.ended_at, c.started_at)} s after the previous clip` : '';
+  const override = c.boundary
+    ? ` <span class="warn">reviewer: ${c.boundary}</span>` : '';
+  const boundary = c.index > 0
+    ? `<div class="boundary"><button onclick="split(${c.index})">` +
+      `a new visit starts here</button></div>`
+    : '';
+  return `${boundary}<div class="clip">
+    <div class="clipmeta">clip ${c.index + 1}:
+      ${hms(c.started_at)} &rarr; ${hms(c.ended_at)}
+      (${length}, closed: ${c.close_reason}${gap})${override}
+      <button onclick="watch(${c.index})">watch</button></div>
+    <div class="tiles" id="t${c.index}"></div>
+    <video id="v${c.index}" controls preload="none" hidden></video>
+  </div>`;
+}
+
+function show(data) {
+  current = data.event;
+  document.getElementById('viewer').hidden = !current;
+  document.getElementById('done').hidden = !!current;
+  renderCounts(data.counts);
+  document.getElementById('clean').hidden = true;
+  if (!current) return;
+  const poops = Object.entries(current.poops || {});
+  const found = poops.length
+    ? ` <span class="label">poops ${poops.map(([b, n]) => `box${b}: ${n}`).join(', ')}</span>`
+    : '';
+  const badge = current.label
+    ? ` <span class="label">${current.label}</span>${found}` : '';
+  const n = current.clips.length;
+  const grouped = n > 1
+    ? ` <span class="warn">${n} clips grouped as one visit</span>` : '';
+  document.getElementById('meta').innerHTML =
+    `#${current.id} &mdash; ${current.started_at || 'unknown time'} &rarr; ` +
+    `${hms(current.ended_at)}${badge}${grouped}`;
+  document.getElementById('clips').innerHTML =
+    current.clips.map((c, i) => clipBlock(c, i ? current.clips[i - 1] : null)).join('');
+  current.clips.forEach(c => loadTiles(current.id, c.index));
+}
+
+// One frame per tile, cut from the clip's strip image so the tiles wrap to the
+// page instead of running off it. The strip's width says how many frames it holds.
+function loadTiles(eventId, index) {
+  const grid = document.getElementById(`t${index}`);
+  const strip = new Image();
+  strip.onload = () => {
+    if (current?.id !== eventId) return;
+    const slots = Math.max(1, Math.round(strip.naturalWidth / THUMB_WIDTH));
+    grid.innerHTML = '';
+    for (let slot = 0; slot < slots; slot++) {
+      const tile = document.createElement('div');
+      tile.className = 'tile';
+      tile.title = 'click for the full frame';
+      tile.style.backgroundImage = `url(${strip.src})`;
+      tile.style.backgroundPosition = `${slots > 1 ? slot / (slots - 1) * 100 : 0}% 0`;
+      tile.onclick = () => window.open(`/review/${eventId}/clip/${index}/frame/${slot}.jpg`);
+      grid.appendChild(tile);
+    }
+  };
+  strip.onerror = () => {
+    grid.innerHTML = '<span class="note warn">frames unavailable (clip unreadable?)</span>';
+  };
+  strip.src = `/review/${eventId}/clip/${index}/strip.jpg`;
+}
+
+function renderCounts(c) {
+  const link = (filter, text) => `<a href="/review?filter=${filter}">${text}</a>`;
+  const parts = Object.entries(c).filter(([k]) => !['total','labeled'].includes(k))
+    .map(([k, v]) => k === 'multi_clip' ? link('multi', `${k}: ${v}`)
+                   : LABELS.includes(k) ? link(k, `${k}: ${v}`) : `${k}: ${v}`)
+    .join(', ');
+  document.getElementById('counts').innerHTML =
+    `${link('labeled', `${c.labeled} of ${c.total} labeled`)}` +
+    (parts ? ` (${parts})` : '') +
+    (FILTER ? ` &middot; <a href="/review">back to the unlabeled queue</a>` : '');
+}
+
+async function get(url) { return (await fetch(url)).json(); }
+async function post(url, body) {
+  return (await fetch(url, {method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(body || {})})).json();
+}
+
+// The walk being taken: the unlabeled queue, the multi-clip events, or the
+// labeled ones (all, or one label). A walk resumes after the current event.
+const NEXT_ROUTE = MULTI ? 'multi/next' : WALKING ? 'labeled/next' : 'next';
+
+async function load() {
+  const params = new URLSearchParams();
+  if (LABELS.includes(FILTER)) params.set('value', FILTER);
+  if (WALKING && current) params.set('after', current.id);
+  show(await get(`/api/review/${NEXT_ROUTE}?${params}`));
+}
+
+async function label(value) {
+  if (!current) return;
+  await post(`/api/review/${current.id}/label`, {value});
+  history_.push(current.id);
+  load();
+}
+
+async function startClean() {
+  if (!current) return;
+  const poops = current.poops || {};
+  await post(`/api/review/${current.id}/label`, {value: 'clean'});
+  const form = document.getElementById('clean');
+  form.hidden = false;
+  for (const box of [1, 2, 3]) {
+    document.getElementById(`box${box}`).value = poops[box] ?? 0;
+  }
+  document.getElementById('box1').focus();
+  document.getElementById('box1').select();
+}
+
+async function saveCounts() {
+  if (!current) return;
+  const counts = {};
+  for (const box of [1, 2, 3]) {
+    counts[box] = Number(document.getElementById(`box${box}`).value) || 0;
+  }
+  await post(`/api/review/${current.id}/counts`, {counts});
+  document.getElementById('clean').hidden = true;
+  history_.push(current.id);
+  load();
+}
+
+async function undo() {
+  const id = history_.pop();
+  if (id === undefined) return;
+  show(await get(`/api/review/event/${id}`));
+}
+
+async function split(index) {
+  if (!current) return;
+  show(await post(`/api/review/${current.id}/split`, {index}));
+}
+
+async function join() {
+  if (!current) return;
+  const data = await post(`/api/review/${current.id}/join`);
+  if (data.event) show(data); else alert('There is no later event to join.');
+}
+
+function watch(index) {
+  const video = document.getElementById(`v${index}`);
+  if (!video.src) video.src = `/review/${current.id}/clip/${index}/video.mp4`;
+  video.hidden = false;
+  video.play();
+}
+
+async function rescan() { await post('/api/review/rescan'); load(); }
+
+function catButton(text, value, key) {
+  const button = document.createElement('button');
+  button.onclick = () => label(value);
+  button.textContent = `${text} `;
+  const kbd = document.createElement('kbd');
+  kbd.textContent = key;
+  button.appendChild(kbd);
+  return button;
+}
+
+if (REVIEW) {
+  const cats = document.getElementById('cats');
+  CATS.forEach((name, i) => cats.appendChild(catButton(name, name, String(i + 1))));
+  if (CATS.length) cats.appendChild(catButton('multiple cats', 'multiple', 'm'));
+  document.addEventListener('keydown', (e) => {
+    if (document.getElementById('review').hidden || e.target.tagName === 'VIDEO') return;
+    if (e.ctrlKey || e.metaKey || e.altKey || e.repeat) return;  // shortcuts are bare keys
+    if (e.target.tagName === 'INPUT') {
+      if (e.key === 'Enter') saveCounts();
+      return;  // digits belong in the field, not to the shortcuts
+    }
+    const digit = Number(e.key);
+    if (e.key === 'c') label('cat');
+    else if (digit >= 1 && digit <= CATS.length) label(CATS[digit - 1]);
+    else if (e.key === 'm' && CATS.length) label('multiple');
+    else if (e.key === 'l') startClean();
+    else if (e.key === 'n') label('not_cat');
+    else if (e.key === 'u') label('unsure');
+    else if (e.key === 'z') undo();
+    else if (e.key === 'ArrowRight' && WALKING) load();
+  });
+  if (WALKING) {
+    document.getElementById('mode').textContent =
+      MULTI ? '(multi-clip)' : `(${FILTER.replace('_', ' ')})`;
+    document.getElementById('skip').hidden = false;
+  }
+}
+activate(tabFromPath(), false);
+</script></body></html>
