@@ -423,6 +423,17 @@ facts with no lock held and takes it only to insert, place and commit;
 half is its own module, `clip_scan.py`, with no lock in it (2026-09-19): the rule is then a
 property of the import graph rather than of one method's care.
 
+**The startup ingest runs on its own thread** (2026-09-22). It scans the share, and a soft CIFS
+mount that is unreachable at boot fails each operation only after one to two minutes. Until then
+`open_review` ran the scan before `monitor()` started frame distribution, so a NAS outage at boot
+delayed the first recording by that timeout, with the camera and encoder already up. The review
+page may now come up a few seconds before the scan lands; `rescan` covers a reviewer who beats it.
+
+**Label shortcuts ignore modified and repeated keys** (2026-09-22). `Ctrl+C` to copy a time from
+the page labelled the event `cat`, `Ctrl+Z` undid a label, and a held key labelled several events
+in a row. Each was a silent write to the training set. The handler returns on any modifier or
+autorepeat before matching a key.
+
 **Single-page UI.** Labeling navigates no pages — next event and images are fetched and swapped
 in place — so the undo history can live in a JS array rather than sessionStorage, and labeling
 is one keypress with no page load between events.
