@@ -198,6 +198,10 @@ Measured MOG2 defaults on this camera:
       with a cat present vs absent. That produces the size band A.3 needs. The labelling is
       keeping up: every event was labelled on 2026-09-17, and on 2026-09-20 the database held
       177 events, 31 of them `cat`, 13 awaiting review. The derivation has not been done.
+      **Decided 2026-09-22: it waits for the next set of captures**, and only events recorded
+      under the light (from 2026-09-16) count. Earlier ones are a different regime and would
+      pull the band's lower edge toward blobs the lit setup never produces. Filter on
+      `started_at`, and say in the result how many events were excluded.
 
 ## A.3 Detect a cat-sized thing, not "some pixels changed"
 
@@ -428,10 +432,41 @@ meantime has to be revisited, so this goes before the usability items.
 daily, one from 2026-09-20, and the review queue agreed 2026-09-21. They follow the per-cat
 labels, in the order listed:
 
-- [ ] **It is used from a phone, and the buttons are too small to hit.** Larger touch targets
-      for the label, cleaning and split/join actions, and a layout that reflows at phone width:
-      the tile grid, the counts line and the event header. The keyboard shortcuts stay; they
-      are the desk path, and a phone has no keys.
+- [ ] **It is used from a phone, and the buttons are too small to hit.** The phone is a Pixel 9
+      (412 x 915 CSS px in portrait). The page has no `viewport` meta tag, so the phone renders it
+      at desktop width and shrinks it; that alone is most of "too small", and adding the tag is
+      the first step, after which every size below means what it says. The layout, agreed
+      2026-09-22 after comparing the labelling apps that solve the same problem (Zooniverse's
+      mobile classifier, which puts the subject on top and the answers in a fixed bar at the
+      bottom; iNaturalist's Identify; Material 3's docked toolbar and snackbar):
+      - **The label buttons live in a bar fixed to the bottom of the screen**, in the thumb zone,
+        so they are reachable from anywhere on the page without scrolling. Two rows: the cats
+        by name plus `multiple` on the first, `not a cat`, `unsure`, `cleaning` and a `more`
+        button on the second. Every target is at least 48 px tall, with the row's width shared
+        equally, and the page gets bottom padding equal to the bar's height so the last tiles
+        are not hidden under it. The bar is the same on the desk: the keyboard shortcuts stay,
+        with their `kbd` hints shown only on a device with a hover pointer
+        (`@media (hover: hover)`), so the phone's buttons carry the name alone.
+      - **`more` opens a sheet** from the bottom with the actions used a few times a sitting,
+        not once per event: plain `cat` (which one not decided), `same visit as the next event`,
+        `next` on the `?filter=` walks, and `rescan`. The sheet closes on any action or a tap
+        outside it.
+      - **Undo is a snackbar.** After a label, a strip above the bar says what was recorded
+        (`Bea`) with an `undo` button for a few seconds; `z` still works. That removes undo
+        from the bar without hiding it, and the confirmation is the feedback a tap otherwise
+        lacks. While a label request is in flight the bar is disabled, so a double tap cannot
+        label two events.
+      - **Split stays where it is**, on the boundary between two clips, since it is about that
+        boundary; it just becomes a 48 px target. The cleaning form's three fields become
+        `inputmode=numeric` with large fields side by side, and `save counts` joins the bar
+        while the form is open.
+      - **Tiles reflow to two columns** at phone width (about 200 px each at 16:9, wide enough
+        to see a cat), with the event header on two lines and the counts line wrapped below the
+        content. A tap on a tile opens it full width, as the zoom cursor promises today.
+      - **Done means**: a screenshot from `chromium --headless --window-size=412,915` shows the
+        bar, two tile columns and no horizontal scroll, and a sitting on the Pixel 9 labels a
+        backlog without a mis-tap. The screenshot is the agent's check; the sitting is the
+        owner's.
 - [ ] **A reload loses your place.** The `?filter=` walks keep their position in page state, so
       reloading starts the walk over from its first event, and a backlog cannot be worked
       through in sittings. Put the position in the URL — the event id as the path, the filter as
