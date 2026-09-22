@@ -12,6 +12,8 @@ from typing import Any
 import pytest
 
 import main
+from config import Config
+from src.review.capture_db import CaptureDB
 
 
 def test_a_broken_recorder_still_leaves_the_stream(
@@ -97,3 +99,31 @@ def test_sigterm_runs_the_same_cleanup_as_ctrl_c() -> None:
         "recorder cleanup",
         "transfer stop",
     ]
+
+
+def test_startup_ingest_does_not_hold_up_startup(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A stalled share must not delay the camera: the scan runs on its own thread."""
+    release = threading.Event()
+    scanning = threading.Event()
+
+    def stalled_ingest(self: Any, captures_dir: Path) -> int:
+        scanning.set()
+        release.wait(timeout=10)
+        return 3
+
+    monkeypatch.setattr(Config, "DB_PATH", str(tmp_path / "captures.db"))
+    monkeypatch.setattr(Config, "REVIEW_CACHE_DIR", str(tmp_path / "cache"))
+    monkeypatch.setattr(CaptureDB, "ingest", stalled_ingest)
+
+    with caplog.at_level(logging.INFO):
+        review = main.open_review()
+        assert scanning.wait(timeout=5)
+        assert "Ingest found" not in caplog.text
+        release.set()
+        worker = next(t for t in threading.enumerate() if t.name == "startup-ingest")
+        worker.join(timeout=5)
+        assert not worker.is_alive()
+    assert "Ingest found 3 new clip(s)" in caplog.text
+    review.db.close()

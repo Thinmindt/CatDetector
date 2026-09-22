@@ -319,6 +319,7 @@ if (REVIEW) {
   if (CATS.length) cats.appendChild(catButton('multiple cats', 'multiple', 'm'));
   document.addEventListener('keydown', (e) => {
     if (document.getElementById('review').hidden || e.target.tagName === 'VIDEO') return;
+    if (e.ctrlKey || e.metaKey || e.altKey || e.repeat) return;  // shortcuts are bare keys
     if (e.target.tagName === 'INPUT') {
       if (e.key === 'Enter') saveCounts();
       return;  // digits belong in the field, not to the shortcuts

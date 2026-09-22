@@ -107,12 +107,24 @@ def open_db() -> CaptureDB:
     )
 
 
+def ingest(review: Review) -> None:
+    try:
+        log.info("Ingest found %d new clip(s)", review.db.ingest(review.captures_dir))
+    except Exception:
+        log.exception("Startup ingest failed; rescan from the review page")
+
+
 def open_review() -> Review:
-    """The capture database, brought up to date from the share, and its extractor."""
+    """The capture database and its extractor. The share is scanned on its own
+    thread, so a stalled mount cannot hold up the camera."""
     captures = pathlib.Path(Config.CAPTURES_DIR)
-    db = open_db()
-    log.info("Ingest found %d new clip(s)", db.ingest(captures))
-    return Review(db, ClipFrames(Config.REVIEW_CACHE_DIR), captures, Config.CAT_NAMES)
+    review = Review(
+        open_db(), ClipFrames(Config.REVIEW_CACHE_DIR), captures, Config.CAT_NAMES
+    )
+    threading.Thread(
+        target=ingest, args=(review,), name="startup-ingest", daemon=True
+    ).start()
+    return review
 
 
 def build_review() -> Review | None:
