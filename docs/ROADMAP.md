@@ -425,7 +425,8 @@ meantime has to be revisited, so this goes before the usability items.
 - [ ] B.6's timeline filters by name for free once the values exist.
 
 **From use, 2026-09-19.** Three things make the page hard to work with now that it is used
-daily, and one from 2026-09-20. They follow the per-cat labels:
+daily, one from 2026-09-20, and the review queue agreed 2026-09-21. They follow the per-cat
+labels, in the order listed:
 
 - [ ] **It is used from a phone, and the buttons are too small to hit.** Larger touch targets
       for the label, cleaning and split/join actions, and a layout that reflows at phone width:
@@ -439,7 +440,25 @@ daily, and one from 2026-09-20. They follow the per-cat labels:
       API side the three walks (`/api/review/next`, `/multi/next`, `/labeled/next`) become
       one `/api/review/next?filter=&after=` — the page already has one `load()` that picks
       between them, and one route with the same two parameters as the URL is what a
-      reload can replay.
+      reload can replay. The staging table below joins the default walk in this step, so the
+      queue has one source of truth from the start.
+- [ ] **An explicit review queue, with staging** (agreed 2026-09-21). Today the queue is
+      implicit: the unlabelled events, in review order, and labelling one removes it. There is
+      no way to put an event back without erasing its label, and no record of why it came back.
+      The need is real now: 110 `not_cat` labels were made from the first eight seconds of each
+      clip, before the whole-clip tiles, and `label.labeled_at` identifies them exactly, but
+      nothing can walk them without losing the labels. A **staging table** fixes that: one row
+      per staged event with a reason, when it was staged and by whom (`human`, `agent`, later
+      `model`). The default walk becomes the unlabelled events **plus** the staged ones, in the
+      same order, so a re-review is worked in the same sitting as fresh events. The event keeps
+      its label and the page shows it with the reason, so confirming is one keystroke; any label
+      press clears the staging row. Staging is done from the timeline (B.6, selection and a
+      "stage everything shown" action, or one row's button) and from the API, so an agent that
+      finds a doubtful label stages it rather than leaving a note; `main.py --stage` takes the
+      same query and reason from the command line. B.6's human-in-the-loop item is this table
+      with `source=model`: the same queue serves re-audits, agent findings and low-confidence
+      predictions. Time of day is a **query** over `started_at` on the timeline, never stored
+      state.
 - [ ] **Dates are machine-shaped.** Show times in a readable local form (`Tue 15 Sep, 06:11`),
       with the relative time (`3 days ago`) on hover, here and on the timeline below (B.6).
 - [ ] **The tiles are slow to appear, worst on multi-clip events** (noted 2026-09-20). A strip
@@ -547,15 +566,18 @@ What it needs downstream, none of it on the capture path:
       set the review walk uses), so the `cat` rows alone read as the visit log and the `clean`
       rows as the cleaning log. Dates readable, relative time on hover (B.3). Until per-cat
       labels exist, frequency is read off this page by eye; once they do, it becomes the per-cat
-      log without changing shape.
+      log without changing shape. It is also the **selection surface for the review queue**
+      (B.3): filters by label value, date range, time of day and labelled-before-a-timestamp,
+      each row with a stage button, and "stage everything shown, with this reason" for the
+      set. The first use is the 110 `not_cat` labels made before the whole-clip tiles.
 - [ ] Litter box usage is a health signal, and catching bowel or urinary trouble is the goal.
       Alert on changes in how often a cat visits and how long it stays.
       That should shape what gets logged from the start (duration in box, time of day), because
       those are cheap now and unrecoverable later.
 - [ ] Maybe later: tell poop from pee. It looks hard and unreliable, so no alert should depend on
       it.
-- [ ] Human-in-the-loop: the model labels, the UI shows low-confidence events for review,
-      corrections feed the next training round.
+- [ ] Human-in-the-loop: the model labels, low-confidence events are staged into the review
+      queue (B.3) with `source=model`, corrections feed the next training round.
 
 ---
 
