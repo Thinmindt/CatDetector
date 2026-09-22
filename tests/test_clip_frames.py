@@ -90,8 +90,10 @@ def test_tiles_are_captioned_with_their_offset(
     assert strip is not None
     image = cv2.imread(str(strip))
     assert image is not None
-    # The second tile is a flat mid grey except for its "0:01" caption.
-    second = image[:, THUMB_WIDTH : 2 * THUMB_WIDTH]
+    # The second tile is a flat grey except for its "0:01" caption. Grey first:
+    # a decoder may give a flat frame three slightly different channels.
+    grey = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    second = grey[:, THUMB_WIDTH : 2 * THUMB_WIDTH]
     assert second[: second.shape[0] // 2].std() < 1
     assert second[second.shape[0] // 2 :].std() > 5
 
