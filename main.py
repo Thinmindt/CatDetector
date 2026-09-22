@@ -112,7 +112,7 @@ def open_review() -> Review:
     captures = pathlib.Path(Config.CAPTURES_DIR)
     db = open_db()
     log.info("Ingest found %d new clip(s)", db.ingest(captures))
-    return Review(db, ClipFrames(Config.REVIEW_CACHE_DIR), captures)
+    return Review(db, ClipFrames(Config.REVIEW_CACHE_DIR), captures, Config.CAT_NAMES)
 
 
 def build_review() -> Review | None:

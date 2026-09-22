@@ -78,7 +78,9 @@ uv run python main.py --regroup      # rebuild events from the current threshold
 
 The Review tab of the web UI (`http://<pi-ip>:5000/review`) scans the captures directory into
 a local database and serves a keyboard-driven labeler — `c` cat, `n` not a cat, `u` unsure, `z`
-undo, click a frame strip to zoom, "watch" to play the clip. `main.py` serves it beside the live
+undo, click a frame strip to zoom, "watch" to play the clip. With `CAT_NAMES` set, each cat gets
+a digit key in the configured order and `m` marks an event with more than one cat; `c` then means
+"a cat, which one not decided", and `/review?filter=cat` walks those to name them. `main.py` serves it beside the live
 feed, so it is available whenever the detector is running.
 Requires `ffmpeg` (`sudo apt install ffmpeg`).
 
@@ -130,6 +132,13 @@ so the review UI never samples a half-written file.
 If the share is mounted from `/etc/fstab`, pin the `soft` option explicitly. It is the CIFS
 default, so it is easy to lose by accident — and on a `hard` mount an unreachable NAS blocks
 writes indefinitely instead of failing with an error.
+
+The cats, for labelling which one made a visit. Any number, comma-separated, in the order the
+review page's digit keys should take:
+
+```
+CAT_NAMES=Ada,Bea
+```
 
 Optional, for tuning detection:
 

@@ -5,7 +5,7 @@ import logging
 from flask import Flask, Response, jsonify, render_template
 
 from src.capture.web_streamer import WebStreamer
-from src.review.api import VALID_LABELS, Review, create_review_blueprint
+from src.review.api import FIXED_LABELS, Review, create_review_blueprint
 from src.review.clip_frames import THUMB_WIDTH
 
 log = logging.getLogger(__name__)
@@ -25,7 +25,8 @@ def create_app(streamer: WebStreamer | None, review: Review | None) -> Flask:
         return render_template(
             "app.html",
             thumb_width=THUMB_WIDTH,
-            labels=VALID_LABELS,
+            labels=review.labels if review else FIXED_LABELS,
+            cats=review.cat_names if review else (),
             review_available=review is not None,
         )
 

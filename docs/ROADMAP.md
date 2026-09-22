@@ -377,7 +377,7 @@ never gets its data. Design to that:
 - [x] `/review` — serves the oldest unlabeled event, with every clip's tiles and a link to
       watch it. The crop grid waits on A.3's bounding boxes.
 - [x] One **keyboard shortcut per label**, auto-advancing to the next event. No mouse, no
-      confirm dialog. Today `c`, `n`, `u`, `l`; per-cat keys and `m` are the next item below.
+      confirm dialog. `c`, `n`, `u`, `l`, a digit per cat and `m` (since 2026-09-21).
 - [x] **Undo** (`z`). A mislabel poisons training data, and speed guarantees mislabels.
 - [ ] Show the crop *and* the full frame — a crop alone is often ambiguous. Needs A.3.
 - [x] A counter of labeled/remaining per class, so imbalance is visible while labeling.
@@ -409,18 +409,18 @@ at the moment of labeling and never hidden:
 15+ visits per cat and cannot be checked without it, and every visit labelled `cat` in the
 meantime has to be revisited, so this goes before the usability items.
 
-- [ ] **The label values are the cats' names**, read from config (`CAT_NAMES`, a comma-separated
+- [x] **The label values are the cats' names** (done 2026-09-21), read from config (`CAT_NAMES`, a comma-separated
       list of any length; the names and their number are the installation's, never the code's).
       The review page gives each cat a **digit key** in the configured order, shown beside the
       name, so labelling stays one keystroke; the counts line and the `?filter=` walks grow one
       entry per cat, which is the per-cat count A.2 asks for. The `label.value` column already
       takes any text, so the schema does not change; the page and the API validate against the
       configured list, and an empty list leaves the page as it is today.
-- [ ] **`cat` stays, meaning "a cat, which one not decided".** It is the value of every visit
+- [x] **`cat` stays, meaning "a cat, which one not decided".** It is the value of every visit
       labelled before this lands (31 events on 2026-09-20), and it remains the honest answer when
       the tiles do not show the coat. `/review?filter=cat` is then the per-cat backlog: walk it
       and press a digit, and the visit leaves the filter. Nothing is migrated.
-- [ ] **`multiple`** (`m`) for two cats in one event, the B.1 edge case: excluded from
+- [x] **`multiple`** (`m`) for two cats in one event, the B.1 edge case: excluded from
       single-label training, kept as a visit.
 - [ ] B.6's timeline filters by name for free once the values exist.
 
