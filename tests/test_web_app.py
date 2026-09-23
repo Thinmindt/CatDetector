@@ -39,6 +39,8 @@ def test_both_routes_serve_the_tabbed_page(review_parts: Any) -> None:
         assert response.status_code == 200, path
         assert b'data-tab="live"' in response.data
         assert b'data-tab="review"' in response.data
+    assert b'<meta name="viewport" content="width=device-width' in response.data
+    assert b'id="bar"' in response.data  # the label bar fixed to the screen bottom
     assert b"THUMB_WIDTH = 320" in response.data
     assert b'LABELS = ["cat", "not_cat", "unsure", "clean"]' in response.data
     assert b"CATS = []" in response.data
