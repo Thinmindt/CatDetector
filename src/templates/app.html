@@ -1,6 +1,9 @@
 <!DOCTYPE html>
-<html><head><meta charset="utf-8"><title>Cat Detector</title><style>
-body { font-family: system-ui, sans-serif; margin: 24px;
+<html><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cat Detector</title><style>
+[hidden] { display: none !important; }
+body { font-family: system-ui, sans-serif; margin: 16px;
        background: #141414; color: #eee; }
 h1 { font-size: 1.2rem; display: inline-block; margin-right: 24px; }
 nav { display: inline-block; }
@@ -22,14 +25,46 @@ nav a.active { color: #eee; background: #1e1e1e; }
 video { width: 100%; margin-top: 8px; }
 #counts a { color: #aaa; }
 .boundary { margin: 4px 0 4px 12px; }
-.boundary button, .clipmeta button { font-size: 0.85rem; padding: 3px 10px; }
 .label { display: inline-block; padding: 2px 10px;
          border-radius: 10px; background: #333; }
 .warn { color: #f0b429; }
-button { font-size: 1rem; margin-right: 8px; padding: 6px 14px; cursor: pointer; }
-kbd { background: #333; border-radius: 3px; padding: 1px 5px; }
+button { font-size: 1rem; min-height: 48px; padding: 6px 14px; cursor: pointer;
+         border: 0; border-radius: 8px; background: #333; color: #eee; }
+button:disabled { opacity: 0.5; cursor: default; }
+kbd { background: #444; border-radius: 3px; padding: 1px 5px; font-size: 0.85em; }
+@media (hover: none) { kbd { display: none; } }
 #clean { margin: 12px 0; padding: 10px; background: #1e1e1e; border-radius: 6px; }
-#clean input { width: 4rem; font-size: 1rem; margin: 0 16px 0 4px; }
+#clean .boxes { display: flex; gap: 12px; }
+#clean label { flex: 1; display: flex; flex-direction: column; color: #aaa; }
+#clean input { font-size: 1.4rem; min-height: 48px; width: 100%; box-sizing: border-box;
+               text-align: center; }
+
+/* The label bar is fixed to the bottom of the screen so it is reachable
+   without scrolling; the page's bottom padding keeps the last tiles above it. */
+#bar { position: fixed; left: 0; right: 0; bottom: 0; z-index: 2;
+       background: #1e1e1e; border-top: 1px solid #333;
+       padding: 8px 8px calc(8px + env(safe-area-inset-bottom)); }
+#bar .row { display: flex; gap: 8px; max-width: 960px; margin: 0 auto 8px; }
+#bar .row:last-child { margin-bottom: 0; }
+#bar .row button { flex: 1; padding: 6px 4px; }
+#bar.busy { pointer-events: none; opacity: 0.6; }
+#bar .primary { background: #2f4f6f; }
+#snack { position: fixed; left: 50%; transform: translateX(-50%); z-index: 3;
+         display: flex; align-items: center; gap: 16px; padding: 4px 4px 4px 16px;
+         background: #333; border-radius: 8px; box-shadow: 0 2px 8px #000a;
+         transition: opacity 0.2s; }
+#snack.gone { opacity: 0; pointer-events: none; }
+#snack button { min-height: 40px; background: none; color: #7cc4ff; }
+#sheet { position: fixed; inset: 0; z-index: 4; background: #0008;
+         display: flex; align-items: flex-end; }
+#sheet .panel { width: 100%; max-width: 960px; margin: 0 auto;
+                background: #1e1e1e; border-radius: 12px 12px 0 0;
+                padding: 12px 8px calc(12px + env(safe-area-inset-bottom)); }
+#sheet .panel button { display: block; width: 100%; margin-bottom: 8px; text-align: left; }
+@media (max-width: 600px) {
+  .tiles { grid-template-columns: 1fr 1fr; }
+  .clip { padding: 6px; }
+}
 </style></head><body>
 <h1>Cat Detector</h1>
 <nav>
@@ -47,28 +82,41 @@ kbd { background: #333; border-radius: 3px; padding: 1px 5px; }
 <div id="viewer">
   <div id="meta"></div>
   <div id="clips"></div>
-  <p>
-    <button onclick="label('cat')">cat <kbd>c</kbd></button>
-    <span id="cats"></span>
-    <button onclick="label('not_cat')">not a cat <kbd>n</kbd></button>
-    <button onclick="label('unsure')">unsure <kbd>u</kbd></button>
-    <button onclick="startClean()">cleaning <kbd>l</kbd></button>
-    <button onclick="undo()">undo <kbd>z</kbd></button>
-    <button id="skip" onclick="load()" hidden>next <kbd>&rarr;</kbd></button>
-    <button onclick="join()">same visit as the next event</button>
-  </p>
   <div id="clean" hidden>
     <p>Poops found, per box, left to right as in frame &mdash; the hand signal in
       the clip. <kbd>Enter</kbd> saves and moves on.</p>
-    <label>box 1<input id="box1" type="number" min="0" value="0"></label>
-    <label>box 2<input id="box2" type="number" min="0" value="0"></label>
-    <label>box 3<input id="box3" type="number" min="0" value="0"></label>
-    <button onclick="saveCounts()">save counts</button>
+    <div class="boxes">
+      <label>box 1<input id="box1" type="number" inputmode="numeric" min="0" value="0"></label>
+      <label>box 2<input id="box2" type="number" inputmode="numeric" min="0" value="0"></label>
+      <label>box 3<input id="box3" type="number" inputmode="numeric" min="0" value="0"></label>
+    </div>
   </div>
 </div>
 <div id="done" hidden><p>Nothing left to review here.</p>
   <button onclick="rescan()">rescan clip directory</button></div>
 <div id="counts"></div>
+
+<div id="snack" class="gone"><span id="snacktext"></span>
+  <button onclick="undo()">undo <kbd>z</kbd></button></div>
+<div id="bar" hidden>
+  <div class="row" id="cats"></div>
+  <div class="row">
+    <button onclick="label('not_cat')">not a cat <kbd>n</kbd></button>
+    <button onclick="label('unsure')">unsure <kbd>u</kbd></button>
+    <button id="cleaning" onclick="startClean()">cleaning <kbd>l</kbd></button>
+    <button id="save" class="primary" onclick="saveCounts()" hidden>save counts <kbd>Enter</kbd></button>
+    <button onclick="openSheet()">more &hellip;</button>
+  </div>
+</div>
+<div id="sheet" hidden onclick="if (event.target === this) closeSheet()">
+  <div class="panel">
+    <button id="plaincat" onclick="label('cat')">cat, which one not decided <kbd>c</kbd></button>
+    <button onclick="join()">same visit as the next event</button>
+    <button id="skip" onclick="load()" hidden>next <kbd>&rarr;</kbd></button>
+    <button onclick="rescan()">rescan clip directory</button>
+    <button onclick="closeSheet()">close</button>
+  </div>
+</div>
 {% else %}
 <p class="warn">Review is unavailable: the capture database could not be opened.
   See the log.</p>
@@ -88,6 +136,8 @@ const THUMB_WIDTH = {{ thumb_width }};
 let current = null;
 const history_ = [];
 let statusTimer = null;
+let busy = false;  // a label request is in flight; the bar and the keys wait
+let snackTimer = null;
 
 // --- tabs -------------------------------------------------------------------
 
@@ -170,8 +220,9 @@ function show(data) {
   current = data.event;
   document.getElementById('viewer').hidden = !current;
   document.getElementById('done').hidden = !!current;
+  document.getElementById('bar').hidden = !current;
   renderCounts(data.counts);
-  document.getElementById('clean').hidden = true;
+  showCleanForm(false);
   if (!current) return;
   const poops = Object.entries(current.poops || {});
   const found = poops.length
@@ -188,6 +239,7 @@ function show(data) {
   document.getElementById('clips').innerHTML =
     current.clips.map((c, i) => clipBlock(c, i ? current.clips[i - 1] : null)).join('');
   current.clips.forEach(c => loadTiles(current.id, c.index));
+  padForBar();
 }
 
 // One frame per tile, cut from the clip's strip image so the tiles wrap to the
@@ -234,30 +286,71 @@ async function post(url, body) {
     body: JSON.stringify(body || {})})).json();
 }
 
+// --- the bar, the sheet and the snackbar ------------------------------------
+
+function padForBar() {
+  const bar = document.getElementById('bar');
+  document.body.style.paddingBottom = bar.hidden ? '' : `${bar.offsetHeight + 16}px`;
+  document.getElementById('snack').style.bottom = `${bar.offsetHeight + 12}px`;
+}
+
+function setBusy(on) {
+  busy = on;
+  document.getElementById('bar').classList.toggle('busy', on);
+}
+
+function showCleanForm(open) {
+  document.getElementById('clean').hidden = !open;
+  document.getElementById('save').hidden = !open;
+  document.getElementById('cleaning').hidden = open;
+  padForBar();
+}
+
+function openSheet() { document.getElementById('sheet').hidden = false; }
+function closeSheet() { document.getElementById('sheet').hidden = true; }
+
+function snack(text) {
+  const box = document.getElementById('snack');
+  document.getElementById('snacktext').textContent = text;
+  box.classList.remove('gone');
+  clearTimeout(snackTimer);
+  snackTimer = setTimeout(() => box.classList.add('gone'), 5000);
+}
+
+// --- actions ----------------------------------------------------------------
+
 // The walk being taken: the unlabeled queue, the multi-clip events, or the
 // labeled ones (all, or one label). A walk resumes after the current event.
 const NEXT_ROUTE = MULTI ? 'multi/next' : WALKING ? 'labeled/next' : 'next';
 
 async function load() {
+  closeSheet();
   const params = new URLSearchParams();
   if (LABELS.includes(FILTER)) params.set('value', FILTER);
   if (WALKING && current) params.set('after', current.id);
   show(await get(`/api/review/${NEXT_ROUTE}?${params}`));
 }
 
+// Records the label, says so, and moves on; nothing else is accepted meanwhile.
 async function label(value) {
-  if (!current) return;
-  await post(`/api/review/${current.id}/label`, {value});
-  history_.push(current.id);
-  load();
+  if (!current || busy) return;
+  closeSheet();
+  setBusy(true);
+  try {
+    await post(`/api/review/${current.id}/label`, {value});
+    history_.push(current.id);
+    snack(`#${current.id}: ${value.replace('_', ' ')}`);
+    await load();
+  } finally {
+    setBusy(false);
+  }
 }
 
 async function startClean() {
-  if (!current) return;
+  if (!current || busy) return;
   const poops = current.poops || {};
   await post(`/api/review/${current.id}/label`, {value: 'clean'});
-  const form = document.getElementById('clean');
-  form.hidden = false;
+  showCleanForm(true);
   for (const box of [1, 2, 3]) {
     document.getElementById(`box${box}`).value = poops[box] ?? 0;
   }
@@ -266,20 +359,26 @@ async function startClean() {
 }
 
 async function saveCounts() {
-  if (!current) return;
-  const counts = {};
-  for (const box of [1, 2, 3]) {
-    counts[box] = Number(document.getElementById(`box${box}`).value) || 0;
+  if (!current || busy) return;
+  setBusy(true);
+  try {
+    const counts = {};
+    for (const box of [1, 2, 3]) {
+      counts[box] = Number(document.getElementById(`box${box}`).value) || 0;
+    }
+    await post(`/api/review/${current.id}/counts`, {counts});
+    history_.push(current.id);
+    snack(`#${current.id}: clean, ${Object.values(counts).join('/')}`);
+    await load();
+  } finally {
+    setBusy(false);
   }
-  await post(`/api/review/${current.id}/counts`, {counts});
-  document.getElementById('clean').hidden = true;
-  history_.push(current.id);
-  load();
 }
 
 async function undo() {
   const id = history_.pop();
   if (id === undefined) return;
+  document.getElementById('snack').classList.add('gone');
   show(await get(`/api/review/event/${id}`));
 }
 
@@ -290,6 +389,7 @@ async function split(index) {
 
 async function join() {
   if (!current) return;
+  closeSheet();
   const data = await post(`/api/review/${current.id}/join`);
   if (data.event) show(data); else alert('There is no later event to join.');
 }
@@ -301,7 +401,7 @@ function watch(index) {
   video.play();
 }
 
-async function rescan() { await post('/api/review/rescan'); load(); }
+async function rescan() { closeSheet(); await post('/api/review/rescan'); load(); }
 
 function catButton(text, value, key) {
   const button = document.createElement('button');
@@ -316,10 +416,16 @@ function catButton(text, value, key) {
 if (REVIEW) {
   const cats = document.getElementById('cats');
   CATS.forEach((name, i) => cats.appendChild(catButton(name, name, String(i + 1))));
-  if (CATS.length) cats.appendChild(catButton('multiple cats', 'multiple', 'm'));
+  if (CATS.length) {
+    cats.appendChild(catButton('multiple', 'multiple', 'm'));
+  } else {
+    cats.appendChild(catButton('cat', 'cat', 'c'));  // no names yet: cat is the primary label
+    document.getElementById('plaincat').hidden = true;
+  }
   document.addEventListener('keydown', (e) => {
     if (document.getElementById('review').hidden || e.target.tagName === 'VIDEO') return;
     if (e.ctrlKey || e.metaKey || e.altKey || e.repeat) return;  // shortcuts are bare keys
+    if (e.key === 'Escape') { closeSheet(); return; }
     if (e.target.tagName === 'INPUT') {
       if (e.key === 'Enter') saveCounts();
       return;  // digits belong in the field, not to the shortcuts
@@ -334,6 +440,7 @@ if (REVIEW) {
     else if (e.key === 'z') undo();
     else if (e.key === 'ArrowRight' && WALKING) load();
   });
+  window.addEventListener('resize', padForBar);
   if (WALKING) {
     document.getElementById('mode').textContent =
       MULTI ? '(multi-clip)' : `(${FILTER.replace('_', ' ')})`;
