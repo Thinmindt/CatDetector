@@ -6,5 +6,5 @@ cd "$(dirname "$0")/.."
 uv run ruff check .
 uv run ruff format --check .
 uv run mypy .
-npx --yes eslint@10 src/static
+npm run --silent lint
 uv run pytest "$@"
