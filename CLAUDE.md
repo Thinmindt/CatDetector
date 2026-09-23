@@ -72,13 +72,15 @@ sudo bash deploy/install-service.sh          # install/refresh the catdetector s
 sudo systemctl stop catdetector              # free the camera for anything else
 journalctl -u catdetector -f                 # the service's logs
 
-bash scripts/check.sh                        # all four gates, in the order that fails fastest
+bash scripts/check.sh                        # all five gates, in the order that fails fastest
 uv run pytest                                # unit tests (no hardware needed)
 uv run ruff check .                          # lint
 uv run ruff format .                         # format
 uv run mypy .                                # type-check (strict, must stay clean)
+npx --yes eslint@10 src/static               # lint the page's JavaScript
 
 uv run python tests/manual/check_camera.py   # hardware smoke test; writes test_images/test_image.jpg
+uv run python tests/manual/check_page.py     # screenshot the review page, phone and desk sizes, no camera
 
 METRICS_CSV=$HOME/metrics.csv uv run python main.py          # + per-frame detection metrics
 
@@ -86,7 +88,8 @@ uv run python main.py --regroup              # rebuild every event from the curr
 ```
 
 The web UI is **one Flask app on one port** ([src/web_app.py](src/web_app.py)): a page with a
-Live tab and a Review tab, built from `src/templates/app.html`. `main.py` is the only entry
+Live tab and a Review tab, built from `src/templates/app.html`, whose script is
+`src/static/app.js` (the template fills four constants inline before it loads). `main.py` is the only entry
 point, so the Review tab is up whenever the detector is; there is no camera-less review server
 any more. The review half ingests
 `$NETWORK_SHARE_DIR/captures/*.h264` into a local SQLite DB (`DB_PATH`, default `captures.db` —
@@ -125,9 +128,18 @@ lock: a stalled CIFS mount would otherwise freeze every review request behind it
 the sidecar reads live in `src/review/clip_scan.py`, which has no lock to hold; `ingest` calls it
 unlocked and takes the lock only to insert what it found. Keep share I/O in that module.
 
-**All four gates must pass before every commit** — tests, lint, format check, type check.
-`scripts/check.sh` runs them, and `.github/workflows/check.yml` runs the same script on every
-push. Run it and report the result.
+**All five gates must pass before every commit** — lint, format check, type check, the
+JavaScript lint, tests. `scripts/check.sh` runs them, and `.github/workflows/check.yml` runs the
+same script on every push. Run it and report the result. The JavaScript gate is eslint via
+`npx`, configured in `eslint.config.mjs`; it needs node, which the Pi and the CI runner have.
+
+**A page change is verified by looking at it.** The test suite cannot see a layout, and the
+one bug the phone layout shipped with (a sheet that showed on load, because a `display: flex`
+rule beat the `hidden` attribute) was invisible to every gate. `tests/manual/check_page.py`
+serves the app from a copy of the review database, with no camera, and screenshots `/review` at
+a Pixel 9 portrait (412 x 915) and a laptop size into `test_images/`; `--filter multi` and the
+other walks work too. Run it and read the images before calling a page change done. Flask caches
+templates once rendered, so a server started before an edit serves the old page: restart it.
 
 `uv run` targets the project venv directly, so activating it is unnecessary.
 
@@ -146,7 +158,13 @@ record, so keep that window short and say when it is open. Per-run settings such
 not in the tracked unit. The service's output goes to the journal (`journalctl -u catdetector`).
 When matching its process with `pgrep -f`, anchor the pattern to the venv's interpreter path, as
 `install-service.sh` does: an unanchored one also matches the shell running your own command,
-and a `kill` then takes that shell down with it.
+and a `kill` then takes that shell down with it. The same applies to `pkill -f`.
+
+**The service runs from this checkout**, whatever branch it is on: a `git checkout` plus
+`sudo systemctl restart catdetector` is how a branch is tried on the real phone before it is
+merged (a restart costs about one second of recording). So check `git branch --show-current`
+before assuming the service runs `main`, say which branch it is on when you restart it, and
+after a merge pull `main` and restart so the two agree again.
 
 **Testing the recorder without polluting the NAS.** `config.py` calls `load_dotenv()`, which does
 *not* override variables already in the environment, so pointing both directories at scratch
@@ -184,6 +202,12 @@ instead. Docstrings: one line if one line does it.
 
 This file is the exception. It is written for agents, and being thorough here is the point.
 
+**A feature starts as a roadmap entry with a "done means" line.** The phone layout was specified
+in `docs/ROADMAP.md` first, with the sizes, the pattern and what done looks like, and that last
+line is what produced the screenshot check. Write the spec and the code on one branch, spec
+commit first, so the roadmap checkbox and the code land together; two branches from `main` left
+the code unable to tick the box. The owner reviews the branch here before it is pushed.
+
 Lint is configured to enforce what it can: `C90` complexity is a **ratchet** set at the current
 worst function, so new complexity must be extracted rather than absorbed. `PLR2004` and several
 others are disabled inside `tests/**` for reasons recorded in `docs/STYLE.md` — read that before
@@ -214,7 +238,8 @@ The fixture patches `_ResilientCircularOutput`, the subclass the recorder actual
 patching `CircularOutput` does nothing, because the subclass bound the real base class at import
 time.
 
-`tests/manual/` holds hardware scripts that grab the real camera. They are named `check_*.py` so
+`tests/manual/` holds scripts run by hand: the ones that grab the real camera, and
+`check_page.py`, which needs a database and chromium. They are named `check_*.py` so
 they match none of pytest's collection globs. That is structural on purpose: `norecursedirs` was
 *not* enough, because it only suppresses directory walking and does not stop an explicitly named
 path (`pytest tests/manual`).

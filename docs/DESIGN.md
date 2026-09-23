@@ -434,6 +434,34 @@ the page labelled the event `cat`, `Ctrl+Z` undid a label, and a held key labell
 in a row. Each was a silent write to the training set. The handler returns on any modifier or
 autorepeat before matching a key.
 
+**The label buttons are a bar fixed to the bottom of the screen** (2026-09-22, ROADMAP B.3).
+The page is used from a phone, and the buttons sat under the tiles, so every label meant a scroll
+to the bottom and a small target. A bar fixed to the bottom keeps them in the thumb zone from
+anywhere on the page, which is the pattern Zooniverse's mobile classifier and Material's docked
+toolbar use for the same job; every target is 48 px, the minimum Android's accessibility guidance
+gives. The actions used a few times a sitting (plain `cat`, join, next, rescan) sit behind
+`more` in a sheet, so the bar holds only what is pressed once per event. Undo became a snackbar
+that names the label just recorded: it confirms a tap, which otherwise gives no feedback, and it
+takes undo out of the bar without hiding it. The bar and the keys are disabled while a label
+request is in flight, because a phone tap repeats more easily than a keypress and a double tap
+would label two events. Keyboard hints are hidden on devices with no hover pointer, since a
+phone has no keys and the hints cost width. A global `[hidden] { display: none !important }`
+rule exists because the sheet's own `display: flex` beat the attribute and showed it on load.
+
+**The page's script is a static file** (2026-09-22). Inline in the template it was invisible to
+every gate: syntax errors and undefined names reached the browser. As `src/static/app.js` it is
+linted by eslint as the fifth gate. The template keeps only the four constants it fills
+(`REVIEW`, `LABELS`, `CATS`, `THUMB_WIDTH`), declared inline before the script loads, and the
+lint config lists them as globals; the functions the template calls from `onclick` attributes are
+exempt from the unused-variable rule by name.
+
+**Page changes are checked by screenshot** (2026-09-22). `tests/manual/check_page.py` serves the
+app with no camera from a copy of the review database and shoots `/review` with headless
+chromium at a Pixel 9's portrait size and a laptop size. It exists because the phone layout's
+one shipped bug, a sheet visible on load, passed every gate; only a rendered page shows a layout.
+It copies the database so it never writes the live one, and reuses the live frame cache, whose
+entries are published atomically, so it can run beside the service.
+
 **Single-page UI.** Labeling navigates no pages — next event and images are fetched and swapped
 in place — so the undo history can live in a JS array rather than sessionStorage, and labeling
 is one keypress with no page load between events.
