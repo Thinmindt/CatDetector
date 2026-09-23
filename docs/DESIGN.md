@@ -450,7 +450,8 @@ rule exists because the sheet's own `display: flex` beat the attribute and showe
 
 **The page's script is a static file** (2026-09-22). Inline in the template it was invisible to
 every gate: syntax errors and undefined names reached the browser. As `src/static/app.js` it is
-linted by eslint as the fifth gate. The template keeps only the four constants it fills
+linted by eslint as the fifth gate, with eslint pinned by `package-lock.json` so the gate means
+the same on every machine. The template keeps only the four constants it fills
 (`REVIEW`, `LABELS`, `CATS`, `THUMB_WIDTH`), declared inline before the script loads, and the
 lint config lists them as globals; the functions the template calls from `onclick` attributes are
 exempt from the unused-variable rule by name.

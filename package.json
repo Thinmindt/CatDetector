@@ -1,0 +1,11 @@
+{
+  "name": "catdetector",
+  "private": true,
+  "description": "JavaScript tooling for the review page; the application is Python",
+  "scripts": {
+    "lint": "eslint src/static"
+  },
+  "devDependencies": {
+    "eslint": "^10.0.0"
+  }
+}

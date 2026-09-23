@@ -77,7 +77,7 @@ uv run pytest                                # unit tests (no hardware needed)
 uv run ruff check .                          # lint
 uv run ruff format .                         # format
 uv run mypy .                                # type-check (strict, must stay clean)
-npx --yes eslint@10 src/static               # lint the page's JavaScript
+npm run lint                                 # lint the page's JavaScript (npm install first)
 
 uv run python tests/manual/check_camera.py   # hardware smoke test; writes test_images/test_image.jpg
 uv run python tests/manual/check_page.py     # screenshot the review page, phone and desk sizes, no camera
@@ -130,8 +130,10 @@ unlocked and takes the lock only to insert what it found. Keep share I/O in that
 
 **All five gates must pass before every commit** — lint, format check, type check, the
 JavaScript lint, tests. `scripts/check.sh` runs them, and `.github/workflows/check.yml` runs the
-same script on every push. Run it and report the result. The JavaScript gate is eslint via
-`npx`, configured in `eslint.config.mjs`; it needs node, which the Pi and the CI runner have.
+same script on every push. Run it and report the result. The JavaScript gate is eslint, pinned by
+`package.json` and `package-lock.json` and configured in `eslint.config.mjs`; run `npm install`
+once per checkout (CI runs `npm ci`). It needs node, which the Pi and the CI runner have.
+JavaScript dependencies go in `package.json` like Python ones go in `pyproject.toml`.
 
 **A page change is verified by looking at it.** The test suite cannot see a layout, and the
 one bug the phone layout shipped with (a sheet that showed on load, because a `display: flex`
