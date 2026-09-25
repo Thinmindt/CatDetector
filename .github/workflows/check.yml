@@ -17,6 +17,12 @@ jobs:
         with:
           python-version: "3.13"
       - uses: astral-sh/setup-uv@v6
+      # The page's JavaScript is linted with eslint, pinned by package-lock.json.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+      - run: npm ci
       # The tests extract frames from real clips through ffmpeg; cv2 needs libGL.
       - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg libgl1
       # picamera2 is an apt package on Raspberry Pi OS only; the suite stubs it.
