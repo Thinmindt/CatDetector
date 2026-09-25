@@ -432,7 +432,8 @@ meantime has to be revisited, so this goes before the usability items.
 daily, one from 2026-09-20, and the review queue agreed 2026-09-21. They follow the per-cat
 labels, in the order listed:
 
-- [ ] **It is used from a phone, and the buttons are too small to hit.** The phone is a Pixel 9
+- [x] **It is used from a phone, and the buttons are too small to hit** (done 2026-09-22, merged as
+      PR #4; the screenshot check is `tests/manual/check_page.py`). The phone is a Pixel 9
       (412 x 915 CSS px in portrait). The page has no `viewport` meta tag, so the phone renders it
       at desktop width and shrinks it; that alone is most of "too small", and adding the tag is
       the first step, after which every size below means what it says. The layout, agreed
