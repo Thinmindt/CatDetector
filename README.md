@@ -110,7 +110,12 @@ uv run ruff check .          # lint
 uv run ruff check --fix .    # lint + autofix
 uv run ruff format .         # format
 uv run mypy .                # type-check (strict)
+npm run lint                 # the page's JavaScript (needs node; run npm install once)
+uv run shellcheck scripts/*.sh deploy/*.sh    # shell scripts
+git ls-files -z | xargs -0 uv run codespell   # spelling, in every tracked file
 ```
+
+`check.sh` also runs the privacy check first (`scripts/check_private.sh`; see CLAUDE.md).
 
 GitHub Actions runs the same script on every push (`.github/workflows/check.yml`).
 
