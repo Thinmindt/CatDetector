@@ -3,10 +3,11 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
+files() { git ls-files -z --cached --others --exclude-standard "$@"; }
+
 bash scripts/check_private.sh
-# shellcheck disable=SC2046
-uv run shellcheck $(git ls-files '*.sh')
-git ls-files -z | xargs -0 uv run codespell
+files '*.sh' | xargs -0 uv run shellcheck
+files | xargs -0 uv run codespell
 uv run ruff check .
 uv run ruff format --check .
 uv run mypy .
