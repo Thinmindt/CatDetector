@@ -30,7 +30,16 @@ compiled apt packages built against the system libcamera and the system Python:
 
 ```
 sudo apt update
-sudo apt install libcap-dev python3-dev python3-picamera2
+sudo apt install libcap-dev python3-dev python3-picamera2 ffmpeg
+```
+
+`ffmpeg` builds the review page's tiles and videos, and the tests use it too.
+
+## Get the code
+
+```
+git clone https://github.com/Thinmindt/CatDetector
+cd CatDetector
 ```
 
 ## Python environment (uv)
@@ -95,27 +104,25 @@ uv run python main.py --regroup      # rebuild events from the current threshold
 
 The Review tab of the web UI (`http://<pi-ip>:5000/review`) scans the captures directory into
 a local database and serves a keyboard-driven labeler — `c` cat, `n` not a cat, `u` unsure, `z`
-undo, click a frame strip to zoom, "watch" to play the clip. With `CAT_NAMES` set, each cat gets
-a digit key in the configured order and `m` marks an event with more than one cat; `c` then means
-"a cat, which one not decided", and `/review?filter=cat` walks those to name them. `main.py` serves it beside the live
-feed, so it is available whenever the detector is running.
-Requires `ffmpeg` (`sudo apt install ffmpeg`).
+undo, `l` a litter cleaning (enter the poops found per box, `Enter` saves), click a tile to see
+the full frame, "watch" to play the clip. With `CAT_NAMES` set, each cat gets a digit key in the
+configured order and `m` marks an event with more than one cat; `c` then means "a cat, which one
+not decided", and `/review?filter=cat` walks those to name them; `→` moves on while walking a
+filter. `main.py` serves it beside the live feed, so it is available whenever the detector is
+running.
 
 ## Test, lint, format, type-check
 
 ```
-bash scripts/check.sh        # everything below, stopping at the first failure
-uv run pytest                # unit tests (no hardware, and no picamera2, needed)
-uv run ruff check .          # lint
+npm install                  # once per checkout, for the JavaScript lint (needs node)
+bash scripts/check.sh        # every gate, stopping at the first failure
+uv run pytest                # unit tests (no camera or picamera2 needed; ffmpeg is)
 uv run ruff check --fix .    # lint + autofix
 uv run ruff format .         # format
-uv run mypy .                # type-check (strict)
-npm run lint                 # the page's JavaScript (needs node; run npm install once)
-uv run shellcheck scripts/*.sh deploy/*.sh    # shell scripts
-git ls-files -z | xargs -0 uv run codespell   # spelling, in every tracked file
 ```
 
-`check.sh` also runs the privacy check first (`scripts/check_private.sh`; see CLAUDE.md).
+`check.sh` runs, in order: the privacy check (`scripts/check_private.sh`; see CLAUDE.md),
+shellcheck, codespell, ruff, the format check, mypy, eslint and pytest.
 
 GitHub Actions runs the same script on every push (`.github/workflows/check.yml`).
 
@@ -174,8 +181,26 @@ Optional, for tuning detection:
 METRICS_CSV=/home/you/metrics.csv
 ```
 
-When set, every frame appends a row of detection metrics (foreground pixel count, largest
-contour area, bounding box) to that file. Use a local path, not the network share.
+When set, every frame appends a row of detection metrics to that file: the foreground pixel
+count, the largest blob before and after cleanup (area, bounding box, centroid), whether a clip
+is recording, and the frame's brightness; the header names each column. Use a local path, not
+the network share.
+
+The other settings, with their defaults (`config.py` describes each):
+
+| setting | default | what it sets |
+|---|---|---|
+| `MOTION_THRESHOLD` | 300 | foreground pixels in the 640x480 analysis frame that start a clip |
+| `DARK_BRIGHTNESS` | 10 | mean grey level below which motion is ignored |
+| `MOTION_TIMEOUT` | 10 | seconds without motion before a clip closes |
+| `MOG2_HISTORY` | 500 | frames over which a still subject fades into the background |
+| `EVENT_GAP_SECONDS` | 180 | how soon a clip must follow the last to join its visit |
+| `EVENT_BOX_DISTANCE_PX` | 120 | how close two clips' centroids must be to count as one box |
+| `DB_PATH` | `captures.db` | the review database; local disk, never the share |
+| `REVIEW_CACHE_DIR` | `.review_cache` | cached tiles and videos |
+
+The pixel thresholds depend on how far the camera is from the boxes; roadmap A.2 is how to
+measure them for a mounting.
 
 ## License
 

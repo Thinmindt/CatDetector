@@ -49,25 +49,25 @@ Three consequences worth holding onto:
 ## Platform
 
 This only runs on a Pi with an attached camera. `picamera2` binds to real hardware when a
-`Picamera2` object is **constructed** (not when the module is imported), so nothing in `src/` can
-be exercised on a dev machine; the unit tests fake that layer instead. The suite itself runs
+`Picamera2` object is **constructed** (not when the module is imported), so nothing in
+`src/capture/` can be exercised on a dev machine; the unit tests fake that layer instead. The
+review half runs anywhere (see `tests/manual/check_page.py`). The suite itself runs
 anywhere: on a machine with no `picamera2`, `tests/conftest.py` registers empty stand-in modules
 before `src/` is imported, and the two tests that exercise the real `CircularOutput` skip.
 
-The recordings directory is a **CIFS** network share mounted at `/mnt/nas`. That matters more
-than it sounds: writes can fail with a plain `OSError`, the mount can be absent at boot, and
-SQLite must never live there (see the roadmap's storage section).
+The recordings directory, `NETWORK_SHARE_DIR` (default `/mnt/nas`), is typically a **CIFS**
+network share. That matters more than it sounds: writes can fail with a plain `OSError`, the
+mount can be absent at boot, and SQLite must never live there (roadmap B.2).
 
-**Clips are no longer written to the share directly.** `MotionRecorder` writes to
+**Clips are not written to the share directly.** `MotionRecorder` writes to
 `LOCAL_CLIP_DIR` (`.clip_cache`) and `ClipTransfer` ships finished clips across on its own
 thread. So the capture and encoder threads never touch the network, recording keeps working
 through a NAS outage, and a clip only appears on the share once it is complete.
 
-**The share is mounted `soft`, and nothing in fstab says so** — it is the CIFS default. On a
-soft mount an unreachable server fails writes after ~1–2 minutes instead of blocking forever.
-Since clips are staged locally, a `hard` mount would now only stall the transfer thread rather
-than freeze the camera, but pin `soft` explicitly if you touch that fstab line: switching it
-reads like a robustness improvement and is the exact opposite.
+**A CIFS share should be mounted `soft`**, which is the CIFS default and so often not written
+in fstab (the README's Configuration section has the details). Since clips are staged locally, a
+`hard` mount stalls the transfer and review threads rather than the camera, but do not switch a
+share to `hard`: it reads like a robustness improvement and is the exact opposite.
 
 ## Commands
 
@@ -96,8 +96,7 @@ uv run python main.py --regroup              # rebuild every event from the curr
 The web UI is **one Flask app on one port** ([src/web_app.py](src/web_app.py)): a page with a
 Live tab and a Review tab, built from `src/templates/app.html`, whose script is
 `src/static/app.js` (the template fills four constants inline before it loads). `main.py` is the only entry
-point, so the Review tab is up whenever the detector is; there is no camera-less review server
-any more. The review half ingests
+point, so the Review tab is up whenever the detector is. The review half ingests
 `$NETWORK_SHARE_DIR/captures/*.h264` into a local SQLite DB (`DB_PATH`, default `captures.db` —
 local disk, never the share) and serves a keyboard-driven cat/not-cat labeler; frame extraction
 shells out to ffmpeg because cv2.VideoCapture cannot seek raw elementary streams.
@@ -120,8 +119,9 @@ Extraction decodes **keyframes only**, and the recorder pins one keyframe per se
 (`iperiod=CAMERA_FPS`): change either and the tiles land on the wrong seconds. One decode
 yields the strip and the full frames behind its tiles; the strip is published last, so its
 presence means the set is complete. "Watch" remuxes the clip to MP4 on demand into
-`.review_cache`; that cache is keyed by **clip** id (`clip<id>_...`), never by event id, because
-event ids change on a regroup.
+`.review_cache`; that cache is keyed by **clip** id (`clip<id>*`), never by event id, because
+event ids change on a regroup. Labels include `clean`, which records a litter cleaning and the
+poop count per box (`poop_count` table, roadmap B.5b).
 
 `METRICS_CSV` turns on the instrumentation for roadmap A.2. Point it at **local disk**, never at
 the share: one row per frame at 30 fps is the small-write pattern CIFS handles worst. Rows are
@@ -149,7 +149,8 @@ commit no remote has yet. The terms are each line of the gitignored `.private-te
 whatever `scripts/private_terms.sh` prints, which here is the names in `.env`'s `CAT_NAMES`.
 Without `.env` and `.private-terms`, as on CI and in a fresh clone, it reports that nothing is
 configured and passes. When a new private fact turns up (an address, a hostname, a token), add it
-to `.private-terms`. `check_private.sh` is the conventions plugin's template, copied unchanged;
+to `.private-terms`. `check_private.sh` is the template from the
+[conventions plugin](https://github.com/Thinmindt/conventions), copied unchanged;
 this project's own rule lives in `private_terms.sh`, so keep changes there.
 
 **A page change is verified by looking at it.** The test suite cannot see a layout, and the
@@ -166,7 +167,8 @@ templates once rendered, so a server started before an edit serves the old page:
 
 **The camera is exclusive.** One process at a time. If `main.py` is running, the smoke test and
 any hardware script will fail to open the camera, and vice versa. Check with
-`ps aux | grep main.py` before wondering why initialisation failed.
+`systemctl is-active catdetector` (and an anchored `pgrep`, below) before wondering why
+initialisation failed.
 
 **The detector normally runs as the `catdetector` systemd service** (built from
 `deploy/catdetector.service.in` by `deploy/install-service.sh`), so the camera is usually taken.
@@ -180,22 +182,25 @@ When matching its process with `pgrep -f`, anchor the pattern to the venv's inte
 and a `kill` then takes that shell down with it. The same applies to `pkill -f`.
 
 **The service runs from this checkout**, whatever branch it is on: a `git checkout` plus
-`sudo systemctl restart catdetector` is how a branch is tried on the real phone before it is
-merged (a restart costs about one second of recording). So check `git branch --show-current`
-before assuming the service runs `main`, say which branch it is on when you restart it, and
-after a merge pull `main` and restart so the two agree again.
+`sudo systemctl restart catdetector` is how a branch is tried on the device before it is
+merged (a restart costs about two seconds before motion is armed again, plus the ring's
+pre-roll). So check `git branch --show-current` before assuming the service runs `main`, say
+which branch it is on when you restart it, and after a merge pull `main` and restart so the two
+agree again.
 
 **Testing the recorder without polluting the NAS.** `config.py` calls `load_dotenv()`, which does
-*not* override variables already in the environment, so pointing both directories at scratch
-exercises the whole path:
+*not* override variables already in the environment, so scratch paths set on the command line
+win. Point the database and the review cache at scratch too, or the run ingests into the live
+ones:
 
 ```bash
-LOCAL_CLIP_DIR=/some/scratch/clips NETWORK_SHARE_DIR=/some/scratch/share uv run python main.py
+LOCAL_CLIP_DIR=/some/scratch/clips NETWORK_SHARE_DIR=/some/scratch/share \
+  DB_PATH=/some/scratch/captures.db REVIEW_CACHE_DIR=/some/scratch/cache uv run python main.py
 ```
 
 `ClipTransfer` refuses to write to a path that is not a real mountpoint, so a scratch share
-leaves the clips on local disk rather than scattering them across the SD card. Do not leave test
-clips on the share.
+leaves the clips in the scratch clip directory: this exercises recording, not transfer. Do not
+leave test clips on the share.
 
 **Verify on hardware, not just in the test suite.** The suite fakes the entire camera layer, so
 it cannot catch a picamera2 API misuse. Things worth measuring after a change to the capture or
@@ -207,8 +212,7 @@ recording path:
 - a static scene records **nothing** — if it writes a clip, the MOG2 warmup has regressed
 - no threads left behind after `cleanup()`
 
-**Logs go to stderr via `logging`.** `PYTHONUNBUFFERED` is no longer needed; if you see advice
-saying otherwise, it predates the switch. The root logger sits at `WARNING` and only this
+**Logs go to stderr via `logging`**, so `PYTHONUNBUFFERED` is not needed. The root logger sits at `WARNING` and only this
 application is raised to `INFO`, because picamera2 narrates every state change at INFO and buries
 everything else.
 
@@ -225,7 +229,7 @@ This file is the exception. It is written for agents, and being thorough here is
 in `docs/ROADMAP.md` first, with the sizes, the pattern and what done looks like, and that last
 line is what produced the screenshot check. Write the spec and the code on one branch, spec
 commit first, so the roadmap checkbox and the code land together; two branches from `main` left
-the code unable to tick the box. The owner reviews the branch here before it is pushed.
+the code unable to tick the box. A branch is reviewed before it is pushed.
 
 Lint is configured to enforce what it can: `C90` complexity is a **ratchet** set at the current
 worst function, so new complexity must be extracted rather than absorbed. `PLR2004` and several
@@ -312,7 +316,7 @@ download would not see the apt packages at all.
 
 **The Python version is not ours to choose.** `python3-libcamera` ships an ABI-tagged
 `_libcamera.cpython-313-aarch64-linux-gnu.so`, so the interpreter is whatever the OS ships, and
-libcamera is not on PyPI to escape it. The Pi runs Raspberry Pi OS trixie (Debian 13): Python
+libcamera is not on PyPI to escape it. Tested on Raspberry Pi OS trixie (Debian 13): Python
 3.13, `python3-libcamera` 0.7.2, `picamera2` 0.3.37, system numpy 2.2.4. `requires-python` is
 pinned to `==3.13.*`. Moving Python means moving the OS.
 
@@ -333,8 +337,8 @@ problem rather than a venv problem. Rebuild with the two-line recovery above.
 | `src/review/` | everything that reads the share and serves the labeler: `clip_scan`, `capture_db`, `event_grouping`, `clip_frames`, `api` | `src.clips`, never `picamera2` |
 | `src/clips/` | what both sides agree a clip is: `format` (suffixes, `partial_name()`, `CAMERA_FPS`, `H264_BITRATE`), `sidecar`, `blob`, `frame` | the standard library and numpy only |
 
-`src/web_app.py` assembles the one Flask app from both sides and `src/logging_setup.py` serves
-both entry points. The two sides share no objects: the contract between them is a clip and its
+`src/web_app.py` assembles the one Flask app from both sides and `src/logging_setup.py` configures
+logging for `main.py`. The two sides share no objects: the contract between them is a clip and its
 sidecar on the share. **`picamera2` is banned outside `src/capture/`** by ruff's `banned-api`
 rule (`TID251`), so the review side stays importable on a machine with no camera stack; do not
 add a per-file ignore to get round it. Nothing under `src/` reads `Config`: `main.py` reads it
@@ -364,8 +368,9 @@ stopping the loop.
 [src/capture/motion_recorder.py](src/capture/motion_recorder.py) reaches through `camera_manager.get_camera()` and
 drives picamera2's own encoder pipeline: an `H264Encoder` writes continuously into a
 `CircularOutput`. Recording is diverted to a file when motion starts
-(`circular_output.fileoutput = <local .part path>` then `.start()`, which flushes from the
-buffer's **oldest** keyframe) and back to buffering only when it stops (`.stop()`).
+(`_ResilientCircularOutput.begin(<local .part path>)`: from the next frame on, the file starts
+at the ring's **oldest** keyframe and the ring drains one frame per frame) and back to buffering
+only when it stops (`.stop()`).
 
 So the recorder uses the consumer callback only for *detection*, which it delegates to
 [src/capture/motion_detector.py](src/capture/motion_detector.py) (MOG2 on the `lores` frame,
@@ -401,7 +406,7 @@ Flask app from [src/web_app.py](src/web_app.py). The page at `/` and `/review` i
 template with a different tab active; leaving the Live tab drops the `<img>` source so a hidden
 tab does not hold an MJPEG connection open. [main.py](main.py) runs the app in a daemon thread;
 `monitor()` on the main thread starts frame distribution and blocks until
-Ctrl-C. `WebStreamer` takes `motion_recorder` as an optional dependency and degrades to a bare
+Ctrl-C or SIGTERM (which `systemctl stop` sends). `WebStreamer` takes `motion_recorder` as an optional dependency and degrades to a bare
 feed when it is `None`.
 
 ## Traps
@@ -411,20 +416,31 @@ Each of these was a real bug. The reasoning is in `docs/DESIGN.md`.
 - **The camera is shared, so the recorder must not stop it.** `Picamera2.stop_recording()` calls
   `stop()` on the camera itself, cutting off every other consumer. `MotionRecorder.cleanup()`
   calls `stop_encoder(self.encoder)` — only the encoder is the recorder's to stop.
-- **Nothing may raise out of the encoder's poll thread.** Clip bytes are written on
-  `V4L2Encoder.thread_poll`, **not** the camera event-loop thread — earlier revisions of this
-  file said otherwise. That thread is the only one that returns camera buffers and refills
-  `buf_available`, so killing it makes `_encode` block forever on the camera event loop and
-  every `capture_arrays()` with it — a silent, total freeze. `_ResilientCircularOutput` contains
-  both known ways out: `OSError` from `_write`, and the `IndexError` from `outputframe` when
-  `stop()` drains the ring between a frame's append and its `popleft`.
+- **Nothing may raise out of the thread that writes clip bytes.** Which thread that is depends
+  on the encoder picamera2 picks:
+  - **Pi 5** (`Platform.PISP`, this project's implementation): there is no hardware H.264
+    encoder, so `H264Encoder` is `LibavH264Encoder`. Bytes are written on the **camera event-loop
+    thread** (`NullPreview.thread_func` → `process_requests` → `encoder.encode` → `_encode` →
+    `outputframe`); `handle_request` logs and re-raises, so an exception ends the event loop and
+    every `capture_arrays()` hangs. The encode and each write also run synchronously there, so
+    a slow write stalls capture directly. The final flush in `stop_encoder` runs on the caller.
+  - **Pi 4 and older** (`Platform.VC4`): `H264Encoder` is the V4L2 hardware encoder and bytes
+    are written on `V4L2Encoder.thread_poll`, the only thread that returns camera buffers and
+    refills `buf_available`; killing it makes `_encode` block forever on the event loop.
+
+  Either way the result is a silent, total freeze. `_ResilientCircularOutput` contains both
+  known ways out: `OSError` from `_write`, and the `IndexError` from `outputframe` when `stop()`
+  drains the ring between a frame's append and its `popleft`. The Pi 5 chain is traced from the
+  picamera2 source; roadmap C.1 still wants it confirmed by a stack trace.
 - **Never yield while holding a lock the capture thread needs.** A suspended generator keeps its
   context manager, so one slow MJPEG viewer used to block frame distribution — and therefore
   motion detection — indefinitely.
 - **`stop()` empties the ring buffer**, so pre-motion footage is bounded by the gap since the last
   clip ended, not by `buffer_seconds`. Draining also writes the whole buffer to disk, which is why
-  it runs on its own thread.
-- **Durations use `time.monotonic()`.** This Pi has no RTC backup cell; an NTP step on a wall
+  it runs on its own thread; it holds the output's lock while it does, and on a Pi 5 the event
+  loop needs that lock for the next frame, so the drain must go to local disk.
+- **Durations use `time.monotonic()`.** A Pi without an RTC battery boots with a
+  stale clock; an NTP step on a wall
   clock would hold a clip open by the size of the jump.
 - **Shut down the producer first.** `stop_frame_distribution()` before `recorder.cleanup()`;
   the other order races the capture thread.
@@ -437,21 +453,22 @@ Each of these was a real bug. The reasoning is in `docs/DESIGN.md`.
 
 Not bugs, but do not mistake them for correct:
 
-- Detection is a **global pixel count**, so the shadow fix does not make it good — only honest.
+- Detection is a **global pixel count**. Excluding shadows (DESIGN.md, Detection) does not make
+  it good — only honest.
 - No spatial coherence: scattered noise and one solid cat-sized blob are indistinguishable.
   The largest blob is logged, both raw and after cleanup, but nothing yet *triggers* on it —
   that is A.3.
 - A cat that settles is absorbed into the background in roughly `history` frames (~17 s at the
   default), so recording can stop mid-visit. That is acceptable because clips are linked into one
   event (roadmap A.4), though the grouping thresholds are still starting guesses.
-- **The camera needs light.** It is the IR-filtered Camera Module 3 (libcamera reports `imx708`,
-  not `imx708_noir`), so an unlit room is black to it. The boxes have been lit around the clock
-  since 2026-09-16, and nights record like days. Motion is still ignored while the analysis frame's
+- **The camera needs light.** The supported camera is the IR-filtered Camera Module 3
+  (libcamera reports `imx708`, not `imx708_noir`; roadmap C.1), so an unlit room is black to it,
+  and the boxes must be lit around the clock; lit, nights record like days. Motion is still ignored while the analysis frame's
   mean grey level is below `DARK_BRIGHTNESS` (default 10), because in a dark room sensor speckle
   alone records black video nonstop. If the light fails, that gate is what stops the waste, and the
   gap it leaves is fixed by restoring the light, not by tuning the threshold.
 - The web stream has **no authentication** and runs on Flask's dev server. LAN-only by design;
   see the README's Security section.
 
-Fixing these is roadmap part A, and it starts with instrumentation rather than tuning — nobody
-has yet measured what a cat is worth in pixels in this mounting.
+Fixing these is roadmap part A, and it starts with instrumentation rather than tuning: A.2
+measures what a cat is worth in pixels for one mounting before any threshold moves.
