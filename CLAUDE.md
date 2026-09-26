@@ -146,7 +146,8 @@ JavaScript dependencies go in `package.json` like Python ones go in `pyproject.t
 Before the gates, `scripts/check.sh` runs `scripts/check_private.sh`, which fails if any private
 term appears in a file git tracks or would add, or in the author, committer or message of a
 commit no remote has yet. The terms are each line of the gitignored `.private-terms` and
-whatever `scripts/private_terms.sh` prints, which here is the names in `.env`'s `CAT_NAMES`.
+whatever `scripts/private_terms.sh` prints, which here is the names in `.env`'s `CAT_NAMES` and
+the `CAPTURE_HEARTBEAT_URL` there, whole and its last path segment.
 Without `.env` and `.private-terms`, as on CI and in a fresh clone, it reports that nothing is
 configured and passes. When a new private fact turns up (an address, a hostname, a token), add it
 to `.private-terms`. `check_private.sh` is the template from the
@@ -333,7 +334,7 @@ problem rather than a venv problem. Rebuild with the two-line recovery above.
 
 | package | holds | may import |
 |---|---|---|
-| `src/capture/` | everything that touches the camera: `camera_manager`, `motion_detector`, `motion_recorder`, `motion_metrics`, `clip_transfer`, `web_streamer` | `picamera2`, `src.clips` |
+| `src/capture/` | everything that touches the camera: `camera_manager`, `motion_detector`, `motion_recorder`, `motion_metrics`, `clip_transfer`, `capture_heartbeat`, `web_streamer` | `picamera2`, `src.clips` |
 | `src/review/` | everything that reads the share and serves the labeler: `clip_scan`, `capture_db`, `event_grouping`, `clip_frames`, `api` | `src.clips`, never `picamera2` |
 | `src/clips/` | what both sides agree a clip is: `format` (suffixes, `partial_name()`, `CAMERA_FPS`, `H264_BITRATE`), `sidecar`, `blob`, `frame` | the standard library and numpy only |
 
@@ -407,7 +408,10 @@ template with a different tab active; leaving the Live tab drops the `<img>` sou
 tab does not hold an MJPEG connection open. [main.py](main.py) runs the app in a daemon thread;
 `monitor()` on the main thread starts frame distribution and blocks until
 Ctrl-C or SIGTERM (which `systemctl stop` sends), or until no frame has arrived for 10 s,
-when it shuts down the same way and exits 1 so systemd restarts it (roadmap A.6). `WebStreamer` takes `motion_recorder` as an optional dependency and degrades to a bare
+when it shuts down the same way and exits 1 so systemd restarts it (roadmap A.6). If
+`CAPTURE_HEARTBEAT_URL` is set, `CaptureHeartbeat` GETs it once a minute from its own thread while
+frames arrive; the check that watches it lives outside this project, and nothing requires one.
+Never log that URL: it is a secret. `WebStreamer` takes `motion_recorder` as an optional dependency and degrades to a bare
 feed when it is `None`.
 
 ## Traps

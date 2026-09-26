@@ -145,6 +145,61 @@ def test_the_stall_check_follows_the_camera(
         fake_camera.delivering.set()
 
 
+class HeartbeatSpy:
+    def __init__(self, calls: list[str]) -> None:
+        self.calls = calls
+
+    def start(self) -> None:
+        self.calls.append("heartbeat start")
+
+    def stop(self) -> None:
+        self.calls.append("heartbeat stop")
+
+
+def test_monitor_runs_the_heartbeat_alongside_capture() -> None:
+    spy: Any = MonitorSpy(stalled_for=main.CAPTURE_STALL_SECONDS + 1)
+    heartbeat: Any = HeartbeatSpy(spy.calls)
+
+    with pytest.raises(SystemExit):
+        main.monitor(spy, spy, spy, heartbeat)
+
+    assert spy.calls[:2] == ["start", "heartbeat start"]
+    assert spy.calls[-1] == "heartbeat stop"
+
+
+def test_no_heartbeat_url_means_no_heartbeat(
+    camera_manager: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr("main.Config.CAPTURE_HEARTBEAT_URL", None)
+    assert main.build_heartbeat(camera_manager) is None
+
+
+def test_an_unusable_heartbeat_url_leaves_the_detector_running(
+    camera_manager: Any,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    url = "hc-ping.com/0f0f-token"
+    monkeypatch.setattr("main.Config.CAPTURE_HEARTBEAT_URL", url)
+
+    assert main.build_heartbeat(camera_manager) is None
+    assert "Capture heartbeat off" in caplog.text
+    assert url not in caplog.text
+
+
+def test_a_heartbeat_url_builds_a_heartbeat_on_the_camera(
+    camera_manager: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(
+        "main.Config.CAPTURE_HEARTBEAT_URL", "https://example.invalid/ping"
+    )
+    heartbeat = main.build_heartbeat(camera_manager)
+
+    assert heartbeat is not None
+    assert heartbeat.stall_seconds == main.CAPTURE_STALL_SECONDS
+    assert heartbeat.frame_age() < main.CAPTURE_STALL_SECONDS
+
+
 def test_startup_ingest_does_not_hold_up_startup(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:

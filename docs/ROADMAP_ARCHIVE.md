@@ -272,6 +272,20 @@ seen as of 2026-09-12, but possible.
 `MOTION_TIMEOUT` (10 s) and `MOG2_HISTORY` (500 frames, ~17 s) still decide where clips split.
 They are environment settings now, so a data run can try other values without code changes.
 
+## A.6 Keep capturing
+
+Moved 2026-09-26. Built as `src/capture/capture_heartbeat.py`, under the name
+`CAPTURE_HEARTBEAT_URL`, a plain GET so that no one service is required; the README says the
+check is set up outside this project.
+
+- [x] **Alert when capture stops.** The Pi's heartbeat proves the Pi is up, not that the camera
+      is: the 3 h 46 min stall pinged every minute. The detector pings its own dead man's switch
+      (an optional `HEALTHCHECK_URL`), from a worker thread, and only while frames are arriving,
+      so a stall, a restart loop or a stopped service each goes quiet.
+      **Done means** a test sees the ping stop when frames stop and resume when they resume,
+      the ping never runs on the capture thread, and the README's Configuration section
+      describes the setting.
+
 ---
 
 # Part B — knowing which cat

@@ -194,13 +194,9 @@ days of the metrics CSV, the longest gap between frames outside a restart or pow
       **Done means** a test with a camera whose capture blocks sees the process exit non-zero
       through the same cleanup as SIGTERM, a test sees no exit while frames arrive, and the
       service runs on the Pi for 24 h with no stall restart.
-- [ ] **Alert when capture stops.** The Pi's heartbeat proves the Pi is up, not that the camera
-      is: the 3 h 46 min stall pinged every minute. The detector pings its own dead man's switch
-      (an optional `HEALTHCHECK_URL`), from a worker thread, and only while frames are arriving,
-      so a stall, a restart loop or a stopped service each goes quiet.
-      **Done means** a test sees the ping stop when frames stop and resume when they resume,
-      the ping never runs on the capture thread, and the README's Configuration section
-      describes the setting.
+
+Alerting when capture stops is built: an optional `CAPTURE_HEARTBEAT_URL`, pinged only while
+frames arrive, for a dead man's switch set up outside this project (archive, A.6).
 
 ---
 

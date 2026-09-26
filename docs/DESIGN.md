@@ -315,6 +315,28 @@ The cleanup does not need a working camera: the 2026-09-26 restart stopped the w
 cleanup, `RestartSec` and startup, about 35 s. The alternative, reopening the camera inside the
 process, would need a second `Picamera2` while the first may be stuck in libcamera, and the
 single-instance rule and the recorder's hold on the encoder make that the less tested path.
+
+**The detector has a heartbeat of its own** (roadmap A.6). A restart ends a stall but tells nobody,
+and a camera that stays dead restarts every ~35 s forever. The Pi's own heartbeat (pi-tools'
+`pi-heartbeat`, a separate project) kept pinging through the whole 2026-09-26 stall, because it
+proves the Pi is up, not the camera. So `CaptureHeartbeat` GETs `CAPTURE_HEARTBEAT_URL` once a
+minute, but only when the last frame is newer than `CAPTURE_STALL_SECONDS`: a stall, a restart
+loop and a stopped service all go quiet the same way, and the watcher alerts on silence.
+
+- **The interface is a URL and a GET**, nothing more. Healthchecks.io, a self-hosted Healthchecks,
+  an Uptime Kuma push monitor and most dead man's switches accept exactly that, so no service is
+  named in the code and none is required: unset, the heartbeat does not exist. Creating the check
+  and choosing where its alert goes happen outside this project.
+- **The ping runs on its own thread.** A network call on the capture thread would stall every
+  consumer for as long as the network hangs; the GET has a 10 s timeout and the thread's stop is
+  a bounded join.
+- **The class takes a frame-age function and a send function**, not a camera and a URL. The camera
+  stays in `CameraManager`, the HTTP in `http_ping`, and the tests drive the logic with neither.
+- **The URL is a secret**, since whoever has it can keep the check quiet. It is never logged, a
+  malformed one is reported without it, and `scripts/private_terms.sh` adds it to the privacy
+  check.
+- **Failures are logged once per streak**, with a line when pings get through again, so a
+  watcher that is down for a day costs two log lines rather than 1,440.
 - **`TimeoutStopSec=60`** covers the 30 s final clip flush and the metrics writer's 10 s join.
 - **It runs the venv's Python, not `uv run`**, which can sync the environment at startup, and so
   change or fail it at boot.

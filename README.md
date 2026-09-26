@@ -17,7 +17,8 @@ Raspberry Pi camera monitor: motion-triggered recording plus a live MJPEG web st
 Recommended: [pi-tools](https://github.com/Thinmindt/pi-tools), a Claude Code plugin that makes the
 journal persistent, logs the Pi's supply voltage and temperature, brings a Pi 5 back on its own
 after an unexpected power-off, and pings a dead man's switch so you hear when the Pi goes quiet.
-A power-off is a gap in the cats' record, and this project cannot notice its own absence.
+A power-off is a gap in the cats' record, and this project cannot notice its own absence. What it
+can report is its camera: see the capture heartbeat under Configuration.
 
 ## System dependencies
 
@@ -78,7 +79,8 @@ uv run python tests/manual/check_camera.py    # camera smoke test (needs the cam
 ### As a service
 
 `deploy/install-service.sh` installs a systemd unit that runs the detector at boot and restarts
-it after a crash, or when the camera has delivered no frame for 10 s. It builds the unit from `deploy/catdetector.service.in` for this checkout — the
+it after a crash, or when the camera has delivered no frame for 10 s (to be alerted when that
+happens, see `CAPTURE_HEARTBEAT_URL` under Configuration). It builds the unit from `deploy/catdetector.service.in` for this checkout — the
 directory's owner runs the service, and the share named by `NETWORK_SHARE_DIR` in `.env` is the
 mount it waits for — and stops a copy started by hand, since the camera takes one process at a
 time:
@@ -185,6 +187,31 @@ When set, every frame appends a row of detection metrics to that file: the foreg
 count, the largest blob before and after cleanup (area, bounding box, centroid), whether a clip
 is recording, and the frame's brightness; the header names each column. Use a local path, not
 the network share.
+
+Optional, to be told when the camera stops:
+
+```
+CAPTURE_HEARTBEAT_URL=https://hc-ping.com/your-check-uuid
+```
+
+When set, the detector sends an HTTP GET to that URL once a minute, **only while the camera is
+delivering frames**. A dead man's switch watching the URL then alerts you when the pings stop: a
+camera that has stalled, a detector that keeps restarting because its camera is dead, or a
+detector that is not running. Without it the detector still restarts itself after a stall (see
+Run), but nobody is told.
+
+This project only sends the pings. The check that receives them, and the alert it sends, are
+yours to set up outside it: for example a free check at [Healthchecks.io](https://healthchecks.io)
+(or a self-hosted Healthchecks, or an Uptime Kuma push monitor; any service that alerts when a
+URL stops being fetched will do). Give it a period of one minute and a grace time of at least
+three, so a routine restart does not alert. If you use
+[pi-tools](https://github.com/Thinmindt/pi-tools), its `pi-heartbeat` pings a check of its own
+for the Pi; it does not create or share this one. Make a second check for the camera, since the
+Pi can be up while the camera is not.
+
+The URL is a secret: anyone who has it can keep your check quiet. Keep it in `.env`, which is
+gitignored, and never in a tracked file; `scripts/check_private.sh` refuses a commit that
+contains it. A URL that is not `http://` or `https://` turns the heartbeat off with a warning.
 
 The other settings, with their defaults (`config.py` describes each):
 

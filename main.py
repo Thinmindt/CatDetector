@@ -8,6 +8,7 @@ from types import FrameType
 
 from config import Config
 from src.capture.camera_manager import CameraManager
+from src.capture.capture_heartbeat import CaptureHeartbeat, http_ping
 from src.capture.clip_transfer import ClipTransfer
 from src.capture.motion_detector import MotionDetector
 from src.capture.motion_metrics import MetricsLog
@@ -47,25 +48,43 @@ def monitor(
     camera_manager: CameraManager,
     motion_recorder: MotionRecorder | None = None,
     clip_transfer: ClipTransfer | None = None,
+    heartbeat: CaptureHeartbeat | None = None,
 ) -> None:
     """Start monitoring by starting frame distribution"""
     log.info("Starting motion monitoring with circular buffer...")
     signal.signal(signal.SIGTERM, _exit_on_sigterm)
     try:
         camera_manager.start_frame_distribution()
-
-        while True:
-            time.sleep(1)
-            check_capture(camera_manager)
-
+        if heartbeat:
+            heartbeat.start()
+        watch_capture(camera_manager)
     except KeyboardInterrupt:
         log.info("Monitoring stopped by user")
     finally:
-        camera_manager.stop_frame_distribution()
-        if motion_recorder:
-            motion_recorder.cleanup()
-        if clip_transfer:
-            clip_transfer.stop()
+        shut_down(camera_manager, motion_recorder, clip_transfer, heartbeat)
+
+
+def watch_capture(camera_manager: CameraManager) -> None:
+    """Block until a signal, or until check_capture ends the process."""
+    while True:
+        time.sleep(1)
+        check_capture(camera_manager)
+
+
+def shut_down(
+    camera_manager: CameraManager,
+    motion_recorder: MotionRecorder | None,
+    clip_transfer: ClipTransfer | None,
+    heartbeat: CaptureHeartbeat | None,
+) -> None:
+    """Stop the producer first, then everything it feeds."""
+    camera_manager.stop_frame_distribution()
+    if motion_recorder:
+        motion_recorder.cleanup()
+    if clip_transfer:
+        clip_transfer.stop()
+    if heartbeat:
+        heartbeat.stop()
 
 
 def build_metrics() -> MetricsLog | None:
@@ -111,6 +130,20 @@ def build_transfer(local_clips: pathlib.Path, share: pathlib.Path) -> ClipTransf
     )
     transfer.start()
     return transfer
+
+
+def build_heartbeat(camera_manager: CameraManager) -> CaptureHeartbeat | None:
+    """A heartbeat if CAPTURE_HEARTBEAT_URL is set and usable, otherwise None."""
+    if not Config.CAPTURE_HEARTBEAT_URL:
+        return None
+    try:
+        send = http_ping(Config.CAPTURE_HEARTBEAT_URL)
+    except ValueError as error:
+        log.warning("Capture heartbeat off: %s", error)
+        return None
+    return CaptureHeartbeat(
+        camera_manager.seconds_since_last_frame, send, CAPTURE_STALL_SECONDS
+    )
 
 
 def open_db() -> CaptureDB:
@@ -178,4 +211,4 @@ if __name__ == "__main__":
     log.info("Starting cat detector with shared camera")
     log.info("Live feed and review at http://<pi-ip>:%d", WEB_PORT)
 
-    monitor(camera_manager, recorder, transfer)
+    monitor(camera_manager, recorder, transfer, build_heartbeat(camera_manager))
