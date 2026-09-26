@@ -7,18 +7,22 @@ no prior context and are about to change something on real hardware.
 
 | file | what it holds |
 |---|---|
-| `docs/ROADMAP.md` | where the project is going, phase by phase, and the open questions |
+| `docs/ROADMAP.md` | where the project is going, phase by phase, and the open questions — the plan as it stands today |
+| `docs/ROADMAP_ARCHIVE.md` | finished roadmap items and the history behind decisions, under the same section letters |
 | `docs/DESIGN.md` | why the code is shaped the way it is — rationale, measurements, rejected alternatives |
 | `docs/STYLE.md` | how to write code here; a general Python style guide, portable to other repos |
 
 Read `docs/STYLE.md` before writing code and `docs/DESIGN.md` before changing behaviour. This
 file overlaps them deliberately: CLAUDE.md carries the traps you must not fall into, and the
 design doc carries the full reasoning behind each one. The roadmap's section letters (A.2, A.4,
-B.5b, …) are cited by the design doc and the commit messages.
+B.5b, …) are cited by the design doc and the commit messages, and never change: when an item is
+finished, or a passage turns into history, it moves verbatim to the archive under the same letter,
+so the roadmap only ever describes the present plan.
 
-Anything else in `docs/` is **gitignored** (`docs/TODO.md` is the owner's to-do list), as is
+Anything else in `docs/` is **gitignored** (`docs/TODO.md` is the owner's to-do list, open items
+only, and `docs/TODO_ARCHIVE.md` holds the finished ones), as is
 `CLAUDE.local.md`, which holds facts about the one Pi this runs on — its account, its mounts,
-what needs the owner's own terminal. A fresh clone has neither file.
+what needs the owner's own terminal. A fresh clone has none of these files.
 
 ## What this actually is
 
@@ -35,8 +39,8 @@ Three consequences worth holding onto:
   in a cat's record can look like the very change the project exists to flag. Do not "improve"
   detection by making it stricter without checking that against the roadmap.
 - **A visit may span several clips.** Recording may stop while a cat sits still, as long as the
-  clips on either side end up linked to one litter-box event (roadmap A.4; this linking is not
-  built yet). Do not "fix" a clip ending mid-visit by holding recording open.
+  clips on either side end up linked to one litter-box event (roadmap A.4; clips are grouped into
+  events at ingest). Do not "fix" a clip ending mid-visit by holding recording open.
 - The camera is fixed and overhead, so a cat's apparent size in pixels is roughly constant. That
   fact is the basis of the planned detection work — do not design around a moving camera.
 
@@ -434,9 +438,8 @@ Not bugs, but do not mistake them for correct:
   The largest blob is logged, both raw and after cleanup, but nothing yet *triggers* on it —
   that is A.3.
 - A cat that settles is absorbed into the background in roughly `history` frames (~17 s at the
-  default), so recording can stop mid-visit. That is acceptable once clips are linked into one
-  event (roadmap A.4). The linking is not built yet, so for now one visit can be several separate
-  clips.
+  default), so recording can stop mid-visit. That is acceptable because clips are linked into one
+  event (roadmap A.4), though the grouping thresholds are still starting guesses.
 - **The camera needs light.** It is the IR-filtered Camera Module 3 (libcamera reports `imx708`,
   not `imx708_noir`), so an unlit room is black to it. The boxes have been lit around the clock
   since 2026-09-16, and nights record like days. Motion is still ignored while the analysis frame's
