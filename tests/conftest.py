@@ -12,6 +12,7 @@ import importlib.util
 import subprocess
 import sys
 import threading
+import time
 import types
 from collections.abc import Callable, Iterator
 from pathlib import Path
@@ -54,6 +55,15 @@ needs_real_picamera2 = pytest.mark.skipif(
 
 MAIN_SIZE = (720, 1280)
 LORES_SIZE = (480, 640)
+
+
+def wait_for(predicate: Callable[[], bool], timeout: float = 5.0) -> bool:
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if predicate():
+            return True
+        time.sleep(0.01)
+    return False
 
 
 def make_frame(shape: tuple[int, int] = LORES_SIZE, value: int = 0) -> Frame:

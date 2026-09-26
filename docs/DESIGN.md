@@ -310,9 +310,23 @@ back. So `monitor()` checks, once a second, how long ago the capture loop last g
 past `CAPTURE_STALL_SECONDS` it leaves through the same cleanup as SIGTERM and exits 1, which
 `Restart=on-failure` turns into a restart. The limit is 10 s because, across twelve days of the
 metrics CSV, the longest gap between frames that was not a restart or a power-off was 1.95 s.
-The cleanup does not need a working camera: the 2026-09-26 restart stopped the wedged process in
-5 s, the frame thread's bounded join included. The gap a stall now costs is the limit, that
-cleanup, `RestartSec` and startup, about 35 s. The alternative, reopening the camera inside the
+The cleanup did not need a working camera on 2026-09-26: that restart stopped the wedged process
+in 5 s, the frame thread's bounded join included. The gap a stall now costs is the limit, that
+cleanup, `RestartSec` and startup, about 35 s.
+
+That evidence covers one kind of wedge, the frontend timeout, and other kinds can hang the exit
+itself: picamera2 registers `Picamera2.close` with `atexit`, and its `NullPreview.stop` joins the
+event-loop thread with no timeout, while `stop_encoder` takes the encoder's lock and flushes. A
+SIGTERM exit that hangs is killed by systemd after `TimeoutStopSec`, but a process that exits on
+its own is not being stopped, so nothing would kill it and the outage would return. So a stall
+arms a timer, `STALL_EXIT_DEADLINE_SECONDS` (60 s, as `TimeoutStopSec`, which covers the 30 s
+final flush and the metrics writer's 10 s join), that calls `os._exit(1)`, skipping whatever is
+still waiting; a clip cut off that way is recovered at the next start like any other. From the
+moment of the stall SIGTERM is ignored, as on the SIGTERM path, so a `systemctl stop` cannot
+raise mid-cleanup and turn the exit code into 0. The frame clock starts with distribution, not
+when the camera opens, so a slow startup is not mistaken for a stall. The check measures the
+capture loop, capture and consumers together, so a consumer that blocks the loop also restarts
+the process, and the log says "from the capture loop" rather than blaming the camera. The alternative, reopening the camera inside the
 process, would need a second `Picamera2` while the first may be stuck in libcamera, and the
 single-instance rule and the recorder's hold on the encoder make that the less tested path.
 
@@ -332,9 +346,19 @@ loop and a stopped service all go quiet the same way, and the watcher alerts on 
   a bounded join.
 - **The class takes a frame-age function and a send function**, not a camera and a URL. The camera
   stays in `CameraManager`, the HTTP in `http_ping`, and the tests drive the logic with neither.
-- **The URL is a secret**, since whoever has it can keep the check quiet. It is never logged, a
-  malformed one is reported without it, and `scripts/private_terms.sh` adds it to the privacy
-  check.
+- **The URL is a secret**, since whoever has it can keep the check quiet. It is never logged: a
+  failure is described by its status or its cause's type, never by the exception's text, since
+  `http.client` puts the path in some messages. A URL with no host, a space or a control
+  character is refused at startup, also without being printed. `scripts/private_terms.sh` adds
+  it to the privacy check, with every path segment or query value that looks like a token,
+  since services put the token in different places (a Healthchecks ping key is followed by a
+  public slug; an Uptime Kuma token is followed by a query).
+- **No recorder, no heartbeat.** If the recorder cannot be built, the live feed still gets
+  frames but no visit is recorded; a heartbeat then would report health during exactly the gap
+  it exists to reveal, so it is off, with a warning.
+- **The first ping comes 15 s after start**, not a full interval, so a restart does not add a
+  minute of silence to its own downtime; 15 s is past the stall limit, so frames have had their
+  chance to prove themselves.
 - **Failures are logged once per streak**, with a line when pings get through again, so a
   watcher that is down for a day costs two log lines rather than 1,440.
 - **`TimeoutStopSec=60`** covers the 30 s final clip flush and the metrics writer's 10 s join.

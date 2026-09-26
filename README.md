@@ -211,7 +211,9 @@ Pi can be up while the camera is not.
 
 The URL is a secret: anyone who has it can keep your check quiet. Keep it in `.env`, which is
 gitignored, and never in a tracked file; `scripts/check_private.sh` refuses a commit that
-contains it. A URL that is not `http://` or `https://` turns the heartbeat off with a warning.
+contains it. A URL that is not `http://` or `https://`, has no host, or contains a space turns
+the heartbeat off with a warning, and so does a recorder that failed to start, since the camera
+may then be delivering frames while nothing is recorded.
 
 The other settings, with their defaults (`config.py` describes each):
 

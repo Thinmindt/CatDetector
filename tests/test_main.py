@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from conftest import FakePicamera2
+from conftest import FakePicamera2, wait_for
 
 import main
 from config import Config
@@ -59,6 +59,20 @@ def test_detection_settings_reach_the_recorder(
 
 
 STALL_LIMIT_SECONDS = 0.2
+EXIT_DEADLINE_SECONDS = 0.2
+RECORDING: Any = object()
+
+
+@pytest.fixture(autouse=True)
+def contained_exits(monkeypatch: pytest.MonkeyPatch) -> Any:
+    """A stall arms a real os._exit and changes the SIGTERM handler; keep both
+    inside the test."""
+    forced: list[str] = []
+    monkeypatch.setattr(main, "_force_exit", lambda: forced.append("forced"))
+    monkeypatch.setattr(main, "STALL_EXIT_DEADLINE_SECONDS", EXIT_DEADLINE_SECONDS)
+    previous = signal.getsignal(signal.SIGTERM)
+    yield forced
+    signal.signal(signal.SIGTERM, previous)
 
 
 class MonitorSpy:
@@ -171,7 +185,7 @@ def test_no_heartbeat_url_means_no_heartbeat(
     camera_manager: Any, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr("main.Config.CAPTURE_HEARTBEAT_URL", None)
-    assert main.build_heartbeat(camera_manager) is None
+    assert main.build_heartbeat(camera_manager, RECORDING) is None
 
 
 def test_an_unusable_heartbeat_url_leaves_the_detector_running(
@@ -182,7 +196,7 @@ def test_an_unusable_heartbeat_url_leaves_the_detector_running(
     url = "hc-ping.com/0f0f-token"
     monkeypatch.setattr("main.Config.CAPTURE_HEARTBEAT_URL", url)
 
-    assert main.build_heartbeat(camera_manager) is None
+    assert main.build_heartbeat(camera_manager, RECORDING) is None
     assert "Capture heartbeat off" in caplog.text
     assert url not in caplog.text
 
@@ -193,11 +207,52 @@ def test_a_heartbeat_url_builds_a_heartbeat_on_the_camera(
     monkeypatch.setattr(
         "main.Config.CAPTURE_HEARTBEAT_URL", "https://example.invalid/ping"
     )
-    heartbeat = main.build_heartbeat(camera_manager)
+    heartbeat = main.build_heartbeat(camera_manager, RECORDING)
 
     assert heartbeat is not None
     assert heartbeat.stall_seconds == main.CAPTURE_STALL_SECONDS
     assert heartbeat.frame_age() < main.CAPTURE_STALL_SECONDS
+
+
+def test_a_stall_exit_cannot_hang_in_cleanup(contained_exits: list[str]) -> None:
+    """picamera2's close runs at exit and joins its event-loop thread without a
+    timeout, so a wedged camera could hold the process up forever."""
+    spy: Any = MonitorSpy(stalled_for=main.CAPTURE_STALL_SECONDS + 1)
+
+    with pytest.raises(SystemExit):
+        main.check_capture(spy)
+
+    assert wait_for(lambda: contained_exits == ["forced"], timeout=2)
+
+
+def test_a_sigterm_cannot_interrupt_the_cleanup_after_a_stall() -> None:
+    spy: Any = MonitorSpy(stalled_for=main.CAPTURE_STALL_SECONDS + 1)
+
+    with pytest.raises(SystemExit):
+        main.check_capture(spy)
+
+    assert signal.getsignal(signal.SIGTERM) == signal.SIG_IGN
+
+
+def test_no_forced_exit_while_frames_arrive(contained_exits: list[str]) -> None:
+    spy: Any = MonitorSpy()
+    main.check_capture(spy)
+    time.sleep(2 * EXIT_DEADLINE_SECONDS)
+    assert contained_exits == []
+
+
+def test_no_heartbeat_without_a_recorder(
+    camera_manager: Any,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Frames reach the live feed without a recorder, but no visit is recorded,
+    so the watcher must hear nothing."""
+    monkeypatch.setattr(
+        "main.Config.CAPTURE_HEARTBEAT_URL", "https://example.invalid/ping"
+    )
+    assert main.build_heartbeat(camera_manager, None) is None
+    assert "recorder is not running" in caplog.text
 
 
 def test_startup_ingest_does_not_hold_up_startup(

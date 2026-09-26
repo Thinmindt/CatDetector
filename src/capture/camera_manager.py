@@ -47,6 +47,7 @@ class CameraManager:
             return
 
         self._running = True
+        self._last_frame_at = time.monotonic()
         self._frame_thread = threading.Thread(
             target=self._distribute_frames, daemon=True
         )
@@ -83,7 +84,7 @@ class CameraManager:
         return arrays[0], arrays[1]
 
     def seconds_since_last_frame(self) -> float:
-        """Seconds since the last capture, or since the camera started."""
+        """Seconds since the last capture, or since distribution started."""
         return time.monotonic() - self._last_frame_at
 
     def _dispatch(self, main_frame: Frame, lores_frame: Frame) -> None:

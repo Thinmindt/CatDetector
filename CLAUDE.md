@@ -408,7 +408,8 @@ template with a different tab active; leaving the Live tab drops the `<img>` sou
 tab does not hold an MJPEG connection open. [main.py](main.py) runs the app in a daemon thread;
 `monitor()` on the main thread starts frame distribution and blocks until
 Ctrl-C or SIGTERM (which `systemctl stop` sends), or until no frame has arrived for 10 s,
-when it shuts down the same way and exits 1 so systemd restarts it (roadmap A.6). If
+when it shuts down the same way and exits 1 so systemd restarts it (roadmap A.6); a timer
+forces that exit after 60 s, since picamera2's `atexit` close can wait on a wedged camera forever. If
 `CAPTURE_HEARTBEAT_URL` is set, `CaptureHeartbeat` GETs it once a minute from its own thread while
 frames arrive; the check that watches it lives outside this project, and nothing requires one.
 Never log that URL: it is a secret. `WebStreamer` takes `motion_recorder` as an optional dependency and degrades to a bare

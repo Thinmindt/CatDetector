@@ -3,6 +3,7 @@
 import http.client
 import logging
 import threading
+import urllib.error
 import urllib.parse
 import urllib.request
 from collections.abc import Callable
@@ -10,14 +11,27 @@ from collections.abc import Callable
 log = logging.getLogger(__name__)
 
 HEARTBEAT_INTERVAL_SECONDS = 60.0
+FIRST_BEAT_SECONDS = 15.0
 PING_TIMEOUT_SECONDS = 10.0
 STOP_TIMEOUT_SECONDS = 5.0
 
 
+def describe_failure(error: Exception) -> str:
+    """What went wrong, in words that cannot include the URL."""
+    if isinstance(error, urllib.error.HTTPError):
+        return f"HTTP {error.code}"
+    if isinstance(error, urllib.error.URLError) and isinstance(error.reason, OSError):
+        return type(error.reason).__name__
+    return type(error).__name__
+
+
 def http_ping(url: str) -> Callable[[], None]:
-    """A send function that GETs url. Raises ValueError unless it is http(s)."""
-    if urllib.parse.urlsplit(url).scheme not in ("http", "https"):
-        raise ValueError("the heartbeat URL must start with http:// or https://")
+    """A send function that GETs url. Raises ValueError if it is unusable."""
+    parts = urllib.parse.urlsplit(url)
+    if parts.scheme not in ("http", "https") or not parts.netloc:
+        raise ValueError("the heartbeat URL must be http(s) and name a host")
+    if any(c.isspace() or not c.isprintable() for c in url):
+        raise ValueError("the heartbeat URL contains a space or a control character")
 
     def send() -> None:
         with urllib.request.urlopen(url, timeout=PING_TIMEOUT_SECONDS):  # noqa: S310 -- scheme checked above
@@ -39,11 +53,13 @@ class CaptureHeartbeat:
         send: Callable[[], None],
         stall_seconds: float,
         interval: float = HEARTBEAT_INTERVAL_SECONDS,
+        first_beat: float = FIRST_BEAT_SECONDS,
     ) -> None:
         self.frame_age = frame_age
         self.send = send
         self.stall_seconds = stall_seconds
         self.interval = interval
+        self.first_beat = first_beat
         self._failing = False
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
@@ -51,6 +67,7 @@ class CaptureHeartbeat:
     def start(self) -> None:
         if self._thread is not None:
             return
+        self._stop.clear()
         self._thread = threading.Thread(
             target=self._run, name="capture-heartbeat", daemon=True
         )
@@ -72,7 +89,8 @@ class CaptureHeartbeat:
         except (OSError, http.client.HTTPException) as error:
             if not self._failing:
                 log.warning(
-                    "Capture heartbeat failed (%s); retrying each interval", error
+                    "Capture heartbeat failed (%s); retrying each interval",
+                    describe_failure(error),
                 )
             self._failing = True
             return False
@@ -82,8 +100,12 @@ class CaptureHeartbeat:
         return True
 
     def _run(self) -> None:
-        while not self._stop.wait(self.interval):
+        wait = self.first_beat
+        while not self._stop.wait(wait):
+            wait = self.interval
             try:
                 self.beat()
-            except Exception:
-                log.exception("Capture heartbeat failed")
+            except Exception as error:
+                log.error(  # noqa: TRY400 -- a traceback can carry the URL
+                    "Capture heartbeat failed: %s", describe_failure(error)
+                )

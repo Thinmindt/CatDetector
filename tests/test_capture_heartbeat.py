@@ -6,12 +6,14 @@ import http.server
 import logging
 import threading
 import time
-from collections.abc import Callable, Iterator
+import urllib.error
+from collections.abc import Iterator
 from typing import ClassVar
 
 import pytest
+from conftest import wait_for
 
-from src.capture.capture_heartbeat import CaptureHeartbeat, http_ping
+from src.capture.capture_heartbeat import CaptureHeartbeat, describe_failure, http_ping
 
 STALL_SECONDS = 10.0
 FRESH = 0.1
@@ -44,17 +46,10 @@ class Recorder:
         self.threads.append(threading.current_thread())
 
 
-def wait_for(predicate: Callable[[], bool], timeout: float = 5.0) -> bool:
-    deadline = time.monotonic() + timeout
-    while time.monotonic() < deadline:
-        if predicate():
-            return True
-        time.sleep(0.01)
-    return False
-
-
 def heartbeat(clock: FrameClock, send: Recorder) -> CaptureHeartbeat:
-    return CaptureHeartbeat(clock, send, STALL_SECONDS, interval=TICK_SECONDS)
+    return CaptureHeartbeat(
+        clock, send, STALL_SECONDS, interval=TICK_SECONDS, first_beat=TICK_SECONDS
+    )
 
 
 def test_pings_stop_when_frames_stop_and_resume_when_they_resume() -> None:
@@ -94,7 +89,7 @@ def test_a_hung_send_does_not_hold_up_stop(monkeypatch: pytest.MonkeyPatch) -> N
         entered.set()
         release.wait(timeout=30)
 
-    beat = CaptureHeartbeat(FrameClock(), hung, STALL_SECONDS, interval=TICK_SECONDS)
+    beat = CaptureHeartbeat(FrameClock(), hung, STALL_SECONDS, first_beat=TICK_SECONDS)
     beat.start()
     assert entered.wait(timeout=5)
 
@@ -174,7 +169,68 @@ def test_an_error_status_counts_as_a_failed_ping(
     assert not beat.beat()
 
 
-@pytest.mark.parametrize("url", ["hc-ping.com/abc", "file:///etc/passwd", ""])
+@pytest.mark.parametrize(
+    "url",
+    [
+        "hc-ping.com/abc",
+        "file:///etc/passwd",
+        "",
+        "https:/hc-ping.com/abc",
+        "http:///abc",
+        "https://hc-ping.com/abc # the camera",
+        "https://hc-ping.com/abc\t",
+    ],
+)
 def test_http_ping_refuses_anything_but_http(url: str) -> None:
-    with pytest.raises(ValueError, match="http"):
+    with pytest.raises(ValueError, match="heartbeat URL") as refused:
         http_ping(url)
+    assert "hc-ping" not in str(refused.value)
+
+
+def test_the_first_ping_does_not_wait_a_whole_interval() -> None:
+    """A restart must not leave the watcher a full interval without news."""
+    send = Recorder()
+    beat = CaptureHeartbeat(
+        FrameClock(), send, STALL_SECONDS, interval=60, first_beat=TICK_SECONDS
+    )
+    beat.start()
+    try:
+        assert wait_for(lambda: len(send.threads) >= 1, timeout=2)
+    finally:
+        beat.stop()
+
+
+def test_a_stopped_heartbeat_can_start_again() -> None:
+    send = Recorder()
+    beat = heartbeat(FrameClock(), send)
+    beat.start()
+    beat.stop()
+    sent = len(send.threads)
+    beat.start()
+    try:
+        assert wait_for(lambda: len(send.threads) > sent)
+    finally:
+        beat.stop()
+
+
+def test_a_failure_is_logged_without_the_url(caplog: pytest.LogCaptureFixture) -> None:
+    """http.client puts the path in some messages, and the path holds the token."""
+    path = "/0f0f-e2e"
+    send = Recorder()
+    send.error = http.client.InvalidURL(
+        f"URL can't contain control characters. '{path} x'"
+    )
+    beat = heartbeat(FrameClock(), send)
+
+    with caplog.at_level(logging.INFO):
+        assert not beat.beat()
+
+    assert "Capture heartbeat failed (InvalidURL)" in caplog.text
+    assert path not in caplog.text
+
+
+def test_describe_failure_names_the_status_or_the_cause() -> None:
+    not_found = urllib.error.HTTPError("https://h/t", 404, "Not Found", {}, None)  # type: ignore[arg-type]
+    refused = urllib.error.URLError(ConnectionRefusedError(111, "refused"))
+    assert describe_failure(not_found) == "HTTP 404"
+    assert describe_failure(refused) == "ConnectionRefusedError"
