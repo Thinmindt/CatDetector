@@ -34,7 +34,7 @@ three boxes in one frame, three cats, and clips shipped to a NAS. Measurements i
 come from it; Part C is about not mistaking it for a requirement.
 
 **Hardware split.** This installation's choice: the Pi captures and a Jetson trains, with the
-crops and labels on the share as the handoff to whatever trains (C.7); frames never leave the Pi.
+crops and labels on the share as the handoff to whatever trains (B.5); frames never leave the Pi.
 
 **Platform.** Raspberry Pi 5 with no Hailo accelerator, so any *on-Pi* inference would be CPU.
 Local disk is ext4 and the NAS share is **CIFS** (204 GB and 467 GB free on 2026-09-26), which is
@@ -105,7 +105,10 @@ stops when every condition below holds.
 How the column is counted, from `captures.db`: a visit is an event labelled with a cat's name
 whose first clip started on or after 2026-09-16 (12 earlier ones excluded); night is an event
 starting between 20:00 and 06:00; per-cat counts run from most visits to fewest; the box is the
-third of the 640-px lores width holding the trigger centroid of the event's **first** clip. False
+third of the 640-px lores width holding the trigger centroid of the event's **first** clip; an
+overcast day is one whose median daytime (09:00–17:00) brightness in the metrics CSV is among the
+run's lowest and whose clips look overcast; and the smallest entry blob has stopped dropping when
+the smallest trigger `clean_area` of the last 20 visits equals the smallest of the whole run. False
 positives are measurable from hours rather than visits, and any candidate rule can be replayed
 against the metrics CSV without re-recording. Storage is not the constraint (~147 MB/day of
 metrics, 1.71 GB from 2026-09-14 to 09-26, plus clips). **Labelling is**: about 24 events a day
@@ -113,10 +116,19 @@ from 2026-09-16 to 25 (12–16 a day over the last four) have to be kept up with
 outlives the run.
 
 - [ ] **Finish the data run** against the table above. The right box is the thin one.
-- [ ] **Derive the size band.** From the labelled lit events, the distribution of cleaned
-      largest-blob area with a cat present and absent: that is the band A.3 triggers on. Waits
-      for the data run. Filter on `started_at` from 2026-09-16, and say in the result how many
-      events were excluded.
+      **Done means** every row of the table reads met on one date, recounted from `captures.db`
+      by the method above, and the service's drop-in goes back to the default threshold, or to
+      A.3's band, in the change that ticks this box.
+- [ ] **Derive the size band, with one tool anyone can rerun.** One script, general from the
+      start, that reads a `captures.db` and a metrics CSV and does three jobs: from the labelled
+      lit events, the distribution of cleaned largest-blob area with a cat present and absent,
+      and the band A.3 triggers on (`min_cat_area`, `max_cat_area`); a replay of a candidate
+      detector over the metrics rows of A.5's regression set, printing recall and false triggers
+      per hour; and the rest of an installation's numbers (C.4). Waits for the data run. Filter on
+      `started_at` from 2026-09-16, and say in the result how many events were excluded.
+      **Done means** the script prints the band and the count of excluded events, the band
+      replayed against the same CSV would have started a clip in every labelled visit, and CI
+      runs it on a small synthetic database and CSV.
 
 ## A.3 Detect a cat-sized thing, not "some pixels changed"
 
@@ -125,11 +137,17 @@ The cleaned blob is already measured on every frame (A.0); what is left is makin
 - [ ] Trigger on a **size band** (`min_cat_area < area < max_cat_area`) from A.2. The upper
       bound rejects lighting changes: a cat cannot be 60% of the frame. The band is only
       defensible because the overhead mount keeps apparent size constant.
+      **Done means** `MotionDetector` starts a clip on a cleaned blob inside the configured band
+      and not on the global count, tests cover a blob just inside, just below and just above the
+      band, and A.2's replay over A.5's set misses no labelled visit.
 - [ ] Require the blob to persist N consecutive frames (keep N at 2-3 — recall matters more
       than precision).
-- [ ] **Keep the bounding box.** Part B needs it as the training crop. The sidecar already records
-      the trigger and last blobs with their boxes; the crops need one per sampled frame, stored
-      per event (B.1).
+      **Done means** N is a setting (default 2), a test shows a one-frame flicker inside the band
+      starting nothing and N frames starting a clip, and A.2's replay at that N still misses no
+      labelled visit.
+
+The box the trigger computes is the one B.1's crops are cut from; Part B needs it as the training
+crop, so it is not computed twice.
 
 ## A.4 One visit, one event, even across several clips
 
@@ -145,6 +163,11 @@ as agreed is in the archive.
       large merges two cats' visits (the labeler marks it `multiple`). The frequency signal is
       the point of the project, so lean toward merging. If two boxes prove too close for a
       centroid distance, replace it with three fixed rectangles in lores coordinates.
+      **Done means** both are set from measured distributions (gaps between clips inside
+      single-cat events against gaps between consecutive events; centroid distances within and
+      between boxes), the numbers are in DESIGN.md's Events section, `--regroup` has run, a walk
+      of `?filter=multi` finds no event merging two visits, and a walk of one day's events in
+      order finds no visit split in two.
 
 Known limit: two cats in different boxes at the same moment land in one clip, because detection
 is a global count. Grouping cannot separate them; that is what the `multiple` label is for. One
@@ -152,9 +175,16 @@ clip can also cross from one box to another, and grouping places a clip by its t
 
 ## A.5 Verify against the goal
 
-- [ ] Keep a small labeled set of clips (cat / no cat / ambiguous) as a regression set.
-- [ ] Score on **recall first**, false-positive rate second. A change that trades recall for
-      precision is a regression for this project.
+Score on **recall first**, false-positive rate second. A change that trades recall for precision is
+a regression for this project. The labelled `captures.db` is the regression set; what it lacks is a
+frozen list, so later relabelling does not move the goalposts. A.2's script does the scoring,
+against the metrics rows rather than the video.
+
+- [ ] **Freeze a labelled set and gate detection changes on it.** Clips labelled cat / no cat /
+      ambiguous, listed by clip name, since event ids change on a regroup. The list is one
+      installation's data, so it lives beside the database, not in the repository.
+      **Done means** the list exists, A.2's script scores a candidate detector against it, and
+      A.3's change is accepted only if recall on the set does not drop.
 
 ---
 
@@ -162,14 +192,19 @@ clip can also cross from one box to another, and grouping places a clip by its t
 
 ## B.1 Capture the right data
 
-A classifier trains on stills, not clips. Extend the recorder to also write, per event:
+A classifier trains on stills, not clips. The per-clip facts are already kept: the sidecar and
+the `clip` table hold each clip's times, path, and trigger and last blobs with their boxes, and the
+review side takes full frames from the clip itself. What is missing is the crops:
 
-- [ ] A handful of **JPEG crops** from A.3's bounding box (the cat), not the whole frame.
-      Several frames spread across the event, not one — pose varies, and variety is what
-      makes the classifier generalize.
-- [ ] One **full frame** per event for context, so a human reviewing an ambiguous crop can
-      see what was actually going on.
-- [ ] Metadata per event: start/end time, clip path, frame count, contour area, bbox.
+- [ ] **Crops with their boxes, stored per event.** A handful of JPEG crops per event, cut from
+      A.3's bounding box (the cat), not the whole frame. Several frames spread across the event,
+      not one — pose varies, and variety is what makes the classifier generalize. Each crop is a
+      row in a `crop` table with its event, clip, path on the share, frame time and box (B.2).
+      **Done means** every event recorded after the change has between K and M crops on the share
+      (K and M settings), spread over its duration, each row carrying the box its crop was cut
+      from; ingest fills the `crop` table from the share the way it fills `clip`, `--regroup`
+      keeps crops with their clips, and a test with the fake camera shows a 20-second visit
+      yielding crops from its start, middle and end that read back by event.
 
 **Model the data as events, not frames.** One visit = one event = one or more clips (A.4) and
 many crops. This is the single most important structural decision in Part B, for two reasons:
@@ -189,10 +224,10 @@ training rather than silently mislabeling it.
 
 SQLite on local disk (`captures.db`), media on the NAS; never SQLite on the CIFS share, and never
 image blobs in SQLite. The built tables are in `src/review/capture_db.py`: `event`, `clip`,
-`label` (separate from `event`, so model predictions and human labels can coexist, which B.6's
-review loop needs) and `poop_count`.
+`label` and `poop_count`, and B.1 adds `crop`. `label` is a table of its own, but its key is the
+event, so an event holds one label: model predictions (B.6) need a key of `(event_id, source)` or
+a table of their own before they can sit beside the human labels.
 
-- [ ] A `crop` table for B.1: event, path on the NAS, when it was captured.
 - [ ] **Prune `.review_cache`.** It keeps every strip, up to 48 full frames (~4 MB) per clip and
       a remuxed MP4 per watched clip, and nothing ever removes them; on a small SD card it
       eventually reaches the recorder's 1 GB free-space floor and recording stops. Give it a size
@@ -201,7 +236,14 @@ review loop needs) and `poop_count`.
       **Done means** a test fills the cache past its budget and sees it shrink below it without
       touching the entries the page is showing, and the README says what the budget is.
 - [ ] The DB is the only thing that is hard to recreate, so it is the thing to back up.
+      **Done means** the service writes a consistent copy of `captures.db` (SQLite's backup API,
+      not a file copy) to a configurable destination on a schedule, a test restores one and reads
+      back its labels, and the README's Configuration section says where the copy goes and how to
+      restore it. A finished copy on the share is fine; the live database never is.
 - [ ] Watch SD-card wear: many small writes. Batch inserts per event rather than per frame.
+      **Done means** the bytes written to the SD card in 24 h of normal running are measured
+      (`/sys/block/mmcblk0/stat`), the main writers are named in DESIGN.md, and anything over a
+      stated daily budget has an item of its own.
 
 ## B.3 Labeling UI
 
@@ -224,6 +266,10 @@ Next, in this order:
       between them, and one route with the same two parameters as the URL is what a
       reload can replay. The staging table below joins the default walk in this step, so the
       queue has one source of truth from the start.
+      **Done means** reloading, pressing Back or pasting the URL lands on the same event in the
+      same walk for every filter, a test drives `/api/review/next?filter=&after=` for each filter
+      and gets the sequence the old routes gave, the old three routes are gone, and
+      `check_page.py` shows the event id in the address.
 - [ ] **An explicit review queue, with staging.** Today the queue is
       implicit: the unlabelled events, in review order, and labelling one removes it. There is
       no way to put an event back without erasing its label, and no record of why it came back.
@@ -241,7 +287,12 @@ Next, in this order:
       same query and reason from the command line. B.6's human-in-the-loop item is this table
       with `source=model`: the same queue serves re-audits, agent findings and low-confidence
       predictions. Time of day is a **query** over `started_at` on the timeline, never stored
-      state.
+      state. Staging from the timeline lands with B.6; this item is done without it.
+      **Done means** the default walk serves the unlabelled events and the staged ones in one
+      order, a staged event shows its label and reason, one label press clears its staging row,
+      the API and `main.py --stage` both stage, a test stages a labelled event, walks to it and
+      confirms it without losing the label, and the 110 early `not_cat` labels can be staged in
+      one command.
 - [ ] **Four findings from the 2026-09-21 code review**, deferred until the unified route and
       the queue are in, because two of them are simpler once the route carries ids:
       - Media URLs are keyed by event and index while the cached file is keyed by clip, and
@@ -256,6 +307,11 @@ Next, in this order:
         make `--regroup` refuse to run while the service holds the database.
       - A persistent clip-open failure (directory gone, permissions) logs a full traceback on
         every motion frame, at 30 Hz, for as long as motion lasts. Log once per failure streak.
+        This one is on the capture side and does not wait for the route.
+      **Done means** each has a regression test that fails with the bug put back: a split followed
+      by a strip request serves the new clip's tiles; a join onto an undated clip is refused with a
+      message; a label posted during `--regroup` survives, or `--regroup` refuses to run while the
+      service holds the database; and a persistent clip-open failure logs one traceback per streak.
 - [ ] **The tiles are slow to appear, worst on multi-clip events.** A strip
       is built on its first request: ffmpeg reads the whole clip off the share and decodes every
       keyframe, and an event with several clips fires several of those at once. Build them
@@ -268,7 +324,13 @@ Next, in this order:
       events, not the backlog, and never hold the `CaptureDB` lock while ffmpeg reads the
       share. The `?filter=` walks get no pre-caching: their events were already built when
       they were labelled.
+      **Done means** after an ingest the next few dozen unlabelled events have their strips before
+      they are asked for, a test shows the builder skipping built clips and never holding the
+      `CaptureDB` lock while it runs, and on the Pi the first tile of a fresh multi-clip event
+      appears in under a second.
 - [ ] **Show the crop *and* the full frame** — a crop alone is often ambiguous. Needs A.3 and B.1.
+      **Done means** the review page shows each event's crops beside a full frame from its clip,
+      and `check_page.py` screenshots at both sizes show them without horizontal scroll.
 
 Non-goals for v1: multi-user, accounts, editing bounding boxes by hand.
 
@@ -277,40 +339,55 @@ Non-goals for v1: multi-user, accounts, editing bounding boxes by hand.
 Purpose is to close the loop: a capture happens, you get a push, one tap lands on the
 labeling page for that event. Labeling that rides on notifications actually gets done.
 
-- [ ] **ntfy** is the recommended transport — a single HTTP POST, no account, free app, and
-      self-hostable later if you want nothing leaving the LAN. Alternatives: Pushover (paid,
-      polished), Telegram bot, SMTP, Home Assistant webhook.
-- [ ] Include a thumbnail and a deep link to the event's review page (the URL route in B.3).
-- [ ] **Send from a worker thread, never from the capture thread.** Every frame consumer runs
-      synchronously on `CameraManager`'s capture loop, so a blocking HTTP call to a network
-      service would stall frame distribution for every consumer. Queue and fire elsewhere.
-- [ ] Rate-limit and batch. One push per visit, not per frame; a digest option for quiet
-      review later.
-- [ ] Later, once the classifier runs: notify *"Cat A used the litter box"*, and only ask for
-      a label when the model is unsure.
+**ntfy** is the recommended transport — a single HTTP POST, no account, free app, and
+self-hostable later if you want nothing leaving the LAN. Alternatives: Pushover (paid, polished),
+Telegram bot, SMTP, Home Assistant webhook.
+
+**Send from a worker thread, never from the capture thread.** Every frame consumer runs
+synchronously on `CameraManager`'s capture loop, so a blocking HTTP call to a network service
+would stall frame distribution for every consumer. Queue and fire elsewhere.
+
+One push per visit, not per clip or per frame. A visit is an event, and an event is only closed
+`EVENT_GAP_SECONDS` after its last clip, so the push waits that long. A digest option for quiet
+review can come later.
+
+- [ ] **One push per visit, with a thumbnail and a deep link** to the event's review page (the
+      URL route in B.3).
+      **Done means** a visit sends one push to a configurable ntfy topic within a minute of its
+      event closing, with a thumbnail and a link that opens that event's review page; a test with
+      a send that hangs leaves the frame loop at full rate; a burst of clips from one visit sends
+      one push; and the README says how to subscribe.
 
 ## B.5 Train the classifier
 
-- [ ] Baseline first: before any neural net, check whether mean coat color inside the mask
+**Keep the training environment out of this repo.** JetPack pins its own Python and PyTorch
+build; a separate project on the Jetson that reads crops from the NAS is cleaner than widening this
+repo's pins to straddle both machines. The Jetson is this installation's choice: any machine with a
+GPU, a Hailo accelerator, or a CPU for a small model will do, and the handoff (crops and labels on
+the share) is the only contract.
+
+**Rough target:** several hundred to a low thousand crops per cat, spread across many distinct
+events, days, and lighting conditions. Event count matters more than crop count; 1000 crops from 5
+visits is 5 examples. Split by event or day, never by crop (B.1). Expect **heavy class imbalance**
+— one cat already uses the boxes more than twice as often as another (A.2's table) — and weight
+the loss or resample rather than letting the majority cat dominate. "Not a cat" negatives come free
+from false triggers; keep them, they are real data.
+
+- [ ] **Baseline first:** before any neural net, check whether mean coat color inside the mask
       separates the cats. Each cat has a distinct pattern and colour, which a top-down view
       preserves best; if colour alone separates them, that is a few lines of OpenCV and no
       training loop.
-- [ ] Otherwise, transfer learning on a small backbone (MobileNetV3 / EfficientNet-lite)
-      over the crops, **trained on the Jetson** (see the hardware split above). Decide where
-      inference runs once there is a model to measure: on the Jetson for accuracy headroom, or
-      exported (ONNX/TFLite) back to the Pi so a visit can be classified without a second box
-      in the loop. A small classifier on one crop per event is cheap either way.
-- [ ] Keep the training environment out of this repo. JetPack pins its own Python and PyTorch
-      build; a separate project on the Jetson that reads crops from the NAS is cleaner than
-      widening this repo's pins to straddle both machines.
-- [ ] Rough target: several hundred to a low thousand crops per cat, spread across many
-      distinct events, days, and lighting conditions. Event count matters more than crop
-      count; 1000 crops from 5 visits is 5 examples.
-- [ ] Expect **heavy class imbalance** — one cat already uses the boxes more than twice as often
-      as another (A.2's table). Weight the loss or resample rather than letting the majority cat
-      dominate.
-- [ ] "Not a cat" negatives come free from false triggers; keep them, they are real data.
-- [ ] Split by event/day, never by crop (see B.1).
+      **Done means** a script reports, for the labelled single-cat events, how well mean coat
+      colour inside the mask separates the cats (a confusion matrix on events held out by day),
+      and the result, with the decision it drives, is in DESIGN.md.
+- [ ] **Otherwise, a model:** transfer learning on a small backbone (MobileNetV3 /
+      EfficientNet-lite) over the crops, trained off the Pi. Decide where inference runs once
+      there is a model to measure: on the training machine for accuracy headroom, or exported
+      (ONNX/TFLite) back to the Pi so a visit can be classified without a second box in the loop.
+      A small classifier on one crop per event is cheap either way.
+      **Done means** a model trained in the separate project, from the crops and labels on the
+      share, classifies events held out by day at a stated per-cat accuracy, and where inference
+      runs is decided from a measurement of it, recorded in DESIGN.md.
 
 ## B.5b Ground truth at cleaning time: the hand signal
 
@@ -336,6 +413,9 @@ The convention, so the record stays readable:
 - More than five: hold up a hand twice, or use both hands.
 
 - [ ] A view over time of counts per box, beside visit frequency per cat (B.6).
+      **Done means** B.6's timeline filtered to `clean` shows each cleaning's counts per box, a
+      chart of counts per box per week sits beside visits per cat per week, and a test over a
+      seeded database checks both.
 
 Not pursued: counting urine clumps the same way. They could not be validated with this setup, so
 the urinary side of the goal rests on visit frequency and duration per cat (B.6).
@@ -351,14 +431,24 @@ the urinary side of the goal rests on visit frequency and duration per cat (B.6)
       with a stage button, and "stage everything shown, with this reason" for the set. The first
       use is the 110 `not_cat` labels made before 2026-09-20, which cover those made before the
       whole-clip tiles.
+      **Done means** the page lists every event newest first with those columns, each filter
+      returns exactly the events a query on `label` returns (a test per filter), rows link to the
+      event's review URL (B.3), the stage actions write staging rows, and `check_page.py`
+      screenshots the timeline at both sizes.
 - [ ] Litter box usage is a health signal, and catching bowel or urinary trouble is the goal.
       Alert on changes in how often a cat visits and how long it stays.
       That should shape what gets logged from the start (duration in box, time of day), because
       those are cheap now and unrecoverable later.
-- [ ] Maybe later: tell poop from pee. It looks hard and unreliable, so no alert should depend on
-      it.
+      **Done means** a stated rule (for example, a cat's visits per day or median duration outside
+      its trailing four-week range two days running) runs daily over `captures.db`, a test over a
+      seeded history fires on an injected change and not on normal variation, and a firing reaches
+      the owner through B.4's transport.
 - [ ] Human-in-the-loop: the model labels, low-confidence events are staged into the review
-      queue (B.3) with `source=model`, corrections feed the next training round.
+      queue (B.3) with `source=model`, corrections feed the next training round. Pushes then say
+      *"Cat A used the litter box"* and only ask for a label when the model is unsure (B.4).
+      **Done means** the model's predictions are stored beside the human labels (B.2's key),
+      predictions below a confidence threshold are staged with `source=model`, a confident one
+      sends a push naming the cat, and a human correction is in the next training set's export.
 
 ---
 
@@ -415,7 +505,7 @@ Nothing open; finished items are in the archive.
       blob kernels and A.3's future size band all depend on mounting height, resolution and the
       size of the cats. Label every default as "from one installation", and turn A.2's derivation
       into a documented procedure anyone can run: a week at a low threshold with `METRICS_CSV`
-      on, label the visits, run a script that proposes the values. **Done means** the README has
+      on, label the visits, run A.2's script, which proposes the values. **Done means** the README has
       a calibration section and the script works on a metrics CSV and a database other than this
       installation's.
 
@@ -449,17 +539,25 @@ Nothing open; finished items are in the archive.
 Each works as it is for this installation and would bite someone else:
 
 - [ ] The web port is fixed at 5000 (`src/web_app.py`); make it a setting.
+      **Done means** `WEB_PORT` is read from the environment with 5000 as the default, the startup
+      log and the README use it, and a test starts the app on another port.
 - [ ] The service account needs the `video` group for the camera; say so in the README and in
       `install-service.sh`.
+      **Done means** `install-service.sh` stops with a message when the account is not in `video`,
+      and the README's install section says so.
 - [ ] Cat names that collide with the page's filters or counts (`total`, `labeled`, `multi`,
       `multi_clip`) are accepted; refuse them the way `cat` and `multiple` are refused.
+      **Done means** they are refused at startup from one reserved set that the page's filters and
+      counts are built from, with a test per name.
 - [ ] Digit keys stop at nine cats, and match `e.key`, so on AZERTY the digits need Shift. Match
       `e.code` for digits, and give a tenth cat a way in.
-- [ ] Training hardware is a choice: the plan names the Jetson (B.5), but any machine with a GPU,
-      a Hailo accelerator, or a CPU for a small model will do. Keep the handoff (crops and labels
-      on the share) the only contract.
+      **Done means** digits match `e.code` (`Digit1`…, `Numpad1`…), a tenth cat has a key or a
+      picker, the help text says so, eslint passes, and the keys were pressed by hand with an
+      AZERTY layout selected.
 - [ ] `tests/manual/check_page.py` looks for `chromium` by that name; accept the other names
       Chromium and Chrome install under.
+      **Done means** the script tries `chromium`, `chromium-browser`, `google-chrome` and
+      `google-chrome-stable`, and names what it tried when none is found.
 
 ---
 
@@ -476,6 +574,10 @@ that. Clips took 32.2 GB across 579 clips from 2026-08-25 to 2026-09-26 (the sum
 
 - [ ] Set a retention policy before space runs short. Full clips are the bulk and are the least
       valuable once an event is labeled and cropped.
+      **Done means** a stated policy (which clips go, and when) is enforced by the service and
+      configurable, never deletes a clip of an unlabelled event, a test over a seeded share shows
+      only eligible clips removed, and the README says what it deletes. Until B.1's crops exist it
+      can only go by label and age.
 
 **Power.** The Pi has powered off without a shutdown four times (latest 2026-09-24), a PMIC
 standby whose cause is not known; pi-wake brings it back within 10 minutes. Each one is a gap in

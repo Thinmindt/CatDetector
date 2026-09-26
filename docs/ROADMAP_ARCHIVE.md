@@ -211,6 +211,12 @@ the trigger; that is the size band, still open.
       one blob.
 - [x] `cv2.findContours`, take the largest contour's area instead of a global count.
 
+Moved 2026-09-26: folded into B.1's crops, which carry one box per crop.
+
+- [ ] **Keep the bounding box.** Part B needs it as the training crop. The sidecar already records
+      the trigger and last blobs with their boxes; the crops need one per sampled frame, stored
+      per event (B.1).
+
 ## A.4 One visit, one event, even across several clips
 
 Moved 2026-09-26: the plan as agreed on 2026-09-12. Steps 1–4 are built; step 5 carries on in
@@ -270,6 +276,17 @@ They are environment settings now, so a data run can try other values without co
 
 # Part B — knowing which cat
 
+## B.1 Capture the right data
+
+Moved 2026-09-26. The metadata was already kept: the sidecar and the `clip` table hold each clip's
+times, path, and trigger and last blobs with their boxes; per-crop boxes go with the crops. The
+full frame was dropped: the review side already takes full frames from the clip, so capturing one
+at record time would duplicate it.
+
+- [x] Metadata per event: start/end time, clip path, frame count, contour area, bbox.
+- [ ] One **full frame** per event for context, so a human reviewing an ambiguous crop can
+      see what was actually going on. (Dropped.)
+
 ## B.2 Storage
 
 Moved 2026-09-26: the finished items and the schema sketch. The built schema is in
@@ -325,6 +342,10 @@ without one overwriting the other — which is what makes B.6's review-the-model
 
 Since 2026-09-11 a visit may span several clips, so the clip is its own table and `event` is the
 grouping; the full plan is in A.4.
+
+Moved 2026-09-26: folded into B.1's crops, with the box per crop added.
+
+- [ ] A `crop` table for B.1: event, path on the NAS, when it was captured.
 
 ## B.3 Labeling UI
 
@@ -447,6 +468,13 @@ like everything else until the boxes are lit.
 - [x] A per-box count on that event: three small number fields, `Enter` saves and moves on. Done
       2026-09-16; stored against a clip, so a regroup cannot strand them (see DESIGN.md).
 
+## B.6 The payoff
+
+Moved 2026-09-26: not a task. The goal paragraph and B.5b already say it.
+
+- [ ] Maybe later: tell poop from pee. It looks hard and unreliable, so no alert should depend on
+      it.
+
 ---
 
 # Part C — any installation
@@ -465,6 +493,12 @@ Moved 2026-09-26.
 Moved 2026-09-26.
 
 - [x] The README's list of gates leaves out node and the JavaScript lint. Done 2026-09-26.
+
+Moved 2026-09-26: not a task; it is now prose in B.5.
+
+- [ ] Training hardware is a choice: the plan names the Jetson (B.5), but any machine with a GPU,
+      a Hailo accelerator, or a CPU for a small model will do. Keep the handoff (crops and labels
+      on the share) the only contract.
 
 ---
 
