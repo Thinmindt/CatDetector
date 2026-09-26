@@ -406,7 +406,8 @@ Flask app from [src/web_app.py](src/web_app.py). The page at `/` and `/review` i
 template with a different tab active; leaving the Live tab drops the `<img>` source so a hidden
 tab does not hold an MJPEG connection open. [main.py](main.py) runs the app in a daemon thread;
 `monitor()` on the main thread starts frame distribution and blocks until
-Ctrl-C or SIGTERM (which `systemctl stop` sends). `WebStreamer` takes `motion_recorder` as an optional dependency and degrades to a bare
+Ctrl-C or SIGTERM (which `systemctl stop` sends), or until no frame has arrived for 10 s,
+when it shuts down the same way and exits 1 so systemd restarts it (roadmap A.6). `WebStreamer` takes `motion_recorder` as an optional dependency and degrades to a bare
 feed when it is `None`.
 
 ## Traps

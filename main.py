@@ -21,12 +21,26 @@ from src.web_app import WEB_PORT, create_app, run
 
 log = logging.getLogger(__name__)
 
+CAPTURE_STALL_SECONDS = 10.0
+EXIT_CAPTURE_STALLED = 1
+
 
 def _exit_on_sigterm(signum: int, frame: FrameType | None) -> None:  # noqa: ARG001 -- signature fixed by signal.signal
     """Leave through monitor()'s cleanup, as Ctrl-C does. Later SIGTERMs are ignored."""
     signal.signal(signal.SIGTERM, signal.SIG_IGN)
     log.info("Received SIGTERM, shutting down")
     raise SystemExit(0)
+
+
+def check_capture(camera_manager: CameraManager) -> None:
+    """Exit through monitor()'s cleanup if the camera has stopped delivering frames."""
+    stalled = camera_manager.seconds_since_last_frame()
+    if stalled > CAPTURE_STALL_SECONDS:
+        log.error(
+            "No frame from the camera for %.0f s; exiting so the service restarts it",
+            stalled,
+        )
+        raise SystemExit(EXIT_CAPTURE_STALLED)
 
 
 def monitor(
@@ -40,9 +54,9 @@ def monitor(
     try:
         camera_manager.start_frame_distribution()
 
-        # Keep main thread alive
         while True:
             time.sleep(1)
+            check_capture(camera_manager)
 
     except KeyboardInterrupt:
         log.info("Monitoring stopped by user")

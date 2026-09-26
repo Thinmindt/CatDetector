@@ -6,10 +6,12 @@ import logging
 import os
 import signal
 import threading
+import time
 from pathlib import Path
 from typing import Any
 
 import pytest
+from conftest import FakePicamera2
 
 import main
 from config import Config
@@ -56,11 +58,18 @@ def test_detection_settings_reach_the_recorder(
     assert recorder.detector.background_subtractor.getHistory() == 1500
 
 
+STALL_LIMIT_SECONDS = 0.2
+
+
 class MonitorSpy:
     """Plays camera manager, recorder and transfer, noting each call in order."""
 
-    def __init__(self) -> None:
+    def __init__(self, stalled_for: float = 0.0) -> None:
         self.calls: list[str] = []
+        self.stalled_for = stalled_for
+
+    def seconds_since_last_frame(self) -> float:
+        return self.stalled_for
 
     def start_frame_distribution(self) -> None:
         self.calls.append("start")
@@ -99,6 +108,41 @@ def test_sigterm_runs_the_same_cleanup_as_ctrl_c() -> None:
         "recorder cleanup",
         "transfer stop",
     ]
+
+
+def test_a_stalled_camera_ends_the_process_through_the_usual_cleanup() -> None:
+    """Regression: on 2026-09-26 capture blocked for 3 h 46 min without raising,
+    and the process stayed alive, so systemd never restarted it."""
+    spy: Any = MonitorSpy(stalled_for=main.CAPTURE_STALL_SECONDS + 1)
+
+    with pytest.raises(SystemExit) as exit_info:
+        main.monitor(spy, spy, spy)
+
+    assert exit_info.value.code == main.EXIT_CAPTURE_STALLED
+    assert exit_info.value.code != 0
+    assert spy.calls == [
+        "start",
+        "stop distribution",
+        "recorder cleanup",
+        "transfer stop",
+    ]
+
+
+def test_the_stall_check_follows_the_camera(
+    fake_camera: FakePicamera2, camera_manager: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(main, "CAPTURE_STALL_SECONDS", STALL_LIMIT_SECONDS)
+    camera_manager.start_frame_distribution()
+    time.sleep(2 * STALL_LIMIT_SECONDS)
+    main.check_capture(camera_manager)
+
+    fake_camera.delivering.clear()
+    try:
+        time.sleep(2 * STALL_LIMIT_SECONDS)
+        with pytest.raises(SystemExit):
+            main.check_capture(camera_manager)
+    finally:
+        fake_camera.delivering.set()
 
 
 def test_startup_ingest_does_not_hold_up_startup(

@@ -302,6 +302,19 @@ favour recall over tidiness:
   Recording), and a faster restart would crash-loop on "Camera __init__ sequence did not complete".
 - **`Restart=on-failure`.** SIGTERM takes the clean-shutdown path and exits 0, so a
   `systemctl stop` is not undone.
+
+**A capture stall ends the process** (roadmap A.6). On 2026-09-26 libcamera logged "Camera
+frontend has timed out" and `capture_arrays()` blocked for 3 h 46 min without raising, while the
+process, its web server and the Pi's heartbeat all looked healthy; only a restart brought frames
+back. So `monitor()` checks, once a second, how long ago the capture loop last got a frame, and
+past `CAPTURE_STALL_SECONDS` it leaves through the same cleanup as SIGTERM and exits 1, which
+`Restart=on-failure` turns into a restart. The limit is 10 s because, across twelve days of the
+metrics CSV, the longest gap between frames that was not a restart or a power-off was 1.95 s.
+The cleanup does not need a working camera: the 2026-09-26 restart stopped the wedged process in
+5 s, the frame thread's bounded join included. The gap a stall now costs is the limit, that
+cleanup, `RestartSec` and startup, about 35 s. The alternative, reopening the camera inside the
+process, would need a second `Picamera2` while the first may be stuck in libcamera, and the
+single-instance rule and the recorder's hold on the encoder make that the less tested path.
 - **`TimeoutStopSec=60`** covers the 30 s final clip flush and the metrics writer's 10 s join.
 - **It runs the venv's Python, not `uv run`**, which can sync the environment at startup, and so
   change or fail it at boot.

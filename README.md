@@ -78,7 +78,7 @@ uv run python tests/manual/check_camera.py    # camera smoke test (needs the cam
 ### As a service
 
 `deploy/install-service.sh` installs a systemd unit that runs the detector at boot and restarts
-it after a crash. It builds the unit from `deploy/catdetector.service.in` for this checkout — the
+it after a crash, or when the camera has delivered no frame for 10 s. It builds the unit from `deploy/catdetector.service.in` for this checkout — the
 directory's owner runs the service, and the share named by `NETWORK_SHARE_DIR` in `.env` is the
 mount it waits for — and stops a copy started by hand, since the camera takes one process at a
 time:
