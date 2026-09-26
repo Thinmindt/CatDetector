@@ -100,6 +100,22 @@ Then the rules that follow from that:
 The test is the same one as for comments, one level up: would the sentence still be true and
 still be useful if the reader had no idea when it was written?
 
+## Plans
+
+The roadmap is the plan as it stands today: what is decided, what is next, what is open. It is
+the one document allowed a pending state, because an unchecked box *is* the status.
+
+- **A feature starts as a roadmap entry** that says what, how, and **done means**: what a check
+  or a person will see when it is finished. Write the entry and the code on one branch, entry
+  first, so the box is ticked by the change that earns it.
+- **Finished work leaves.** A done item, the history behind a decision and a measurement that
+  fed a decision already made move verbatim to an archive beside the roadmap, under the same
+  heading, with the date they moved.
+- **Section numbers never change.** Commit messages and the design document cite them; the
+  archive keeps the history under the number, and the roadmap keeps the plan.
+- A to-do list of things only the owner can do follows the same rule: open items only, done
+  ones in its archive.
+
 ## Docstrings
 
 One line if one line does it. Say what the thing is for; add a second paragraph only for a
@@ -139,6 +155,27 @@ in the script's docstring so it does not look like an oversight.
 A leading underscore is a claim that nothing outside the class touches this. The moment another
 class calls it, that claim is false — rename it. A private method with external callers is
 worse than a public one, because it tells readers a boundary exists where it does not.
+
+**Hardware sits behind a boundary.** Code that talks to a device — a camera, a sensor, a GPIO
+pin, an accelerator — lives in one module per implementation, behind an interface the rest of
+the program depends on. Build for the hardware you have, as the first implementation rather than
+the only one: a replacement camera, a cheaper board or a second unit should be a new module, not
+an edit through the whole program. Everything specific to the device (its sensor modes, formats,
+frame rates, quirks) stays inside its implementation, and the docs name it as that
+implementation, not as a requirement of the project. Enforce the boundary with the linter: ban
+the device library's imports everywhere except its implementation, and test the rest of the
+program against a fake of the interface.
+
+```toml
+[tool.ruff.lint]
+extend-select = ["TID251"]
+
+[tool.ruff.lint.flake8-tidy-imports.banned-api]
+"picamera2".msg = "only the camera implementation module may import picamera2"
+
+[tool.ruff.lint.per-file-ignores]
+"src/capture/picamera2_camera.py" = ["TID251"]
+```
 
 ## Errors and exceptions
 
@@ -184,12 +221,23 @@ enough: it suppresses directory walking and does nothing for an explicitly named
 the end, the end never comes, and the suite hangs with no failure. Build the response in a
 request context and take what you need from the generator directly.
 
+**A layout is verified by looking at it.** No gate can see a page. Render it at a phone size and
+a desk size, read the screenshots, and only then call the change done.
+
 **Prove a comment-only change with the AST.** Parse each file before and after, strip the
 docstrings, and compare `ast.dump`. Equal dumps mean no behaviour changed.
 
 ## Tooling
 
 Every commit must pass the linter, the formatter check, the type checker, and the tests.
+
+**One script runs every gate, and CI runs that same script,** in the order that fails fastest.
+A gate that only CI runs is found after the push; one that only a laptop runs drifts.
+
+**Lint the shell and spell-check everything.** Shell scripts go through shellcheck and every
+tracked file through codespell, as gates like any other. Pin both and install them without
+root — as dev dependencies, or through `uvx` (`uvx --from shellcheck-py==<version> shellcheck`,
+`uvx codespell==<version>`) — so every machine and CI run the same version.
 
 **Adopt lint rules by measuring, not by reputation.** Turn a rule on, look at what it actually
 flags, and decide. Rules that report nothing today still cost nothing and guard the future;

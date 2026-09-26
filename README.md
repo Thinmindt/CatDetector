@@ -2,6 +2,23 @@
 
 Raspberry Pi camera monitor: motion-triggered recording plus a live MJPEG web stream.
 
+## What you need
+
+- **A camera fixed overhead**, pointing straight down at the litter boxes.
+- **The boxes lit around the clock.** The camera cannot see in the dark, and a visit it cannot see
+  is not recorded. Keep it constant: a light that switches on with motion leaves the moments
+  before it dark, and switching on changes the whole frame at once.
+- **Hardware the camera code supports.** Today that is one implementation: a Raspberry Pi 5 with
+  the IR-filtered Camera Module 3. Other Pis and cameras are planned as further implementations
+  (roadmap C.1).
+- **Somewhere for the clips**: a mounted filesystem, such as a NAS, another computer's share or a
+  USB disk (see Configuration).
+
+Recommended: [pi-tools](https://github.com/Thinmindt/pi-tools), a Claude Code plugin that makes the
+journal persistent, logs the Pi's supply voltage and temperature, brings a Pi 5 back on its own
+after an unexpected power-off, and pings a dead man's switch so you hear when the Pi goes quiet.
+A power-off is a gap in the cats' record, and this project cannot notice its own absence.
+
 ## System dependencies
 
 Runs on Raspberry Pi OS trixie (Debian 13), which ships Python 3.13. The Python version is set by
@@ -93,7 +110,12 @@ uv run ruff check .          # lint
 uv run ruff check --fix .    # lint + autofix
 uv run ruff format .         # format
 uv run mypy .                # type-check (strict)
+npm run lint                 # the page's JavaScript (needs node; run npm install once)
+uv run shellcheck scripts/*.sh deploy/*.sh    # shell scripts
+git ls-files -z | xargs -0 uv run codespell   # spelling, in every tracked file
 ```
+
+`check.sh` also runs the privacy check first (`scripts/check_private.sh`; see CLAUDE.md).
 
 GitHub Actions runs the same script on every push (`.github/workflows/check.yml`).
 
@@ -129,9 +151,15 @@ on the share being reachable: if it goes away, clips queue locally and are shipp
 back. A clip only appears on the share under its final `.h264` name once every byte has arrived,
 so the review UI never samples a half-written file.
 
+`NETWORK_SHARE_DIR` must be a real mountpoint, so a missing mount cannot fill the SD card, and
+renames within it must be atomic. A NAS, another computer's SMB or NFS share, a USB disk and cloud
+storage mounted with rclone all qualify; a cloud mount makes the review page's tiles slow to
+build, since each is decoded from the whole clip. A plain directory on local disk is refused for
+now (roadmap C.5).
+
 If the share is mounted from `/etc/fstab`, pin the `soft` option explicitly. It is the CIFS
-default, so it is easy to lose by accident — and on a `hard` mount an unreachable NAS blocks
-writes indefinitely instead of failing with an error.
+default, so it is easy to lose by accident; NFS mounts `hard` unless told otherwise. On a `hard`
+mount an unreachable server blocks writes indefinitely instead of failing with an error.
 
 The cats, for labelling which one made a visit. Any number, comma-separated, in the order the
 review page's digit keys should take:

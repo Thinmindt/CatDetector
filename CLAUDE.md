@@ -7,26 +7,32 @@ no prior context and are about to change something on real hardware.
 
 | file | what it holds |
 |---|---|
-| `docs/ROADMAP.md` | where the project is going, phase by phase, and the open questions |
+| `docs/ROADMAP.md` | where the project is going, phase by phase, and the open questions — the plan as it stands today |
+| `docs/ROADMAP_ARCHIVE.md` | finished roadmap items and the history behind decisions, under the same section letters |
 | `docs/DESIGN.md` | why the code is shaped the way it is — rationale, measurements, rejected alternatives |
 | `docs/STYLE.md` | how to write code here; a general Python style guide, portable to other repos |
 
 Read `docs/STYLE.md` before writing code and `docs/DESIGN.md` before changing behaviour. This
 file overlaps them deliberately: CLAUDE.md carries the traps you must not fall into, and the
 design doc carries the full reasoning behind each one. The roadmap's section letters (A.2, A.4,
-B.5b, …) are cited by the design doc and the commit messages.
+B.5b, …) are cited by the design doc and the commit messages, and never change: when an item is
+finished, or a passage turns into history, it moves verbatim to the archive under the same letter,
+so the roadmap only ever describes the present plan.
 
-Anything else in `docs/` is **gitignored** (`docs/TODO.md` is the owner's to-do list), as is
+Anything else in `docs/` is **gitignored** (`docs/TODO.md` is the owner's to-do list, open items
+only, and `docs/TODO_ARCHIVE.md` holds the finished ones), as is
 `CLAUDE.local.md`, which holds facts about the one Pi this runs on — its account, its mounts,
-what needs the owner's own terminal. A fresh clone has neither file.
+what needs the owner's own terminal. A fresh clone has none of these files.
 
 ## What this actually is
 
-A Raspberry Pi camera pointed **down at the litter boxes**; three are in frame. It records
+A Raspberry Pi camera pointed **down at the litter boxes**, which must be lit around the clock. It records
 motion-triggered clips and serves a live MJPEG stream. The end goal is **catching bowel or urinary
 trouble in a particular cat**. That needs every visit recorded and attributed to **which cat**
 made it, which is why the roadmap is split into triggering reliably (part A) and building a
-labelled dataset plus classifier (part B). Telling poop from pee may be tried later; nothing
+labelled dataset plus classifier (part B). Part C keeps it working for other installations: the
+owner's Pi, camera, box count and thresholds are one implementation and one calibration, not
+requirements. Telling poop from pee may be tried later; nothing
 should depend on it.
 
 Three consequences worth holding onto:
@@ -35,8 +41,8 @@ Three consequences worth holding onto:
   in a cat's record can look like the very change the project exists to flag. Do not "improve"
   detection by making it stricter without checking that against the roadmap.
 - **A visit may span several clips.** Recording may stop while a cat sits still, as long as the
-  clips on either side end up linked to one litter-box event (roadmap A.4; this linking is not
-  built yet). Do not "fix" a clip ending mid-visit by holding recording open.
+  clips on either side end up linked to one litter-box event (roadmap A.4; clips are grouped into
+  events at ingest). Do not "fix" a clip ending mid-visit by holding recording open.
 - The camera is fixed and overhead, so a cat's apparent size in pixels is roughly constant. That
   fact is the basis of the planned detection work — do not design around a moving camera.
 
@@ -72,7 +78,7 @@ sudo bash deploy/install-service.sh          # install/refresh the catdetector s
 sudo systemctl stop catdetector              # free the camera for anything else
 journalctl -u catdetector -f                 # the service's logs
 
-bash scripts/check.sh                        # the privacy check and all five gates, fastest first
+bash scripts/check.sh                        # every gate, fastest first
 uv run pytest                                # unit tests (no hardware needed)
 uv run ruff check .                          # lint
 uv run ruff format .                         # format
@@ -128,11 +134,13 @@ lock: a stalled CIFS mount would otherwise freeze every review request behind it
 the sidecar reads live in `src/review/clip_scan.py`, which has no lock to hold; `ingest` calls it
 unlocked and takes the lock only to insert what it found. Keep share I/O in that module.
 
-**All five gates must pass before every commit** — lint, format check, type check, the
-JavaScript lint, tests. `scripts/check.sh` runs them, and `.github/workflows/check.yml` runs the
-same script on every push. Run it and report the result. The JavaScript gate is eslint, pinned by
-`package.json` and `package-lock.json` and configured in `eslint.config.mjs`; run `npm install`
-once per checkout (CI runs `npm ci`). It needs node, which the Pi and the CI runner have.
+**Every gate must pass before every commit**: the privacy check, shellcheck, codespell, lint,
+format check, type check, the JavaScript lint, tests. `scripts/check.sh` runs them, and
+`.github/workflows/check.yml` runs the same script on every push. Run it and report the result.
+shellcheck and codespell are pinned dev dependencies, so `uv sync` installs them. The JavaScript
+gate is eslint, pinned by `package.json` and `package-lock.json` and configured in
+`eslint.config.mjs`; run `npm install` once per checkout (CI runs `npm ci`). It needs node, which
+CI installs and a contributor installs once.
 JavaScript dependencies go in `package.json` like Python ones go in `pyproject.toml`.
 
 Before the gates, `scripts/check.sh` runs `scripts/check_private.sh`, which fails if any private
@@ -434,9 +442,8 @@ Not bugs, but do not mistake them for correct:
   The largest blob is logged, both raw and after cleanup, but nothing yet *triggers* on it —
   that is A.3.
 - A cat that settles is absorbed into the background in roughly `history` frames (~17 s at the
-  default), so recording can stop mid-visit. That is acceptable once clips are linked into one
-  event (roadmap A.4). The linking is not built yet, so for now one visit can be several separate
-  clips.
+  default), so recording can stop mid-visit. That is acceptable because clips are linked into one
+  event (roadmap A.4), though the grouping thresholds are still starting guesses.
 - **The camera needs light.** It is the IR-filtered Camera Module 3 (libcamera reports `imx708`,
   not `imx708_noir`), so an unlit room is black to it. The boxes have been lit around the clock
   since 2026-09-16, and nights record like days. Motion is still ignored while the analysis frame's
