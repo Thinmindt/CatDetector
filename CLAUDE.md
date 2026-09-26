@@ -137,10 +137,12 @@ JavaScript dependencies go in `package.json` like Python ones go in `pyproject.t
 
 Before the gates, `scripts/check.sh` runs `scripts/check_private.sh`, which fails if any private
 term appears in a file git tracks or would add, or in the author, committer or message of a
-commit no remote has yet: the names in `.env`'s `CAT_NAMES` and each line
-of `.private-terms`. Both files are gitignored, so on CI and in a fresh clone it reports that
-nothing is configured and passes. When a new private fact turns up (an address, a hostname, a
-token), add it to `.private-terms`.
+commit no remote has yet. The terms are each line of the gitignored `.private-terms` and
+whatever `scripts/private_terms.sh` prints, which here is the names in `.env`'s `CAT_NAMES`.
+Without `.env` and `.private-terms`, as on CI and in a fresh clone, it reports that nothing is
+configured and passes. When a new private fact turns up (an address, a hostname, a token), add it
+to `.private-terms`. `check_private.sh` is the conventions plugin's template, copied unchanged;
+this project's own rule lives in `private_terms.sh`, so keep changes there.
 
 **A page change is verified by looking at it.** The test suite cannot see a layout, and the
 one bug the phone layout shipped with (a sheet that showed on load, because a `display: flex`

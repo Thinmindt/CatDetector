@@ -1,20 +1,21 @@
 #!/bin/bash
 # Fail if a private term appears in a file git tracks or would add, or in the author, committer
 # or message of a commit no remote has yet.
-# The terms are the names in .env's CAT_NAMES and each line of .private-terms (# starts a
-# comment). Both files are gitignored, so a clone without them has nothing to check.
+# The terms are each line of .private-terms (gitignored; # starts a comment) and whatever
+# scripts/private_terms.sh prints, if the project has one. With no terms, as on CI, it passes.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
 terms=$(mktemp)
 trap 'rm -f "$terms"' EXIT
-if [ -f .env ]; then
-    sed -n 's/^CAT_NAMES=//p' .env | tr -d "\"'" | tr ',' '\n' >>"$terms"
-fi
-if [ -f .private-terms ]; then
-    grep -v '^[[:space:]]*#' .private-terms >>"$terms" || true
-fi
-sed -i 's/^[[:space:]]*//; s/[[:space:]]*$//; /^$/d' "$terms"
+{
+    if [ -f .private-terms ]; then
+        grep -v '^[[:space:]]*#' .private-terms || true
+    fi
+    if [ -f scripts/private_terms.sh ]; then
+        bash scripts/private_terms.sh
+    fi
+} | sed 's/^[[:space:]]*//; s/[[:space:]]*$//; /^$/d' >"$terms"
 
 if [ ! -s "$terms" ]; then
     echo "private terms: none configured, skipped"
@@ -30,7 +31,7 @@ if git log HEAD --not --remotes --format='%h %an <%ae> committed by %cn <%ce>%n%
     found=1
 fi
 if [ "$found" -eq 1 ]; then
-    echo "private terms found above; they belong in CLAUDE.local.md or .env (CLAUDE.md, Repo hygiene)" >&2
+    echo "private terms found above; move them to a gitignored file" >&2
     exit 1
 fi
 echo "private terms: none in tracked files or unpushed commits"
