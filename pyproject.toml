@@ -23,10 +23,12 @@ dependencies = [
 
 [dependency-groups]
 dev = [
+    "codespell==2.4.3",
     "mypy>=1.18",
     "pytest>=8.3",
     "pytest-timeout>=2.3",
     "ruff>=0.14",
+    "shellcheck-py==0.11.0.1",
 ]
 
 [tool.uv]

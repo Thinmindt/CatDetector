@@ -459,7 +459,7 @@ Each works as it is for this installation and would bite someone else:
       on the share) the only contract.
 - [ ] `tests/manual/check_page.py` looks for `chromium` by that name; accept the other names
       Chromium and Chrome install under.
-- [ ] The README's list of gates leaves out node and the JavaScript lint.
+- [x] The README's list of gates leaves out node and the JavaScript lint. Done 2026-09-26.
 
 ---
 

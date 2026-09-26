@@ -163,8 +163,19 @@ the only one: a replacement camera, a cheaper board or a second unit should be a
 an edit through the whole program. Everything specific to the device (its sensor modes, formats,
 frame rates, quirks) stays inside its implementation, and the docs name it as that
 implementation, not as a requirement of the project. Enforce the boundary with the linter: ban
-the device library's imports everywhere except its implementation (ruff's `banned-api`,
-`TID251`), and test the rest of the program against a fake of the interface.
+the device library's imports everywhere except its implementation, and test the rest of the
+program against a fake of the interface.
+
+```toml
+[tool.ruff.lint]
+extend-select = ["TID251"]
+
+[tool.ruff.lint.flake8-tidy-imports.banned-api]
+"picamera2".msg = "only the camera implementation module may import picamera2"
+
+[tool.ruff.lint.per-file-ignores]
+"src/capture/picamera2_camera.py" = ["TID251"]
+```
 
 ## Errors and exceptions
 
@@ -222,6 +233,11 @@ Every commit must pass the linter, the formatter check, the type checker, and th
 
 **One script runs every gate, and CI runs that same script,** in the order that fails fastest.
 A gate that only CI runs is found after the push; one that only a laptop runs drifts.
+
+**Lint the shell and spell-check everything.** Shell scripts go through shellcheck and every
+tracked file through codespell, as gates like any other. Pin both and install them without
+root — as dev dependencies, or through `uvx` (`uvx --from shellcheck-py==<version> shellcheck`,
+`uvx codespell==<version>`) — so every machine and CI run the same version.
 
 **Adopt lint rules by measuring, not by reputation.** Turn a rule on, look at what it actually
 flags, and decide. Rules that report nothing today still cost nothing and guard the future;

@@ -78,7 +78,7 @@ sudo bash deploy/install-service.sh          # install/refresh the catdetector s
 sudo systemctl stop catdetector              # free the camera for anything else
 journalctl -u catdetector -f                 # the service's logs
 
-bash scripts/check.sh                        # the privacy check and all five gates, fastest first
+bash scripts/check.sh                        # every gate, fastest first
 uv run pytest                                # unit tests (no hardware needed)
 uv run ruff check .                          # lint
 uv run ruff format .                         # format
@@ -134,11 +134,13 @@ lock: a stalled CIFS mount would otherwise freeze every review request behind it
 the sidecar reads live in `src/review/clip_scan.py`, which has no lock to hold; `ingest` calls it
 unlocked and takes the lock only to insert what it found. Keep share I/O in that module.
 
-**All five gates must pass before every commit** — lint, format check, type check, the
-JavaScript lint, tests. `scripts/check.sh` runs them, and `.github/workflows/check.yml` runs the
-same script on every push. Run it and report the result. The JavaScript gate is eslint, pinned by
-`package.json` and `package-lock.json` and configured in `eslint.config.mjs`; run `npm install`
-once per checkout (CI runs `npm ci`). It needs node, which the Pi and the CI runner have.
+**Every gate must pass before every commit**: the privacy check, shellcheck, codespell, lint,
+format check, type check, the JavaScript lint, tests. `scripts/check.sh` runs them, and
+`.github/workflows/check.yml` runs the same script on every push. Run it and report the result.
+shellcheck and codespell are pinned dev dependencies, so `uv sync` installs them. The JavaScript
+gate is eslint, pinned by `package.json` and `package-lock.json` and configured in
+`eslint.config.mjs`; run `npm install` once per checkout (CI runs `npm ci`). It needs node, which
+CI installs and a contributor installs once.
 JavaScript dependencies go in `package.json` like Python ones go in `pyproject.toml`.
 
 Before the gates, `scripts/check.sh` runs `scripts/check_private.sh`, which fails if any private

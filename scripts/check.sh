@@ -4,6 +4,9 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 bash scripts/check_private.sh
+# shellcheck disable=SC2046
+uv run shellcheck $(git ls-files '*.sh')
+git ls-files -z | xargs -0 uv run codespell
 uv run ruff check .
 uv run ruff format --check .
 uv run mypy .
