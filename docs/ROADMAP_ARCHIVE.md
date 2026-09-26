@@ -14,11 +14,26 @@ Moved 2026-09-26.
 
 **Hardware/platform facts** (measured 2026-08-24): Raspberry Pi 5, no Hailo accelerator, so any
 *on-Pi* inference would be CPU. Local disk is ext4 with ~210 GB free. `/mnt/nas` is a **CIFS**
-share (~497 GB free) — this matters for storage decisions in B2. Jetson model and JetPack version are not yet recorded; JetPack pins its own Python (3.10 on
+share (~497 GB free) — this matters for storage decisions in B2 [B.2]. Jetson model and JetPack version are not yet recorded; JetPack pins its own Python (3.10 on
 JetPack 6) and PyTorch comes from NVIDIA's wheels, so the training environment is separate from
 this repo's `==3.13.*` pin and should not try to share it.
 
 Status: written 2026-08-24, after fixing clip saving and the startup false trigger.
+
+Moved 2026-09-26: the reasoning behind the hardware split. The roadmap keeps the split as this
+installation's choice; C.7 makes training hardware a choice for any installation.
+
+**Hardware split (decided 2026-08-24).** The **Pi stays the capture box** and the **Jetson does
+training and inference**. The Pi's camera stack is the reason: `picamera2`/`libcamera` are
+Raspberry Pi-specific (the `rpi/pisp` pipeline handler and `rp1-cfe` driver), and Jetson uses
+NVIDIA's Argus stack instead — porting means rewriting `camera_manager.py` and the encoder path
+in `motion_recorder.py`, i.e. every line that touches hardware, and likely a different camera
+module too. Nothing is gained for capture. Everything downstream of a JPEG crop is portable, and
+CUDA turns "fine-tune overnight" into minutes. So crops and labels move to the Jetson; frames
+never do.
+
+Consequence for B.5: training is off-device by design, and the crop/label store must be readable
+from the Jetson — the NAS share is the natural handoff point.
 
 ---
 
@@ -434,6 +449,25 @@ like everything else until the boxes are lit.
 
 ---
 
+# Part C — any installation
+
+## C.2 What every installation needs
+
+Moved 2026-09-26.
+
+- [x] **Light around the clock is a requirement**, stated in the README. Done 2026-09-26.
+- [x] **pi-tools is suggested in the README** for what the project cannot do itself: logging
+      power and heat, bringing a Pi 5 back after a power-off, and alerting when the Pi goes
+      quiet. Done 2026-09-26.
+
+## C.7 Choices to make options, flagged for the next developer
+
+Moved 2026-09-26.
+
+- [x] The README's list of gates leaves out node and the JavaScript lint. Done 2026-09-26.
+
+---
+
 # Risks and open questions
 
 Moved 2026-09-26: the resolved questions, and two open ones the data run answered or made moot.
@@ -451,7 +485,7 @@ cats without any neural network.
   is identified by name, and the number is not the app's to know. `CAT_NAMES` is a list of any
   length, set per installation (B.3); the code never assumes a count.
 - Is the floor around the box plain, or patterned/reflective in ways that fight background
-  subtraction?
+  subtraction? (still open, see the roadmap)
 - Consistent lighting, or does daylight sweep across it?
 
 ---
@@ -484,7 +518,7 @@ wanted rather than required.
   main.py sets the root to WARNING and only this application's loggers to INFO; keep it that
   way, since a blanket INFO root makes picamera2 narrate every state change.
   For the unit, consider `StandardOutput=journal` and dropping the timestamp from the format,
-  since journald adds its own.
+  since journald adds its own. (carried to the roadmap 2026-09-26)
 - **SIGTERM runs the same cleanup as Ctrl-C** (done 2026-09-11, verified on hardware 2026-09-12).
   `kill -TERM` mid-clip logged "Received SIGTERM", stopped saving, promoted the clip to its final
   name and flushed the metrics.

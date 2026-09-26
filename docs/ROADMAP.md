@@ -33,27 +33,19 @@ sit and how many cats use them are the installation's, not the project's (C.3).
 three boxes in one frame, three cats, and clips shipped to a NAS. Measurements in this roadmap
 come from it; Part C is about not mistaking it for a requirement.
 
-**Hardware split (decided 2026-08-24).** The **Pi stays the capture box** and the **Jetson does
-training and inference**. The Pi's camera stack is the reason: `picamera2`/`libcamera` are
-Raspberry Pi-specific (the `rpi/pisp` pipeline handler and `rp1-cfe` driver), and Jetson uses
-NVIDIA's Argus stack instead — porting means rewriting `camera_manager.py` and the encoder path
-in `motion_recorder.py`, i.e. every line that touches hardware, and likely a different camera
-module too. Nothing is gained for capture. Everything downstream of a JPEG crop is portable, and
-CUDA turns "fine-tune overnight" into minutes. So crops and labels move to the Jetson; frames
-never do.
-
-Consequence for B.5: training is off-device by design, and the crop/label store must be readable
-from the Jetson — the NAS share is the natural handoff point.
+**Hardware split.** This installation's choice: the Pi captures and a Jetson trains, with the
+crops and labels on the share as the handoff to whatever trains (C.7); frames never leave the Pi.
 
 **Platform.** Raspberry Pi 5 with no Hailo accelerator, so any *on-Pi* inference would be CPU.
-Local disk is ext4 (204 GB free); the NAS share is **CIFS** (467 GB free), which is why SQLite
-stays local (B.2). The Jetson's model and JetPack version are not yet recorded; JetPack pins its
-own Python (3.10 on JetPack 6) and PyTorch comes from NVIDIA's wheels, so the training
+Local disk is ext4 and the NAS share is **CIFS** (204 GB and 467 GB free on 2026-09-26), which is
+why SQLite stays local (B.2). The Jetson's model and JetPack version are not yet recorded; JetPack
+pins its own Python (3.10 on JetPack 6) and PyTorch comes from NVIDIA's wheels, so the training
 environment is separate from this repo's `==3.13.*` pin and should not try to share it.
 
-**Thermal headroom.** With the Active Cooler the SoC holds 51–55 °C under the detector with no
-throttling; without it, 84–86 °C and throttled. Any extra on-Pi work, including inference for
-B.5, has to fit in the headroom that leaves; measure it before assuming there is any.
+**Thermal headroom.** With the Active Cooler the SoC holds 46–55 °C under the detector with no
+throttling (pi-health, 2026-09-25 to 26); without it, 84–86 °C and throttled. Any extra on-Pi
+work, including inference for B.5, has to fit in the headroom that leaves; measure it before
+assuming there is any.
 
 ---
 
@@ -84,32 +76,41 @@ sees nothing in the dark; if the light fails, the dark gate stops black clips bu
    global count. A.3 fixes this.
 2. **A stationary cat fades out.** MOG2 absorbs anything static in ~17 s, so recording can stop
    mid-visit. That is accepted: A.4 links the clips on either side into one event.
-3. **Light changes trigger.** Evening sun crossing the floor is the main daytime false trigger,
-   about one false clip an hour in daylight. A size band with an upper bound (A.3) is the fix.
+3. **False triggers.** From 2026-09-16 to 25, 162 events were labelled `not_cat`; leaving out
+   the 28 from the light install and a remount, 134, about 13 a day and 0.9 an hour between
+   07:00 and 19:00. They peak around 10:00 and 13:00–15:00, not in the evening: the evening-sun
+   reading came from day one of the run (2026-09-15) alone. What triggered each one (sun, room
+   light, a person) is not labelled. A size band with an upper bound (A.3) is the fix for the
+   lighting ones.
 
 ## A.2 Measure before tuning
 
 **The data run** has been running since 2026-09-14 as the `catdetector` service, with
 `MOTION_THRESHOLD=150` and `METRICS_CSV` on, over-capturing rather than missing, so a visit below
 the threshold still leaves a trace in the CSV. The trigger is tuned to the weakest visit, not the
-average one: entry frames (325 px seen) and a cat sitting still (47–130 px) are the binding cases,
-and both are rare, so the unit to collect is **visits, not hours**. Only visits under the light,
-from 2026-09-16, count; earlier ones are a different regime. The run stops when every condition
-below holds.
+average one: entry frames (325 px seen) and a cat sitting still (47–130 px) are the binding cases
+(one visit each, 2026-09-15), and both are rare, so the unit to collect is **visits, not hours**.
+Only visits under the light, from 2026-09-16, count; earlier ones are a different regime. The run
+stops when every condition below holds.
 
-| condition | why | 2026-09-26 07:15 |
+| condition | why | 2026-09-26 |
 |---|---|---|
-| **50+ labelled visits, 100 preferred** | zero misses in 50 only bounds the miss rate at ~6% (95%); at 100, ~3% | 70 |
-| **10+ at night under the light** | more sensor gain, more noise: a different regime | 25 |
-| **15+ per cat** | a dark cat on dark litter gives a weaker signal than a pale one | 37 / 18 / 15 |
-| **all three boxes used** | the far box covers fewer pixels and may read weaker | left 44, middle 25, right 1 |
-| **several days of varied weather, one overcast** | sunlight crossing the floor is the main daytime false trigger | not checked |
+| **50+ labelled visits, 100 preferred** | zero misses in 50 only bounds the miss rate at ~6% (95%); at 100, ~3% | 72 |
+| **10+ at night under the light** | more sensor gain, more noise: a different regime | 27 |
+| **15+ per cat** | a dark cat on dark litter gives a weaker signal than a pale one | 38 / 19 / 15 |
+| **all three boxes used** | the far box covers fewer pixels and may read weaker | left 45, middle 23, right 4 |
+| **several days of varied weather, one overcast** | lighting changes are a daytime false trigger (A.1) | not checked |
 | **the smallest entry blob has stopped dropping over the last ~20 visits** | tuning follows the weakest case | not checked |
 
-Boxes are placed by the trigger centroid's third of the lores frame. False positives are
-measurable from hours rather than visits, and any candidate rule can be replayed against the
-metrics CSV without re-recording. Storage is not the constraint (~130 MB/day of metrics plus
-clips). **Labelling is**: ~10 clips a day has to be kept up with, or the backlog outlives the run.
+How the column is counted, from `captures.db`: a visit is an event labelled with a cat's name
+whose first clip started on or after 2026-09-16 (12 earlier ones excluded); night is an event
+starting between 20:00 and 06:00; per-cat counts run from most visits to fewest; the box is the
+third of the 640-px lores width holding the trigger centroid of the event's **first** clip. False
+positives are measurable from hours rather than visits, and any candidate rule can be replayed
+against the metrics CSV without re-recording. Storage is not the constraint (~147 MB/day of
+metrics, 1.71 GB from 2026-09-14 to 09-26, plus clips). **Labelling is**: about 24 events a day
+from 2026-09-16 to 25 (12–16 a day over the last four) have to be kept up with, or the backlog
+outlives the run.
 
 - [ ] **Finish the data run** against the table above. The right box is the thin one.
 - [ ] **Derive the size band.** From the labelled lit events, the distribution of cleaned
@@ -226,9 +227,10 @@ Next, in this order:
 - [ ] **An explicit review queue, with staging.** Today the queue is
       implicit: the unlabelled events, in review order, and labelling one removes it. There is
       no way to put an event back without erasing its label, and no record of why it came back.
-      The need is real now: 110 `not_cat` labels were made from the first eight seconds of each
-      clip, before the whole-clip tiles, and `label.labeled_at` identifies them exactly, but
-      nothing can walk them without losing the labels. A **staging table** fixes that: one row
+      The need is real now: the 110 `not_cat` labels made before 2026-09-20 (`label.labeled_at`)
+      include those made from the first eight seconds of each clip, before the whole-clip tiles
+      (95 are older than the tiles' commit on 2026-09-17 21:10), but nothing can walk them
+      without losing the labels. A **staging table** fixes that: one row
       per staged event with a reason, when it was staged and by whom (`human`, `agent`, later
       `model`). The default walk becomes the unlabelled events **plus** the staged ones, in the
       same order, so a re-review is worked in the same sitting as fresh events. The event keeps
@@ -347,7 +349,8 @@ the urinary side of the goal rests on visit frequency and duration per cat (B.6)
       time on hover (C.6). It is also the **selection surface for the review queue** (B.3):
       filters by label value, date range, time of day and labelled-before-a-timestamp, each row
       with a stage button, and "stage everything shown, with this reason" for the set. The first
-      use is the 110 `not_cat` labels made before the whole-clip tiles.
+      use is the 110 `not_cat` labels made before 2026-09-20, which cover those made before the
+      whole-clip tiles.
 - [ ] Litter box usage is a health signal, and catching bowel or urinary trouble is the goal.
       Alert on changes in how often a cat visits and how long it stays.
       That should shape what gets logged from the start (duration in box, time of day), because
@@ -384,14 +387,12 @@ place where that installation is written into the project, or says plainly what 
       Pi 5 picamera2's `H264Encoder` is `LibavH264Encoder`, so that thread never runs. Find where
       output happens there, re-check that nothing can raise out of it, and state the trap per
       implementation. **Done means** the documented thread is the one a stack trace from this Pi
-      shows.
+      shows. CLAUDE.md and DESIGN.md state both paths from the picamera2 source (2026-09-26);
+      the stack trace is what remains.
 
 ## C.2 What every installation needs
 
-- [x] **Light around the clock is a requirement**, stated in the README. Done 2026-09-26.
-- [x] **pi-tools is suggested in the README** for what the project cannot do itself: logging
-      power and heat, bringing a Pi 5 back after a power-off, and alerting when the Pi goes
-      quiet. Done 2026-09-26.
+Nothing open; finished items are in the archive.
 
 ## C.3 Any number of boxes, anywhere, and more than one camera
 
@@ -459,7 +460,6 @@ Each works as it is for this installation and would bite someone else:
       on the share) the only contract.
 - [ ] `tests/manual/check_page.py` looks for `chromium` by that name; accept the other names
       Chromium and Chrome install under.
-- [x] The README's list of gates leaves out node and the JavaScript lint. Done 2026-09-26.
 
 ---
 
@@ -471,15 +471,22 @@ worse. Keep it LAN-only, and add auth and a real WSGI server (waitress/gunicorn)
 reachable from anywhere else. Do not port-forward it.
 
 **Storage growth and retention.** 10 Mbps is ~75 MB per minute of recording, and crops add to
-that. Clips took 31 GB from 2026-08-25 to 2026-09-26, with 467 GB free on the share.
+that. Clips took 32.2 GB across 579 clips from 2026-08-25 to 2026-09-26 (the sum of
+`clip.size_bytes` in `captures.db`), with 467 GB free on the share.
 
 - [ ] Set a retention policy before space runs short. Full clips are the bulk and are the least
       valuable once an event is labeled and cropped.
 
 **Power.** The Pi has powered off without a shutdown four times (latest 2026-09-24), a PMIC
 standby whose cause is not known; pi-wake brings it back within 10 minutes. Each one is a gap in
-the cats' record, and a gap can look like the very change the project exists to flag. The
-official 27 W supply is the next experiment.
+the cats' record, and a gap can look like the very change the project exists to flag. On this
+installation a different power supply is being tried. On 2026-09-26 at 06:36 it also had a warm
+reset (`rsts=0x1020`, a watchdog or software reset, cause unknown), a gap of 2.6 minutes.
+
+**Capture stalls.** On 2026-09-26 from 09:05 to 12:51, a gap of 3 h 46 min, libcamera logged
+"Camera frontend has timed out" (its dequeue timer expired) and the capture thread blocked. The
+process stayed alive, so systemd's `Restart=on-failure` never fired and nothing alerted; a manual
+restart fixed it.
 
 **Coats and litter.** Detection has been tested on three cats' coats and one litter, and other
 combinations may do worse. Untested so far: a dark cat on dark litter gives a weaker foreground
@@ -493,3 +500,6 @@ Still open:
 
 - Is the floor around the boxes plain, or patterned/reflective in ways that fight background
   subtraction?
+- Should a capture stall end the process so systemd restarts it?
+- Should the unit log with `StandardOutput=journal` and drop the timestamp from the log format,
+  since journald adds its own? Journal lines carry both today.
