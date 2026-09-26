@@ -72,7 +72,7 @@ sudo bash deploy/install-service.sh          # install/refresh the catdetector s
 sudo systemctl stop catdetector              # free the camera for anything else
 journalctl -u catdetector -f                 # the service's logs
 
-bash scripts/check.sh                        # all five gates, in the order that fails fastest
+bash scripts/check.sh                        # the privacy check and all five gates, fastest first
 uv run pytest                                # unit tests (no hardware needed)
 uv run ruff check .                          # lint
 uv run ruff format .                         # format
@@ -134,6 +134,13 @@ same script on every push. Run it and report the result. The JavaScript gate is 
 `package.json` and `package-lock.json` and configured in `eslint.config.mjs`; run `npm install`
 once per checkout (CI runs `npm ci`). It needs node, which the Pi and the CI runner have.
 JavaScript dependencies go in `package.json` like Python ones go in `pyproject.toml`.
+
+Before the gates, `scripts/check.sh` runs `scripts/check_private.sh`, which fails if any private
+term appears in a file git tracks or would add, or in the author, committer or message of a
+commit no remote has yet: the names in `.env`'s `CAT_NAMES` and each line
+of `.private-terms`. Both files are gitignored, so on CI and in a fresh clone it reports that
+nothing is configured and passes. When a new private fact turns up (an address, a hostname, a
+token), add it to `.private-terms`.
 
 **A page change is verified by looking at it.** The test suite cannot see a layout, and the
 one bug the phone layout shipped with (a sheet that showed on load, because a `display: flex`
@@ -218,13 +225,20 @@ others are disabled inside `tests/**` for reasons recorded in `docs/STYLE.md` �
 ## Repo hygiene
 
 **This repo is public.** Treat tracked files and commit messages as world-readable. Never put LAN
-addresses, share names, hostnames, or credentials in anything tracked — they belong in
-`CLAUDE.local.md`, which is gitignored. `.env` is ignored and has never been
+addresses, share names, hostnames, credentials, or anything personal about the owner — their
+email, their cats' names — in anything tracked; they belong in `CLAUDE.local.md` or `.env`, which
+are gitignored. A pet's name is a common answer to account-recovery questions, and knowing it
+lends a stranger false familiarity, so treat the cats' names like a password. It is also a
+generality rule: another installation has other cats, so code, tests and docs use made-up names
+(`Ada`, `Bea`) or "Cat A", never the ones in `.env`. `.env` is ignored and has never been
 committed; keep it that way. The same test applies to prose: tracked files are written for a
 stranger with a Pi and a cat. Opinions about the code belong in; notes about the owner, their
 machine or their workflow go in `CLAUDE.local.md`.
 
-Commit messages carry no `Claude-Session:` trailers. `Co-Authored-By:` is fine.
+Commit messages carry no `Claude-Session:` trailers. `Co-Authored-By:` is fine. Author and
+committer lines are public too: list any address you would not publish in `.private-terms`, and
+the privacy check fails a commit that carries it before it is pushed. Commits already on a remote
+are not rechecked.
 
 If something sensitive lands in a commit that has **not** been pushed, remove it from history
 then, not later — rewriting unpushed commits is free and rewriting pushed ones is not.

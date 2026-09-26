@@ -453,7 +453,7 @@ labels, in the order listed:
         `next` on the `?filter=` walks, and `rescan`. The sheet closes on any action or a tap
         outside it.
       - **Undo is a snackbar.** After a label, a strip above the bar says what was recorded
-        (`Bea`) with an `undo` button for a few seconds; `z` still works. That removes undo
+        (the cat's name) with an `undo` button for a few seconds; `z` still works. That removes undo
         from the bar without hiding it, and the confirmation is the feedback a tap otherwise
         lacks. While a label request is in flight the bar is disabled, so a double tap cannot
         label two events.
