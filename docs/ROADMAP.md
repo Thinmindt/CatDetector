@@ -178,6 +178,30 @@ against the metrics rows rather than the video.
       **Done means** the list exists, A.2's script scores a candidate detector against it, and
       A.3's change is accepted only if recall on the set does not drop.
 
+## A.6 Keep capturing
+
+A trigger that works is no use while the camera delivers no frames. On 2026-09-26 from 09:05 to
+12:51, libcamera logged "Camera frontend has timed out" and `capture_arrays()` blocked from then
+on without raising. The process stayed alive, so systemd's `Restart=on-failure` never fired; the
+web server answered `/api/status` throughout, and nothing alerted. A manual restart brought the
+camera back at 30 fps, and that shutdown completed in 5 s with the camera still wedged. In twelve
+days of the metrics CSV, the longest gap between frames outside a restart or power-off is 1.95 s.
+
+- [ ] **Restart on a capture stall.** When no frame has arrived for 10 s, the detector logs an
+      error, shuts down through the usual cleanup and exits non-zero, so systemd restarts it. A
+      camera that stays dead restarts every ~35 s indefinitely, which is the right failure for
+      recall: it keeps trying and the journal shows every attempt.
+      **Done means** a test with a camera whose capture blocks sees the process exit non-zero
+      through the same cleanup as SIGTERM, a test sees no exit while frames arrive, and the
+      service runs on the Pi for 24 h with no stall restart.
+- [ ] **Alert when capture stops.** The Pi's heartbeat proves the Pi is up, not that the camera
+      is: the 3 h 46 min stall pinged every minute. The detector pings its own dead man's switch
+      (an optional `HEALTHCHECK_URL`), from a worker thread, and only while frames are arriving,
+      so a stall, a restart loop or a stopped service each goes quiet.
+      **Done means** a test sees the ping stop when frames stop and resume when they resume,
+      the ping never runs on the capture thread, and the README's Configuration section
+      describes the setting.
+
 ---
 
 # Part B — knowing which cat
@@ -576,10 +600,8 @@ can look like the very change the project exists to flag. A Pi 5 has been seen t
 standby with no shutdown and no known cause; an RTC wake alarm kept armed brings it back within
 10 minutes.
 
-**Capture stalls.** On 2026-09-26 from 09:05 to 12:51, a gap of 3 h 46 min, libcamera logged
-"Camera frontend has timed out" (its dequeue timer expired) and the capture thread blocked. The
-process stayed alive, so systemd's `Restart=on-failure` never fired and nothing alerted; a manual
-restart fixed it.
+**Capture stalls.** The camera can stop delivering frames while the process stays alive (once so
+far, 2026-09-26, 3 h 46 min). A.6 restarts it and alerts; what causes it is not known.
 
 **Coats and litter.** Detection has been tested on three cats' coats and one litter, and other
 combinations may do worse. Untested so far: a dark cat on dark litter gives a weaker foreground
@@ -593,6 +615,5 @@ Still open:
 
 - Is the floor around the boxes plain, or patterned/reflective in ways that fight background
   subtraction?
-- Should a capture stall end the process so systemd restarts it?
 - Should the unit log with `StandardOutput=journal` and drop the timestamp from the log format,
   since journald adds its own? Journal lines carry both today.
