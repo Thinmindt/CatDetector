@@ -9,20 +9,29 @@ here and its history there.
 recording every litter box visit and knowing **which cat** made it. Telling poop from pee might come
 later, but it looks hard and unreliable, so nothing depends on it.
 
-Two workstreams, in dependency order:
+Two workstreams, in dependency order, and a third that runs alongside both:
 
 - **Part A — trigger reliably.** A cat entering the frame always starts a recording.
   Recall is the priority: a missed visit is a failure, an extra clip is an annoyance.
 - **Part B — identify the cat.** Collect and label enough images to train a per-cat
   classifier, which needs a labeling workflow before it needs a model.
+- **Part C — any installation.** Someone else's cats, boxes, camera, Pi and storage should work
+  as well as the ones this was built on, with the hardware behind interfaces and nothing about
+  one home written into the code.
 
 Part B depends on Part A's bounding box: the box that decides "this is cat-sized" is the
 same box that crops training images. Do not build the crop pipeline twice.
 
-**Setup this assumes.** One fixed camera mounted overhead, pointing straight down at the
-litter boxes; three are in frame. Because the camera never moves and the boxes are a fixed
-distance away, a cat's apparent size in pixels is roughly constant. That is the most useful fact
-available, and the trigger does not use it yet (A.3).
+**What every installation needs.** A fixed camera mounted overhead, pointing straight down at
+the litter boxes, and **the boxes lit around the clock**: the camera sees nothing in the dark, and
+constant light is what made nights record like days. Because the camera never moves and the boxes
+are a fixed distance away, a cat's apparent size in pixels is roughly constant. That is the most
+useful fact available, and the trigger does not use it yet (A.3). The number of boxes, where they
+sit and how many cats use them are the installation's, not the project's (C.3).
+
+**The installation this was built on:** a Raspberry Pi 5 with the IR-filtered Camera Module 3,
+three boxes in one frame, three cats, and clips shipped to a NAS. Measurements in this roadmap
+come from it; Part C is about not mistaking it for a requirement.
 
 **Hardware split (decided 2026-08-24).** The **Pi stays the capture box** and the **Jetson does
 training and inference**. The Pi's camera stack is the reason: `picamera2`/`libcamera` are
@@ -183,6 +192,13 @@ image blobs in SQLite. The built tables are in `src/review/capture_db.py`: `even
 review loop needs) and `poop_count`.
 
 - [ ] A `crop` table for B.1: event, path on the NAS, when it was captured.
+- [ ] **Prune `.review_cache`.** It keeps every strip, up to 48 full frames (~4 MB) per clip and
+      a remuxed MP4 per watched clip, and nothing ever removes them; on a small SD card it
+      eventually reaches the recorder's 1 GB free-space floor and recording stops. Give it a size
+      budget (configurable, a sensible share of the disk by default) and evict least recently
+      used entries past it, oldest first; everything in it can be rebuilt from the clip.
+      **Done means** a test fills the cache past its budget and sees it shrink below it without
+      touching the entries the page is showing, and the README says what the budget is.
 - [ ] The DB is the only thing that is hard to recreate, so it is the thing to back up.
 - [ ] Watch SD-card wear: many small writes. Batch inserts per event rather than per frame.
 
@@ -238,8 +254,6 @@ Next, in this order:
         make `--regroup` refuse to run while the service holds the database.
       - A persistent clip-open failure (directory gone, permissions) logs a full traceback on
         every motion frame, at 30 Hz, for as long as motion lasts. Log once per failure streak.
-- [ ] **Dates are machine-shaped.** Show times in a readable local form (`Tue 15 Sep, 06:11`),
-      with the relative time (`3 days ago`) on hover, here and on the timeline below (B.6).
 - [ ] **The tiles are slow to appear, worst on multi-clip events.** A strip
       is built on its first request: ffmpeg reads the whole clip off the share and decodes every
       keyframe, and an event with several clips fires several of those at once. Build them
@@ -321,13 +335,16 @@ The convention, so the record stays readable:
 
 - [ ] A view over time of counts per box, beside visit frequency per cat (B.6).
 
+Not pursued: counting urine clumps the same way. They could not be validated with this setup, so
+the urinary side of the goal rests on visit frequency and duration per cat (B.6).
+
 ## B.6 The payoff
 
 - [ ] **A timeline of every event**, newest first, one row each with its time, label, box,
       duration and clip count, linking to the event's review page. One filter per label value
       (the same set the review walk uses, the cats' names included), so one cat's rows read as
       that cat's visit log and the `clean` rows as the cleaning log. Dates readable, relative
-      time on hover (B.3). It is also the **selection surface for the review queue** (B.3):
+      time on hover (C.6). It is also the **selection surface for the review queue** (B.3):
       filters by label value, date range, time of day and labelled-before-a-timestamp, each row
       with a stage button, and "stage everything shown, with this reason" for the set. The first
       use is the 110 `not_cat` labels made before the whole-clip tiles.
@@ -339,6 +356,110 @@ The convention, so the record stays readable:
       it.
 - [ ] Human-in-the-loop: the model labels, low-confidence events are staged into the review
       queue (B.3) with `source=model`, corrections feed the next training round.
+
+---
+
+# Part C — any installation
+
+The hardware, the layout and the numbers here are one installation's. Each item below removes a
+place where that installation is written into the project, or says plainly what another one needs.
+
+## C.1 Hardware behind interfaces
+
+- [ ] **The camera becomes an interface with one implementation.** What the capture side needs
+      from a camera is small: a display stream and an analysis stream delivered to consumers,
+      and an H.264 encoder writing into a ring buffer that can be diverted to a file. Write that
+      down as an interface, move everything picamera2- and sensor-specific into one module that
+      implements it for a Pi 5 with the Camera Module 3 (the RGB888 analysis stream, the
+      2304x1296 sensor mode, the software encoder), and narrow the `picamera2` lint fence from
+      `src/capture/` to that module. A Pi 4 (which needs a YUV analysis stream and has a hardware
+      encoder) or another camera then becomes a second module. A NoIR camera with an IR light
+      would also arrive this way; it is not supported now, because it changes the night regime
+      and the coat colours B.5 relies on, and nobody here can test it.
+      **Done means** `picamera2` is importable only in the implementation module, the rest of
+      `src/capture/` is tested against a fake of the interface, and the docs name the Pi 5 and
+      Camera Module 3 as that implementation rather than as requirements.
+- [ ] **Correct the encoder trap for the implementation that runs.** `CLAUDE.md` and `DESIGN.md`
+      say clip bytes are written on `V4L2Encoder.thread_poll`. That is the hardware encoder; on a
+      Pi 5 picamera2's `H264Encoder` is `LibavH264Encoder`, so that thread never runs. Find where
+      output happens there, re-check that nothing can raise out of it, and state the trap per
+      implementation. **Done means** the documented thread is the one a stack trace from this Pi
+      shows.
+
+## C.2 What every installation needs
+
+- [x] **Light around the clock is a requirement**, stated in the README. Done 2026-09-26.
+- [x] **pi-tools is suggested in the README** for what the project cannot do itself: logging
+      power and heat, bringing a Pi 5 back after a power-off, and alerting when the Pi goes
+      quiet. Done 2026-09-26.
+
+## C.3 Any number of boxes, anywhere, and more than one camera
+
+- [ ] **No fixed number or layout of boxes.** Three are hard-coded today: `BOXES` in
+      `src/review/api.py`, the cleaning form in `app.html` and `app.js`, and the tests. Boxes
+      become configuration, per camera, so the cleaning form shows the installation's boxes and
+      a fourth one's counts can be recorded. Event grouping already places clips by centroid
+      distance, so it needs no box map.
+- [ ] **More than one camera.** Boxes may be in different rooms. Each camera is a capture node
+      with an id, in its clips' names and sidecars; clips go to one share under that id; one
+      review server ingests them all; grouping and box numbers are per camera; the review page
+      says which camera an event came from. A second Pi is a second node, not a second project.
+- **Done means** for both: a test installation with two cameras and a different number of boxes
+  in each ingests, groups and records cleaning counts correctly, and no code, test or doc
+  outside configuration says "three".
+
+## C.4 Calibration per installation
+
+- [ ] **The pixel numbers are this mount's.** `MOTION_THRESHOLD`, `EVENT_BOX_DISTANCE_PX`, the
+      blob kernels and A.3's future size band all depend on mounting height, resolution and the
+      size of the cats. Label every default as "from one installation", and turn A.2's derivation
+      into a documented procedure anyone can run: a week at a low threshold with `METRICS_CSV`
+      on, label the visits, run a script that proposes the values. **Done means** the README has
+      a calibration section and the script works on a metrics CSV and a database other than this
+      installation's.
+
+## C.5 Storage anywhere
+
+- [ ] **Clips go to any mounted filesystem, or stay local.** The share does not have to be a NAS:
+      another computer's SMB or NFS share, a USB disk or cloud storage mounted with rclone all
+      work if they are a real mountpoint (so an absent mount cannot fill the SD card), rename
+      within them is atomic (so no reader sees a half-written clip), and the review side can read
+      them. Cloud mounts make strip building slow, since ffmpeg reads each whole clip. Add an
+      explicit local-only mode, so a single Pi can record and review with no second machine; today
+      a plain directory is refused and nothing reaches the review page. The README's `soft` mount
+      advice is CIFS-only: NFS mounts `hard` by default, which stalls the transfer and review
+      threads. **Done means** the README lists the destinations and their requirements, and a
+      test runs the whole path in local-only mode.
+
+## C.6 Times stored in UTC, shown in local time
+
+- [ ] Everything stored records UTC with an explicit `Z` or offset: clip names, sidecars, the
+      database, the metrics CSV. Everything a person reads shows local time in a readable form
+      (the review page takes the browser's zone and locale; logs take the Pi's). This removes the
+      daylight-saving collisions the recorder works around today, makes time-of-day analysis
+      (B.6) independent of how the Pi's zone was set, and absorbs B.3's "Dates are machine-shaped".
+      Existing data was written in the Pi's local time: ingest reads an unmarked time as local
+      and converts it, and names already on the share stay as they are.
+      **Done means** every stored time carries its zone, a test crosses both daylight-saving
+      changes, and no page or log shows a raw ISO string.
+
+## C.7 Choices to make options, flagged for the next developer
+
+Each works as it is for this installation and would bite someone else:
+
+- [ ] The web port is fixed at 5000 (`src/web_app.py`); make it a setting.
+- [ ] The service account needs the `video` group for the camera; say so in the README and in
+      `install-service.sh`.
+- [ ] Cat names that collide with the page's filters or counts (`total`, `labeled`, `multi`,
+      `multi_clip`) are accepted; refuse them the way `cat` and `multiple` are refused.
+- [ ] Digit keys stop at nine cats, and match `e.key`, so on AZERTY the digits need Shift. Match
+      `e.code` for digits, and give a tenth cat a way in.
+- [ ] Training hardware is a choice: the plan names the Jetson (B.5), but any machine with a GPU,
+      a Hailo accelerator, or a CPU for a small model will do. Keep the handoff (crops and labels
+      on the share) the only contract.
+- [ ] `tests/manual/check_page.py` looks for `chromium` by that name; accept the other names
+      Chromium and Chrome install under.
+- [ ] The README's list of gates leaves out node and the JavaScript lint.
 
 ---
 
@@ -359,6 +480,14 @@ that. Clips took 31 GB from 2026-08-25 to 2026-09-26, with 467 GB free on the sh
 standby whose cause is not known; pi-wake brings it back within 10 minutes. Each one is a gap in
 the cats' record, and a gap can look like the very change the project exists to flag. The
 official 27 W supply is the next experiment.
+
+**Coats and litter.** Detection has been tested on three cats' coats and one litter, and other
+combinations may do worse. Untested so far: a dark cat on dark litter gives a weaker foreground
+signal; a mid-dark cat on pale litter may be classed as shadow and not counted at all (MOG2 calls
+a pixel shadow when it is darker than the background by up to half, by OpenCV's defaults; not
+measured here); and the colour baseline in B.5 may not separate similar coats. None of this can
+be settled without other cats. Leave the thresholds configurable and report what other
+installations see.
 
 Still open:
 
