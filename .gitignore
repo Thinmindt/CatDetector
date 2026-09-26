@@ -17,11 +17,12 @@ __pycache__/
 # Test files
 test_images/
 
-# docs/ is private by default; these three are tracked.
+# docs/ is private by default; these four are tracked.
 docs/*
 !docs/STYLE.md
 !docs/DESIGN.md
 !docs/ROADMAP.md
+!docs/ROADMAP_ARCHIVE.md
 
 # Agent notes about this particular Pi and its owner
 CLAUDE.local.md
