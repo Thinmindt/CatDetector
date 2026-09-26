@@ -26,11 +26,13 @@ what needs the owner's own terminal. A fresh clone has none of these files.
 
 ## What this actually is
 
-A Raspberry Pi camera pointed **down at the litter boxes**; three are in frame. It records
+A Raspberry Pi camera pointed **down at the litter boxes**, which must be lit around the clock. It records
 motion-triggered clips and serves a live MJPEG stream. The end goal is **catching bowel or urinary
 trouble in a particular cat**. That needs every visit recorded and attributed to **which cat**
 made it, which is why the roadmap is split into triggering reliably (part A) and building a
-labelled dataset plus classifier (part B). Telling poop from pee may be tried later; nothing
+labelled dataset plus classifier (part B). Part C keeps it working for other installations: the
+owner's Pi, camera, box count and thresholds are one implementation and one calibration, not
+requirements. Telling poop from pee may be tried later; nothing
 should depend on it.
 
 Three consequences worth holding onto:

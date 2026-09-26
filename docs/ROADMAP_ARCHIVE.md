@@ -412,6 +412,11 @@ labels, in the order listed:
         backlog without a mis-tap. The screenshot is the agent's check; the sitting is the
         owner's.
 
+Moved 2026-09-26: absorbed into C.6, times stored in UTC and shown in local time.
+
+- [ ] **Dates are machine-shaped.** Show times in a readable local form (`Tue 15 Sep, 06:11`),
+      with the relative time (`3 days ago`) on hover, here and on the timeline below (B.6).
+
 ## B.5b Ground truth at cleaning time
 
 Moved 2026-09-26: the finished UI items and the feasibility measurement.
