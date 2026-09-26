@@ -201,6 +201,11 @@ output, the state, or the side effect.
 **Mutation-check a regression test once.** Reintroduce the bug and confirm the test fails. A
 regression test that never failed has not been shown to work.
 
+**An invariant a document states gets a test.** "Never logged", "never on the capture thread",
+"refused at startup": a sentence in a README or a design document is a promise, and without a
+test that fails when it breaks, the code drifts from it unnoticed. Write the test when you write
+the sentence.
+
 **Fakes honour the real contract.** When production code starts calling a new method, the fake
 grows it too. A fake that has silently diverged tests a shape that does not exist — and the
 symptom is often an exception inside a worker thread rather than a clean failure.

@@ -232,6 +232,15 @@ line is what produced the screenshot check. Write the spec and the code on one b
 commit first, so the roadmap checkbox and the code land together; two branches from `main` left
 the code unable to tick the box. A branch is reviewed before it is pushed.
 
+**Check a branch before handing it to the owner, by what it changes.** Code gets `/code-review
+high`; documentation gets the doc-audit checks (the conventions plugin's `doc-audit` skill:
+true, current, in one place, safe to publish, general), not a code review. Fix each finding or
+say why not. The gates check what they were written to check; a review reads the change against
+the libraries it calls. On the capture-stall branch it found, after every gate had passed, a
+self-exit that picamera2's `atexit` close could hang forever and a secret URL reaching the log
+through exception text. When a document states an invariant ("never logged", "never on the
+capture thread"), write the test that would fail if it broke (`docs/STYLE.md`, Tests).
+
 Lint is configured to enforce what it can: `C90` complexity is a **ratchet** set at the current
 worst function, so new complexity must be extracted rather than absorbed. `PLR2004` and several
 others are disabled inside `tests/**` for reasons recorded in `docs/STYLE.md` — read that before
