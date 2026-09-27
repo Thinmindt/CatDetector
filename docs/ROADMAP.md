@@ -269,13 +269,15 @@ Next, in this order:
       (95 are older than the tiles' commit on 2026-09-17 21:10), but nothing can walk them
       without losing the labels. A **staging table** fixes that: one row
       per staged event with a reason, when it was staged and by whom (`human`, `agent`, later
-      `model`). The default walk becomes the unlabelled events **plus** the staged ones, in the
+      `model`), stored against the event's first clip as poop counts are, so a `regroup` keeps
+      it with its clips. The default walk becomes the unlabelled events **plus** the staged ones, in the
       same order, so a re-review is worked in the same sitting as fresh events. The event keeps
       its label and the page shows it with the reason, so confirming is one keystroke; any label
       press clears the staging row. Staging is done from the timeline (B.6, selection and a
       "stage everything shown" action, or one row's button) and from the API, so an agent that
       finds a doubtful label stages it rather than leaving a note; `main.py --stage` takes the
-      same query and reason from the command line. B.6's human-in-the-loop item is this table
+      same query and reason from the command line (`--label`, `--labeled-before`, `--reason`),
+      and runs beside the service, since staging renumbers nothing. B.6's human-in-the-loop item is this table
       with `source=model`: the same queue serves re-audits, agent findings and low-confidence
       predictions. Time of day is a **query** over `started_at` on the timeline, never stored
       state. Staging from the timeline lands with B.6; this item is done without it.
@@ -288,14 +290,16 @@ Next, in this order:
       the queue are in, because two of them are simpler once the route carries ids:
       - Media URLs are keyed by event and index while the cached file is keyed by clip, and
         the responses carry no cache headers, so after a split, join or `regroup` a browser
-        can show the previous clip's tiles. Put the clip id in the media URL, or send
-        `no-store`.
+        can show the previous clip's tiles. Put the clip id in the media URL: a clip's
+        files never change, so a URL that names the clip can never serve another's.
       - A join where either side is an undated clip (a recovered clip whose name did not
         parse) writes the override, but the grouping skips undated clips, so the page shows
         an unchanged event as merged. Refuse the join and say why.
       - `--regroup` while the service is up can lose a label posted between its read of the
-        labels and its commit. Either wrap the regroup in one `BEGIN IMMEDIATE` transaction or
-        make `--regroup` refuse to run while the service holds the database.
+        labels and its commit. A transaction is not enough: the page
+        holds event ids, and a label posted after the regroup commits lands on a renumbered
+        event. So `--regroup` refuses to run while another process holds the database: every
+        `CaptureDB` takes a shared lock on a file beside it, and `regroup` needs it exclusive.
       - A persistent clip-open failure (directory gone, permissions) logs a full traceback on
         every motion frame, at 30 Hz, for as long as motion lasts. Log once per failure streak.
         This one is on the capture side and does not wait for the route.
@@ -306,8 +310,8 @@ Next, in this order:
 - [ ] **The tiles are slow to appear, worst on multi-clip events.** A strip
       is built on its first request: ffmpeg reads the whole clip off the share and decodes every
       keyframe, and an event with several clips fires several of those at once. Build them
-      ahead instead: after every ingest (startup and `rescan`), a background thread walks the
-      unlabeled events in review order and builds the strip for each clip that has none, so the
+      ahead instead: after every ingest (startup and `rescan`) and every label, a background
+      thread walks the default walk's events (unlabelled and staged) in review order and builds the strip for each clip that has none, so the
       page's request is a cache hit. One build at a time, so it does not starve a request or,
       under `main.py`, the encoder; the reviewer's own request for a strip still builds it on
       demand and only wastes work if the two collide (the staging names are unique and the
