@@ -178,6 +178,12 @@ one check every 5 s: it runs on the capture thread for every motion frame, so an
 `statvfs` plus its warning means 30 syscalls and 30 log lines a second for as long as the disk
 stays full.
 
+**A clip that cannot open is logged once per streak** (2026-09-27). Motion retries `_start_saving`
+on every frame, so an open that keeps failing (a clip directory that is not writable) logged a full
+traceback 30 times a second for as long as the motion lasted. The first failure of a streak is
+logged with its traceback; the rest are not, and the first open that succeeds says so. A missing
+directory is caught earlier, by `_has_room`, which is already throttled.
+
 **UTC is not used for clip names.** Local time is friendlier for browsing, so collisions across
 the DST fall-back are handled by never returning a path that already exists.
 
@@ -444,6 +450,28 @@ returning to the review queue with a warning in the log. That is what lets `regr
 gap threshold without discarding a day of labeling, and what stops a bridge merge from silently
 attributing a not-cat clip to a cat.
 
+**A labelled event can be put back in the queue with its label** (2026-09-27, ROADMAP B.3). The
+review queue is every unlabelled event and every **staged** one, in time order, and a label press
+takes an event out of it either way. Staging exists because the queue was implicit: the only way
+back into it was to erase a label, which loses the judgement being checked. A staged event keeps
+its label, so confirming it is the same keystroke that made it; the page shows the reason beside
+the label. A staging row names who staged it (`human`, `agent`, `model`), so the same queue serves
+an owner's re-audit, an agent's finding and, later, a model's low-confidence prediction.
+
+**A staging row hangs off a clip, as poop counts do** (2026-09-27). It is written against the event's
+first clip and read back across all of its clips, so a `regroup` keeps it with the footage it was
+about; keyed by event id it would have landed on whatever event took that id. If a merge brings two
+staged clips together, the event shows the earlier staging, and a label clears both.
+
+**`--regroup` refuses while another process has the database** (2026-09-27). A regroup renumbers
+events, and the review page holds event ids: a label posted during a regroup, or after it by a page
+loaded before it, lands on whatever event now has that id. A transaction would stop the first and
+not the second. So every `CaptureDB` holds a shared `flock` on `<database>.lock` for as long as it
+is open, and `regroup` takes it exclusive without waiting, refusing if anything else holds it. A
+separate file, because closing any descriptor of the database file itself drops the POSIX locks
+SQLite holds on it. `--stage` takes the shared lock like the service does and runs beside it, since
+staging renumbers nothing.
+
 **A clip with no sidecar is `recovered`.** It was cut off by a crash before the recorder could write
 one. Its start comes from the filename and its end is estimated from size at `H264_BITRATE`
 (`BYTES_PER_SECOND` in `clip_scan`). It has no centroids, and the rule lets an unknown position
@@ -451,6 +479,11 @@ match on time alone rather than strand the clip in its own event.
 
 **The frame cache is keyed by clip id, not event id.** Clip ids never change; event ids do on a
 `regroup`, and one event has several clips. Cache files are named `clip<id>_...`.
+
+**Media URLs name the clip** (2026-09-27). The strip, frame and video routes are
+`/review/clip/<clip id>/...`. Named by event and index, one URL served a different clip after a split,
+join or regroup, and a browser that had cached it showed the previous clip's tiles. A clip's files
+never change, so a URL that names the clip is safe to cache for good.
 
 **A database from before grouping is refused, not migrated.** The only database that predated
 grouping held nine test events and was carried across once by hand (2026-09-12). Migration code
@@ -575,9 +608,9 @@ history entry, so Back steps through the events seen; the first event shown repl
 the database no longer has (a regroup renumbers events) says so and falls back to the walk's next
 event. A response that returns after Back or Forward has moved the address is dropped, and a label
 moves on to the next event only if the address still names the event it labelled; otherwise a slow
-request would undo the reviewer's Back. The unlabeled queue takes `after` like the other walks, but
-the page never sends it: labelling removes an event from that walk, so its oldest event is always
-next. Undo stays in page state; the address holds position, not history.
+request would undo the reviewer's Back. The review queue takes `after` like the other walks, but
+the page never sends it: labelling removes an event from the queue, staged or not, so its oldest
+event is always next. Undo stays in page state; the address holds position, not history.
 
 **Leaving an event cancels its strips** (2026-09-26). A strip not yet built holds a connection while
 ffmpeg decodes its clip, and a browser opens only six to one host, so an event with six or more
@@ -589,7 +622,20 @@ sending its own request, and the page does the same on `beforeunload`: Chrome se
 request before the old document unloads, so `pagehide` comes too late. When the page stays on the
 event after all (a failed label, a Back and Forward before the fetch returned, a return from the
 back/forward cache), it requests the strips again. The build itself runs on to the end on the
-server; making it fast is the tiles item in ROADMAP B.3.
+server.
+
+**Strips are built before the page asks** (2026-09-27, ROADMAP B.3). On its first request a strip
+costs a read of the whole clip and a keyframe decode, 1.7 s for a 96 s clip, and a multi-clip event
+fires one per clip at once. `StripsAhead` is one thread that builds the missing strips of the next 30
+events in the review queue, one clip at a time, woken after every ingest, label, stage and rescan; a
+wake-up during a walk starts it over from the front of the queue, since the front is what the page
+shows next. The database lock is held only while the queue is read. The thread renices itself to 10
+before its first build, and the ffmpeg it starts inherits that, so a build yields to the encoder:
+building 10 clips from the share took 17.7 s while the service beside it held 30.00 fps, its
+longest frame gap 62 ms (2026-09-27). A clip whose build fails is not retried until the process
+restarts, or every label would rerun a 60 s ffmpeg timeout. A page request that collides with a
+build runs its own; both publish by rename, so the cost is the duplicate work. With the strips
+built, a 3-clip event's three strips were served in 16 ms together (2026-09-27).
 
 **The label table is separate from event** (per the roadmap): model predictions and human labels
 can later coexist via the `source` column without overwriting each other.
@@ -653,6 +699,11 @@ placement, so the rule and the overrides always agree and `regroup` reproduces t
 decisions. The split's later half starts unlabeled, because it is a visit the reviewer has not
 judged; the first half keeps its id and label. A join names its target clip rather than "the
 previous event" so that interleaved boxes cannot make it land on the wrong visit.
+
+**A join that touches an undated clip is refused** (2026-09-27). Grouping places only clips with a
+start time; one whose name did not parse stands alone whatever its overrides say. A join onto one
+recorded an override that grouping then ignored, and the page showed a merge that had not happened.
+The API answers 409 with the reason instead.
 
 **Video is remuxed on demand, in the review server, never on the capture path.** `-c copy` into
 MP4 costs ~0.7 s for an 18 MB clip on the Pi 5 (2026-09-12) and no CPU worth mentioning; the result is cached

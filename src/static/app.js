@@ -2,7 +2,7 @@
 // THUMB_WIDTH) are filled by the template before this file loads.
 const FILTERS = ['multi', 'labeled', ...LABELS];
 const asked = new URLSearchParams(location.search).get('filter');
-const FILTER = FILTERS.includes(asked) ? asked : null;  // null = the unlabeled queue
+const FILTER = FILTERS.includes(asked) ? asked : null;  // null = the review queue
 const MULTI = FILTER === 'multi';
 const WALKING = FILTER !== null;
 let current = null;
@@ -85,6 +85,12 @@ async function pollStatus() {
 // --- review -----------------------------------------------------------------
 
 function hms(iso) { return iso ? iso.slice(11, 19) : '?'; }
+function escaped(text) {
+  const span = document.createElement('span');
+  span.textContent = text;
+  return span.innerHTML;
+}
+function clipUrl(clip, file) { return `/review/clip/${clip.id}/${file}`; }
 function secs(a, b) { return Math.round((new Date(b) - new Date(a)) / 1000); }
 
 function clipBlock(c, prev) {
@@ -124,12 +130,15 @@ function show(data) {
     : '';
   const badge = current.label
     ? ` <span class="label">${current.label}</span>${found}` : '';
+  const staged = current.staged
+    ? ` <span class="warn">back for review (${current.staged.source}):` +
+      ` ${escaped(current.staged.reason)}</span>` : '';
   const n = current.clips.length;
   const grouped = n > 1
     ? ` <span class="warn">${n} clips grouped as one visit</span>` : '';
   document.getElementById('meta').innerHTML =
     `#${current.id} &mdash; ${current.started_at || 'unknown time'} &rarr; ` +
-    `${hms(current.ended_at)}${badge}${grouped}`;
+    `${hms(current.ended_at)}${badge}${staged}${grouped}`;
   document.getElementById('clips').innerHTML =
     current.clips.map((c, i) => clipBlock(c, i ? current.clips[i - 1] : null)).join('');
   restoreTiles();
@@ -138,8 +147,8 @@ function show(data) {
 
 // One frame per tile, cut from the clip's strip image so the tiles wrap to the
 // page instead of running off it. The strip's width says how many frames it holds.
-function loadTiles(eventId, index) {
-  const grid = document.getElementById(`t${index}`);
+function loadTiles(eventId, clip) {
+  const grid = document.getElementById(`t${clip.index}`);
   const strip = new Image();
   strip.onload = () => {
     if (current?.id !== eventId) return;
@@ -151,7 +160,7 @@ function loadTiles(eventId, index) {
       tile.title = 'click for the full frame';
       tile.style.backgroundImage = `url(${strip.src})`;
       tile.style.backgroundPosition = `${slots > 1 ? slot / (slots - 1) * 100 : 0}% 0`;
-      tile.onclick = () => window.open(`/review/${eventId}/clip/${index}/frame/${slot}.jpg`);
+      tile.onclick = () => window.open(clipUrl(clip, `frame/${slot}.jpg`));
       grid.appendChild(tile);
     }
   };
@@ -159,7 +168,7 @@ function loadTiles(eventId, index) {
     if (current?.id !== eventId) return;
     grid.innerHTML = '<span class="note warn">frames unavailable (clip unreadable?)</span>';
   };
-  strip.src = `/review/${eventId}/clip/${index}/strip.jpg`;
+  strip.src = clipUrl(clip, 'strip.jpg');
   return strip;
 }
 
@@ -175,7 +184,7 @@ function cancelStrips() {
 
 function restoreTiles() {
   if (current && !strips.length && eventFromPath() === current.id) {
-    strips = current.clips.map(c => loadTiles(current.id, c.index));
+    strips = current.clips.map(c => loadTiles(current.id, c));
   }
 }
 
@@ -189,7 +198,7 @@ function renderCounts(c) {
   document.getElementById('counts').innerHTML =
     `${link('labeled', `${c.labeled} of ${c.total} labeled`)}` +
     (parts ? ` (${parts})` : '') +
-    (FILTER ? ` &middot; <a href="/review">back to the unlabeled queue</a>` : '');
+    (FILTER ? ` &middot; <a href="/review">back to the review queue</a>` : '');
 }
 
 async function get(url) { return (await fetch(url)).json(); }
@@ -334,12 +343,13 @@ async function join() {
   if (!current) return;
   closeSheet();
   const data = await post(`/api/review/${current.id}/join`);
-  if (data.event) show(data); else alert('There is no later event to join.');
+  if (data.event) show(data);
+  else alert(data.error || 'There is no later event to join.');
 }
 
 function watch(index) {
   const video = document.getElementById(`v${index}`);
-  if (!video.src) video.src = `/review/${current.id}/clip/${index}/video.mp4`;
+  if (!video.src) video.src = clipUrl(current.clips[index], 'video.mp4');
   video.hidden = false;
   video.play();
 }

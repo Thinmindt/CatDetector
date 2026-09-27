@@ -503,6 +503,87 @@ Moved 2026-09-26: done.
       event's strip builds, so leaving an event now cancels its pending strips (DESIGN.md,
       Review UI).
 
+Moved 2026-09-27: done.
+
+- [x] **An explicit review queue, with staging.** Today the queue is
+      implicit: the unlabelled events, in review order, and labelling one removes it. There is
+      no way to put an event back without erasing its label, and no record of why it came back.
+      The need is real now: the 110 `not_cat` labels made before 2026-09-20 (`label.labeled_at`)
+      include those made from the first eight seconds of each clip, before the whole-clip tiles
+      (95 are older than the tiles' commit on 2026-09-17 21:10), but nothing can walk them
+      without losing the labels. A **staging table** fixes that: one row
+      per staged event with a reason, when it was staged and by whom (`human`, `agent`, later
+      `model`), stored against the event's first clip as poop counts are, so a `regroup` keeps
+      it with its clips. The default walk becomes the unlabelled events **plus** the staged ones, in the
+      same order, so a re-review is worked in the same sitting as fresh events. The event keeps
+      its label and the page shows it with the reason, so confirming is one keystroke; any label
+      press clears the staging row. Staging is done from the timeline (B.6, selection and a
+      "stage everything shown" action, or one row's button) and from the API, so an agent that
+      finds a doubtful label stages it rather than leaving a note; `main.py --stage` takes the
+      same query and reason from the command line (`--label`, `--labeled-before`, `--reason`),
+      and runs beside the service, since staging renumbers nothing. B.6's human-in-the-loop item is this table
+      with `source=model`: the same queue serves re-audits, agent findings and low-confidence
+      predictions. Time of day is a **query** over `started_at` on the timeline, never stored
+      state. Staging from the timeline lands with B.6; this item is done without it.
+      **Done means** the default walk serves the unlabelled events and the staged ones in one
+      order, a staged event shows its label and reason, one label press clears its staging row,
+      the API and `main.py --stage` both stage, a test stages a labelled event, walks to it and
+      confirms it without losing the label, and the 110 early `not_cat` labels can be staged in
+      one command.
+      Done 2026-09-27: a `staged` table keyed by clip, as specified; `main.py --stage --label
+      not_cat --labeled-before 2026-09-20` staged 110 events in a copy of the live database,
+      and a regroup of that copy kept all 110. The page shows the reason beside the label. The
+      API route is `POST /api/review/<event>/stage` with `reason` and `source`.
+
+- [x] **Four findings from the 2026-09-21 code review**, deferred until the unified route and
+      the queue are in, because two of them are simpler once the route carries ids:
+      - Media URLs are keyed by event and index while the cached file is keyed by clip, and
+        the responses carry no cache headers, so after a split, join or `regroup` a browser
+        can show the previous clip's tiles. Put the clip id in the media URL: a clip's
+        files never change, so a URL that names the clip can never serve another's.
+      - A join where either side is an undated clip (a recovered clip whose name did not
+        parse) writes the override, but the grouping skips undated clips, so the page shows
+        an unchanged event as merged. Refuse the join and say why.
+      - `--regroup` while the service is up can lose a label posted between its read of the
+        labels and its commit. A transaction is not enough: the page
+        holds event ids, and a label posted after the regroup commits lands on a renumbered
+        event. So `--regroup` refuses to run while another process holds the database: every
+        `CaptureDB` takes a shared lock on a file beside it, and `regroup` needs it exclusive.
+      - A persistent clip-open failure (directory gone, permissions) logs a full traceback on
+        every motion frame, at 30 Hz, for as long as motion lasts. Log once per failure streak.
+        This one is on the capture side and does not wait for the route.
+      **Done means** each has a regression test that fails with the bug put back: a split followed
+      by a strip request serves the new clip's tiles; a join onto an undated clip is refused with a
+      message; a label posted during `--regroup` survives, or `--regroup` refuses to run while the
+      service holds the database; and a persistent clip-open failure logs one traceback per streak.
+      Done 2026-09-27: media URLs are `/review/clip/<clip id>/...`; a join touching an undated
+      clip answers 409 with the reason; `--regroup` refuses, and exits 1, while any other
+      `CaptureDB` holds the lock file beside the database; clip-open failures log one traceback
+      and then retry at debug level until an open succeeds. Each test was mutation-checked.
+
+- [x] **The tiles are slow to appear, worst on multi-clip events.** A strip
+      is built on its first request: ffmpeg reads the whole clip off the share and decodes every
+      keyframe, and an event with several clips fires several of those at once. Build them
+      ahead instead: after every ingest (startup and `rescan`) and every label, a background
+      thread walks the default walk's events (unlabelled and staged) in review order and builds the strip for each clip that has none, so the
+      page's request is a cache hit. One build at a time, so it does not starve a request or,
+      under `main.py`, the encoder; the reviewer's own request for a strip still builds it on
+      demand and only wastes work if the two collide (the staging names are unique and the
+      publish atomic, so a collision is safe, just slow). Bound the walk to the next few dozen
+      events, not the backlog, and never hold the `CaptureDB` lock while ffmpeg reads the
+      share. The `?filter=` walks get no pre-caching: their events were already built when
+      they were labelled.
+      **Done means** after an ingest the next few dozen unlabelled events have their strips before
+      they are asked for, a test shows the builder skipping built clips and never holding the
+      `CaptureDB` lock while it runs, and on the Pi the first tile of a fresh multi-clip event
+      appears in under a second.
+      Done 2026-09-27: `StripsAhead`, one thread, 30 events ahead, woken by every ingest,
+      label, stage and rescan, and reniced to 10 so its ffmpeg is too. On the Pi, against an
+      empty scratch cache, it built the 10 clips of the next 8 queued events in 17.7 s while
+      the running service held 30.00 fps (longest frame gap 62 ms); the page's requests for a
+      3-clip event's strips then took 16 ms together, served by the app on the Pi from that
+      cache. The live service runs this code only once the branch is deployed.
+
 ## B.5b Ground truth at cleaning time
 
 Moved 2026-09-26: the finished UI items and the feasibility measurement.

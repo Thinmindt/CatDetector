@@ -126,6 +126,7 @@ class MotionRecorder:
         self._clip: OpenClip | None = None
         self._disk_checked_at: float | None = None
         self._had_room = True
+        self._open_failing = False
 
         self.buffer_seconds = buffer_seconds
         self.circular_output: Any = None
@@ -226,10 +227,7 @@ class MotionRecorder:
             started_at=started,
             trigger_blob=self.detector.last_blob,
         )
-        try:
-            self.circular_output.begin(clip.writing)
-        except Exception:
-            log.exception("Failed to start saving to %s", clip.path)
+        if not self._open(clip):
             return None
 
         self._clip = clip
@@ -239,6 +237,21 @@ class MotionRecorder:
             self.last_motion_pixels,
         )
         return clip.path
+
+    def _open(self, clip: OpenClip) -> bool:
+        """Divert the ring to the clip's file. Motion retries a failure on every
+        frame, so only the first of a streak is logged with its traceback."""
+        try:
+            self.circular_output.begin(clip.writing)
+        except Exception:
+            if not self._open_failing:
+                log.exception("Failed to start saving to %s", clip.path)
+            self._open_failing = True
+            return False
+        if self._open_failing:
+            log.info("Saving works again, to %s", clip.path)
+        self._open_failing = False
+        return True
 
     def _stop_saving(self, reason: CloseReason) -> Path | None:
         """Stop writing to the file and fall back to buffering only.

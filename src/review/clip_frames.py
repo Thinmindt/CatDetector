@@ -75,10 +75,11 @@ class ClipFrames:
 
     def strip(self, clip_id: int, clip_path: str | Path) -> Path | None:
         """A montage spanning the clip, each tile captioned with its offset."""
-        cached = next(self.cache_dir.glob(f"clip{clip_id}_strip*s.jpg"), None)
-        if cached is not None:
-            return cached
-        return self._build_strip(clip_id, Path(clip_path))
+        return self.cached_strip(clip_id) or self._build_strip(clip_id, Path(clip_path))
+
+    def cached_strip(self, clip_id: int) -> Path | None:
+        """The clip's strip if it has been built, without building it."""
+        return next(self.cache_dir.glob(f"clip{clip_id}_strip*s.jpg"), None)
 
     def frame(self, clip_id: int, clip_path: str | Path, slot: int) -> Path | None:
         """The full-resolution frame behind one strip slot."""

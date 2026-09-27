@@ -102,7 +102,12 @@ sudo systemctl edit catdetector      # opens an override; add Environment= lines
 
 ```
 uv run python main.py --regroup      # rebuild events from the current thresholds, then exit
+uv run python main.py --stage --label not_cat --labeled-before 2026-09-20 --reason "recheck"
 ```
+
+`--regroup` renumbers events, so it refuses to run while the detector has the database open: stop
+the service first. `--stage` puts labelled events back in the review queue with a reason, keeping
+their labels, and runs beside the service; `--label` and `--labeled-before` choose the events.
 
 The Review tab of the web UI (`http://<pi-ip>:5000/review`) scans the captures directory into
 a local database and serves a keyboard-driven labeler — `c` cat, `n` not a cat, `u` unsure, `z`

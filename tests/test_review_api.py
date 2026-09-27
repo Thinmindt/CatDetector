@@ -99,7 +99,7 @@ def test_unknown_event_404s(client: Any) -> None:
         client.post("/api/review/999/label", json={"value": "cat"}).status_code == 404
     )
     assert client.get("/api/review/event/999").status_code == 404
-    assert client.get("/review/999/clip/0/strip.jpg").status_code == 404
+    assert client.get("/review/clip/999/strip.jpg").status_code == 404
 
 
 def test_the_payload_lists_every_clip_of_the_event(client: Any) -> None:
@@ -107,11 +107,6 @@ def test_the_payload_lists_every_clip_of_the_event(client: Any) -> None:
     assert event["ended_at"] is not None
     assert [c["index"] for c in event["clips"]] == [0]
     assert event["clips"][0]["close_reason"] == "recovered"
-
-
-def test_a_clip_index_past_the_end_404s(client: Any) -> None:
-    event = client.get("/api/review/next").get_json()["event"]
-    assert client.get(f"/review/{event['id']}/clip/5/strip.jpg").status_code == 404
 
 
 # --- review API: grouping ---------------------------------------------------
@@ -171,14 +166,13 @@ def test_the_video_route_serves_a_playable_clip(
     client = client_for(db, tmp_path)
     event = client.get("/api/review/next").get_json()["event"]
 
-    response = client.get(f"/review/{event['id']}/clip/0/video.mp4")
+    url = f"/review/clip/{event['clips'][0]['id']}/video.mp4"
+    response = client.get(url)
     assert response.status_code == 200
     assert response.mimetype == "video/mp4"
 
     # Seeking in the player needs byte ranges honoured, not just advertised.
-    partial = client.get(
-        f"/review/{event['id']}/clip/0/video.mp4", headers={"Range": "bytes=0-9"}
-    )
+    partial = client.get(url, headers={"Range": "bytes=0-9"})
     assert partial.status_code == 206
     assert len(partial.data) == 10
 
@@ -188,7 +182,10 @@ def test_the_video_route_404s_for_an_unreadable_clip(
 ) -> None:
     monkeypatch.setattr(ClipFrames, "video", lambda *args: None)
     event = client.get("/api/review/next").get_json()["event"]
-    assert client.get(f"/review/{event['id']}/clip/0/video.mp4").status_code == 404
+    assert (
+        client.get(f"/review/clip/{event['clips'][0]['id']}/video.mp4").status_code
+        == 404
+    )
 
 
 def test_undo_fetch_shows_the_existing_label(client: Any) -> None:
@@ -204,7 +201,10 @@ def test_strip_route_for_an_unreadable_clip_404s(
 ) -> None:
     monkeypatch.setattr(ClipFrames, "strip", lambda *args: None)
     event = client.get("/api/review/next").get_json()["event"]
-    assert client.get(f"/review/{event['id']}/clip/0/strip.jpg").status_code == 404
+    assert (
+        client.get(f"/review/clip/{event['clips'][0]['id']}/strip.jpg").status_code
+        == 404
+    )
 
 
 def test_a_label_is_a_walk_of_its_own(db: Any, tmp_path: Path) -> None:
@@ -348,3 +348,127 @@ def test_the_per_walk_routes_are_gone(walks: tuple[Any, list[int]]) -> None:
     client, _ = walks
     for route in ("multi/next", "labeled/next"):
         assert client.get(f"/api/review/{route}").status_code == 404, route
+
+
+# --- review API: staging ----------------------------------------------------
+
+
+def stage(client: Any, event_id: int, **body: Any) -> Any:
+    return client.post(f"/api/review/{event_id}/stage", json=body)
+
+
+def test_a_staged_event_is_walked_shown_and_confirmed_with_its_label(
+    walks: tuple[Any, list[int]],
+) -> None:
+    client, ids = walks
+    staged = stage(client, ids[3], reason="judged from eight seconds", source="agent")
+    assert staged.status_code == 200
+    assert staged.get_json()["counts"]["staged"] == 1
+
+    assert walk(client, "") == [ids[1], ids[2], ids[3]]
+    shown = client.get(f"/api/review/event/{ids[3]}").get_json()["event"]
+    assert shown["label"] == "not_cat"
+    assert shown["staged"]["reason"] == "judged from eight seconds"
+    assert shown["staged"]["source"] == "agent"
+
+    client.post(f"/api/review/{ids[3]}/label", json={"value": "not_cat"})
+    confirmed = client.get(f"/api/review/event/{ids[3]}").get_json()
+    assert confirmed["event"]["label"] == "not_cat"
+    assert confirmed["event"]["staged"] is None
+    assert "staged" not in confirmed["counts"]
+    assert walk(client, "") == [ids[1], ids[2]]
+
+
+def test_staging_needs_a_reason_a_known_source_and_an_event(
+    walks: tuple[Any, list[int]],
+) -> None:
+    client, ids = walks
+    for body in ({}, {"reason": " "}, {"reason": 3}, {"reason": "x", "source": "cat"}):
+        assert stage(client, ids[0], **body).status_code == 400, body
+    assert stage(client, 999, reason="x").status_code == 404
+    assert walk(client, "") == [ids[1], ids[2]]
+
+
+def test_a_cat_may_not_be_called_staged(db: Any, tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="CAT_NAMES"):
+        Review(db, ClipFrames(tmp_path / "cache"), tmp_path / "captures", ("staged",))
+
+
+# --- review API: findings from the 2026-09-21 review ------------------------
+
+
+def test_media_urls_name_the_clip_so_a_split_cannot_change_what_they_serve(
+    grouped_client: Any, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Regression: media URLs named an event and an index, so after a split,
+    join or regroup a cached URL could show another clip's tiles."""
+
+    def strip_naming_its_clip(_: Any, clip_id: int, _path: Any) -> Path:
+        made = tmp_path / f"strip{clip_id}.jpg"
+        made.write_bytes(f"clip {clip_id}".encode())
+        return made
+
+    monkeypatch.setattr(ClipFrames, "strip", strip_naming_its_clip)
+    event = grouped_client.get("/api/review/next").get_json()["event"]
+    second = event["clips"][1]["id"]
+
+    grouped_client.post(f"/api/review/{event['id']}/split", json={"index": 1})
+    moved = grouped_client.get(f"/api/review/next?after={event['id']}")
+    assert moved.get_json()["event"]["clips"][0]["id"] == second
+
+    served = grouped_client.get(f"/review/clip/{second}/strip.jpg")
+    assert served.data == f"clip {second}".encode()
+
+
+def test_a_join_onto_a_clip_with_no_start_time_is_refused(
+    db: Any, tmp_path: Path
+) -> None:
+    """Regression: the join was recorded, but grouping leaves undated clips
+    alone, so the page showed a merge that never happened."""
+    directory = tmp_path / "captures"
+    visit(directory, 0)
+    make_clip_file(directory / "oddly-named.h264")
+    db.ingest(directory)
+    client = client_for(db, tmp_path)
+    dated = client.get("/api/review/next").get_json()["event"]["id"]
+
+    refused = client.post(f"/api/review/{dated}/join")
+
+    assert refused.status_code == 409
+    assert "no start time" in refused.get_json()["error"]
+    assert db.counts()["total"] == 2
+    assert all(clip.boundary is None for clip in db.get(dated).clips)
+
+
+class CountingAhead:
+    """Stands in for StripsAhead, counting how often the queue changed."""
+
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def wanted(self) -> None:
+        self.calls += 1
+
+
+def test_a_label_a_stage_and_a_rescan_ready_the_next_strips(
+    db: Any, clip_dir: Path, tmp_path: Path
+) -> None:
+    db.ingest(clip_dir)
+    ahead = CountingAhead()
+    app = Flask(__name__)
+    review = Review(
+        db,
+        ClipFrames(tmp_path / "cache"),
+        clip_dir,
+        (),
+        ahead,  # type: ignore[arg-type]
+    )
+    app.register_blueprint(create_review_blueprint(review))
+    client = app.test_client()
+    event = client.get("/api/review/next").get_json()["event"]["id"]
+
+    client.post(f"/api/review/{event}/label", json={"value": "cat"})
+    stage(client, event, reason="check")
+    client.post("/api/review/rescan")
+
+    assert ahead.calls == 3

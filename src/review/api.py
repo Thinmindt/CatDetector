@@ -11,8 +11,9 @@ from flask import Blueprint, Response, jsonify, request, send_file
 from flask.typing import ResponseReturnValue
 
 from src.clips.sidecar import iso
-from src.review.capture_db import CaptureDB, Clip, Event
+from src.review.capture_db import CaptureDB, Clip, Event, JoinRefusedError
 from src.review.clip_frames import ClipFrames
+from src.review.strips_ahead import StripsAhead
 
 log = logging.getLogger(__name__)
 
@@ -21,23 +22,31 @@ FIXED_LABELS = ("cat", "not_cat", "unsure", "clean")
 # Two cats in one event: kept as a visit, excluded from single-label training.
 MULTIPLE = "multiple"
 
-# The walks besides the unlabeled queue and one label's events.
+# The walks besides the review queue and one label's events.
 MULTI_WALK = "multi"
 LABELED_WALK = "labeled"
+
+# A count on the progress line, so no cat may be called it.
+STAGED = "staged"
+
+# Who may put an event back in the queue.
+STAGING_SOURCES = ("human", "agent", "model")
 
 
 @dataclass(frozen=True)
 class Review:
     """What the review routes are built on: the database, the frame extractor,
-    the directory on the share that a rescan reads, and the cats' names."""
+    the directory on the share that a rescan reads, the cats' names, and the
+    builder that readies strips before the page asks for them."""
 
     db: CaptureDB
     frames: ClipFrames
     captures_dir: Path
     cat_names: tuple[str, ...] = ()
+    ahead: StripsAhead | None = None
 
     def __post_init__(self) -> None:
-        reserved = {*FIXED_LABELS, MULTIPLE, MULTI_WALK, LABELED_WALK}
+        reserved = {*FIXED_LABELS, MULTIPLE, MULTI_WALK, LABELED_WALK, STAGED}
         for name in self.cat_names:
             if not name or name in reserved:
                 raise ValueError(f"CAT_NAMES: {name!r} cannot be a cat's name")
@@ -50,6 +59,11 @@ class Review:
         if not self.cat_names:
             return FIXED_LABELS
         return (*FIXED_LABELS, *self.cat_names, MULTIPLE)
+
+    def queue_changed(self) -> None:
+        """Ready the strips of whatever the queue now holds next."""
+        if self.ahead is not None:
+            self.ahead.wanted()
 
 
 # Litter boxes by position in frame, left to right; the camera knows no more.
@@ -89,6 +103,7 @@ class ReviewPages:
     """Route handlers bound to one database and one frame extractor."""
 
     def __init__(self, review: Review) -> None:
+        self.review = review
         self.db = review.db
         self.frames = review.frames
         self.captures_dir = review.captures_dir
@@ -96,11 +111,11 @@ class ReviewPages:
 
     def next_event(self) -> ResponseReturnValue:
         """The next event in a walk: `filter` names the walk (none is the
-        unlabeled queue), `after` the event to continue from."""
+        review queue), `after` the event to continue from."""
         walk = request.args.get("filter") or None
         after = request.args.get("after", type=int)
         if walk is None:
-            return self._event_payload(self.db.next_unlabeled(after))
+            return self._event_payload(self.db.next_to_review(after))
         if walk == MULTI_WALK:
             return self._event_payload(self.db.next_multi(after))
         if walk == LABELED_WALK:
@@ -122,7 +137,21 @@ class ReviewPages:
         if self.db.get(event_id) is None:
             return no_such_event()
         self.db.set_label(event_id, value)
+        self.review.queue_changed()
         return jsonify({"ok": True, "counts": self.db.counts()})
+
+    def stage(self, event_id: int) -> ResponseReturnValue:
+        """Put an event back in the review queue with a reason, keeping its label."""
+        body = request_body()
+        reason, source = body.get("reason"), body.get("source", "human")
+        if not isinstance(reason, str) or not reason.strip():
+            return error("reason must be a non-empty string", 400)
+        if source not in STAGING_SOURCES:
+            return error(f"source must be one of {STAGING_SOURCES}", 400)
+        if not self.db.stage(event_id, reason.strip(), source):
+            return no_such_event()
+        self.review.queue_changed()
+        return self._event_payload(self.db.get(event_id))
 
     def set_counts(self, event_id: int) -> ResponseReturnValue:
         """Poops found per box at a cleaning, signalled by hand in the clip."""
@@ -148,46 +177,44 @@ class ReviewPages:
     def join(self, event_id: int) -> ResponseReturnValue:
         if self.db.get(event_id) is None:
             return no_such_event()
-        return self._event_payload(self.db.join(event_id))
+        try:
+            joined = self.db.join(event_id)
+        except JoinRefusedError as refused:
+            return error(str(refused), 409)
+        return self._event_payload(joined)
 
     def rescan(self) -> ResponseReturnValue:
         added = self.db.ingest(self.captures_dir)
+        self.review.queue_changed()
         return jsonify({"added": added, "counts": self.db.counts()})
 
-    def strip(self, event_id: int, index: int) -> Response:
+    def strip(self, clip_id: int) -> Response:
         return self._media(
-            event_id,
-            index,
-            "image/jpeg",
-            lambda c: self.frames.strip(c.id, c.path),
+            clip_id, "image/jpeg", lambda c: self.frames.strip(c.id, c.path)
         )
 
-    def frame(self, event_id: int, index: int, slot: int) -> Response:
+    def frame(self, clip_id: int, slot: int) -> Response:
         return self._media(
-            event_id,
-            index,
-            "image/jpeg",
-            lambda c: self.frames.frame(c.id, c.path, slot),
+            clip_id, "image/jpeg", lambda c: self.frames.frame(c.id, c.path, slot)
         )
 
-    def video(self, event_id: int, index: int) -> Response:
+    def video(self, clip_id: int) -> Response:
         return self._media(
-            event_id, index, "video/mp4", lambda c: self.frames.video(c.id, c.path)
+            clip_id, "video/mp4", lambda c: self.frames.video(c.id, c.path)
         )
 
     def _media(
         self,
-        event_id: int,
-        index: int,
+        clip_id: int,
         mimetype: str,
         produce: Callable[[Clip], Path | None],
     ) -> Response:
-        """A file for the index-th clip of an event, or 404.
+        """A file for one clip, or 404. The URL names the clip, whose files
+        never change, so no regroup can make it serve another clip's.
 
         send_file honours Range requests, which is what lets the player seek.
         """
-        event = self.db.get(event_id)
-        clip = event.clips[index] if event and 0 <= index < len(event.clips) else None
+        clip = self.db.clip(clip_id)
         path = produce(clip) if clip is not None else None
         if path is None:
             return Response("unavailable", status=404)
@@ -202,8 +229,10 @@ class ReviewPages:
                 "ended_at": _iso(event.ended_at),
                 "label": event.label,
                 "poops": event.poops,
+                "staged": event.staged._asdict() if event.staged else None,
                 "clips": [
                     {
+                        "id": clip.id,
                         "index": index,
                         "started_at": _iso(clip.started_at),
                         "ended_at": _iso(clip.ended_at),
@@ -224,6 +253,7 @@ def create_review_blueprint(review: Review) -> Blueprint:
     bp.add_url_rule("/api/review/event/<int:event_id>", view_func=pages.one_event)
     for action, view in (
         ("label", pages.set_label),
+        ("stage", pages.stage),
         ("counts", pages.set_counts),
         ("split", pages.split),
         ("join", pages.join),
@@ -232,7 +262,7 @@ def create_review_blueprint(review: Review) -> Blueprint:
             f"/api/review/<int:event_id>/{action}", view_func=view, methods=["POST"]
         )
     bp.add_url_rule("/api/review/rescan", view_func=pages.rescan, methods=["POST"])
-    media = "/review/<int:event_id>/clip/<int:index>"
+    media = "/review/clip/<int:clip_id>"
     bp.add_url_rule(f"{media}/strip.jpg", view_func=pages.strip)
     bp.add_url_rule(f"{media}/frame/<int:slot>.jpg", view_func=pages.frame)
     bp.add_url_rule(f"{media}/video.mp4", view_func=pages.video)

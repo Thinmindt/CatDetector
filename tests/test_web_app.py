@@ -128,7 +128,7 @@ def test_media_is_served_from_a_relative_cache_dir(
         review = Review(db, frames, tmp_path / "captures")
         client = create_app(None, review).test_client()
 
-        response = client.get("/review/1/clip/0/strip.jpg")
+        response = client.get("/review/clip/1/strip.jpg")
 
         assert response.status_code == 200
         assert response.data[:2] == b"\xff\xd8"  # a JPEG
