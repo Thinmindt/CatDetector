@@ -128,10 +128,10 @@ def grouped_client(db: Any, tmp_path: Path) -> Any:
 
 
 def test_the_page_walks_multi_clip_events_on_request(grouped_client: Any) -> None:
-    first = grouped_client.get("/api/review/multi/next").get_json()["event"]
+    first = grouped_client.get("/api/review/next?filter=multi").get_json()["event"]
     assert len(first["clips"]) == 2
 
-    after = grouped_client.get(f"/api/review/multi/next?after={first['id']}")
+    after = grouped_client.get(f"/api/review/next?filter=multi&after={first['id']}")
     assert after.get_json()["event"] is None
 
 
@@ -207,7 +207,7 @@ def test_strip_route_for_an_unreadable_clip_404s(
     assert client.get(f"/review/{event['id']}/clip/0/strip.jpg").status_code == 404
 
 
-def test_the_labeled_walk_takes_a_label_value(db: Any, tmp_path: Path) -> None:
+def test_a_label_is_a_walk_of_its_own(db: Any, tmp_path: Path) -> None:
     for name in ("cat_video_20260917_080000", "cat_video_20260917_090000"):
         make_clip_file(tmp_path / "captures" / f"{name}.h264")
     db.ingest(tmp_path / "captures")
@@ -215,13 +215,13 @@ def test_the_labeled_walk_takes_a_label_value(db: Any, tmp_path: Path) -> None:
     first = client.get("/api/review/next").get_json()["event"]["id"]
     client.post(f"/api/review/{first}/label", json={"value": "unsure"})
 
-    assert client.get("/api/review/labeled/next").get_json()["event"]["id"] == first
+    labeled = client.get("/api/review/next?filter=labeled").get_json()["event"]
+    assert labeled["id"] == first
     assert (
-        client.get("/api/review/labeled/next?value=unsure").get_json()["event"]["id"]
-        == first
+        client.get("/api/review/next?filter=unsure").get_json()["event"]["id"] == first
     )
-    assert client.get("/api/review/labeled/next?value=cat").get_json()["event"] is None
-    assert client.get("/api/review/labeled/next?value=dog").status_code == 400
+    assert client.get("/api/review/next?filter=cat").get_json()["event"] is None
+    assert client.get("/api/review/next?filter=dog").status_code == 400
 
 
 def test_cat_names_and_multiple_are_labels_and_count_by_name(
@@ -245,11 +245,8 @@ def test_cat_names_and_multiple_are_labels_and_count_by_name(
         "Bea": 1,
         "multiple": 1,
     }
-    assert (
-        client.get("/api/review/labeled/next?value=Bea").get_json()["event"]["id"]
-        == first
-    )
-    assert client.get("/api/review/labeled/next?value=Ada").get_json()["event"] is None
+    assert client.get("/api/review/next?filter=Bea").get_json()["event"]["id"] == first
+    assert client.get("/api/review/next?filter=Ada").get_json()["event"] is None
 
 
 def test_without_cat_names_a_name_and_multiple_are_rejected(client: Any) -> None:
@@ -259,7 +256,7 @@ def test_without_cat_names_a_name_and_multiple_are_rejected(client: Any) -> None
             f"/api/review/{event['id']}/label", json={"value": value}
         )
         assert response.status_code == 400, value
-    assert client.get("/api/review/labeled/next?value=multiple").status_code == 400
+    assert client.get("/api/review/next?filter=multiple").status_code == 400
 
 
 @pytest.mark.parametrize(
@@ -270,3 +267,76 @@ def test_a_cat_may_not_take_a_reserved_or_repeated_name(
 ) -> None:
     with pytest.raises(ValueError, match="CAT_NAMES"):
         Review(db, ClipFrames(tmp_path / "cache"), tmp_path / "captures", names)
+
+
+# --- review API: one route for every walk -----------------------------------
+
+
+@pytest.fixture
+def walks(db: Any, tmp_path: Path) -> tuple[Any, list[int]]:
+    """Five visits in time order, the first and third of two clips each,
+    labeled Ada, -, -, not_cat, Ada. Returns the client and the event ids."""
+    directory = tmp_path / "captures"
+    for start, *offsets in ((0, 40), (500,), (1000, 40), (1500,), (2000,)):
+        visit(directory, start, *offsets)
+    db.ingest(directory)
+    client = client_for(db, tmp_path, CATS)
+    ids = walk(client, "")
+    for index, value in ((0, "Ada"), (3, "not_cat"), (4, "Ada")):
+        client.post(f"/api/review/{ids[index]}/label", json={"value": value})
+    return client, ids
+
+
+def walk(client: Any, walk_filter: str) -> list[int]:
+    """Every event of a walk, each request continuing after the last event."""
+    seen: list[int] = []
+    while len(seen) <= 10:
+        after = f"&after={seen[-1]}" if seen else ""
+        response = client.get(f"/api/review/next?filter={walk_filter}{after}")
+        event = response.get_json()["event"]
+        if event is None:
+            return seen
+        seen.append(event["id"])
+    raise AssertionError(f"the {walk_filter!r} walk does not end: {seen}")
+
+
+@pytest.mark.parametrize(
+    ("walk_filter", "positions"),
+    [
+        ("", [1, 2]),
+        ("multi", [0, 2]),
+        ("labeled", [0, 3, 4]),
+        ("Ada", [0, 4]),
+        ("not_cat", [3]),
+        ("Bea", []),
+    ],
+)
+def test_every_walk_is_one_route_in_time_order(
+    walks: tuple[Any, list[int]], walk_filter: str, positions: list[int]
+) -> None:
+    client, ids = walks
+    assert walk(client, walk_filter) == [ids[i] for i in positions]
+
+
+def test_the_unlabeled_queue_starts_at_its_oldest_event(
+    walks: tuple[Any, list[int]],
+) -> None:
+    client, ids = walks
+    assert client.get("/api/review/next").get_json()["event"]["id"] == ids[1]
+    client.post(f"/api/review/{ids[1]}/label", json={"value": "Bea"})
+    assert client.get("/api/review/next").get_json()["event"]["id"] == ids[2]
+
+
+def test_a_walk_continues_after_an_event_it_no_longer_holds(
+    walks: tuple[Any, list[int]],
+) -> None:
+    client, ids = walks
+    client.post(f"/api/review/{ids[0]}/label", json={"value": "Bea"})
+    response = client.get(f"/api/review/next?filter=Ada&after={ids[0]}")
+    assert response.get_json()["event"]["id"] == ids[4]
+
+
+def test_the_per_walk_routes_are_gone(walks: tuple[Any, list[int]]) -> None:
+    client, _ = walks
+    for route in ("multi/next", "labeled/next"):
+        assert client.get(f"/api/review/{route}").status_code == 404, route

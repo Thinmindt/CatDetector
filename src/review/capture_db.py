@@ -426,9 +426,9 @@ class CaptureDB:
     # --- review -------------------------------------------------------------
 
     @serialized
-    def next_unlabeled(self) -> Event | None:
-        """Oldest event with no label yet."""
-        return self._next_in_order(None, self._unlabeled_event_ids())
+    def next_unlabeled(self, after_id: int | None = None) -> Event | None:
+        """The next event with no label yet in time order; the oldest by default."""
+        return self._next_in_order(after_id, self._unlabeled_event_ids())
 
     @serialized
     def get(self, event_id: int) -> Event | None:

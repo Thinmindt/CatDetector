@@ -481,6 +481,28 @@ Moved 2026-09-26: absorbed into C.6, times stored in UTC and shown in local time
 - [ ] **Dates are machine-shaped.** Show times in a readable local form (`Tue 15 Sep, 06:11`),
       with the relative time (`3 days ago`) on hover, here and on the timeline below (B.6).
 
+Moved 2026-09-26: done.
+
+- [x] **A reload loses your place.** The `?filter=` walks keep their position in page state, so
+      reloading starts the walk over from its first event, and a backlog cannot be worked
+      through in sittings. Put the position in the URL — the event id as the path, the filter as
+      a query parameter — so a reload, the back button or a pasted link lands on the same event.
+      This is the same route the notification deep links need (B.4), so build it once. On the
+      API side the three walks (`/api/review/next`, `/multi/next`, `/labeled/next`) become
+      one `/api/review/next?filter=&after=` — the page already has one `load()` that picks
+      between them, and one route with the same two parameters as the URL is what a
+      reload can replay. The staging table below joins the default walk in this step, so the
+      queue has one source of truth from the start.
+      **Done means** reloading, pressing Back or pasting the URL lands on the same event in the
+      same walk for every filter, a test drives `/api/review/next?filter=&after=` for each filter
+      and gets the sequence the old routes gave, the old three routes are gone, and
+      `check_page.py` shows the event id in the address.
+      Done 2026-09-26: `/review/<event id>?filter=<walk>` and one `next` route, as specified;
+      the staging table does not exist yet, so it joins the default walk with the staging item.
+      Driving it in headless Chromium showed Back on a 14-clip event waiting 60 s behind that
+      event's strip builds, so leaving an event now cancels its pending strips (DESIGN.md,
+      Review UI).
+
 ## B.5b Ground truth at cleaning time
 
 Moved 2026-09-26: the finished UI items and the feasibility measurement.

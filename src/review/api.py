@@ -48,6 +48,10 @@ class Review:
         return (*FIXED_LABELS, *self.cat_names, MULTIPLE)
 
 
+# The walks besides the unlabeled queue and one label's events.
+MULTI_WALK = "multi"
+LABELED_WALK = "labeled"
+
 # Litter boxes by position in frame, left to right; the camera knows no more.
 BOXES = (1, 2, 3)
 
@@ -91,18 +95,19 @@ class ReviewPages:
         self.labels = review.labels
 
     def next_event(self) -> ResponseReturnValue:
-        return self._event_payload(self.db.next_unlabeled())
-
-    def next_multi(self) -> ResponseReturnValue:
+        """The next event in a walk: `filter` names the walk (none is the
+        unlabeled queue), `after` the event to continue from."""
+        walk = request.args.get("filter") or None
         after = request.args.get("after", type=int)
-        return self._event_payload(self.db.next_multi(after))
-
-    def next_labeled(self) -> ResponseReturnValue:
-        after = request.args.get("after", type=int)
-        value = request.args.get("value")
-        if value is not None and value not in self.labels:
-            return error(f"value must be one of {self.labels}", 400)
-        return self._event_payload(self.db.next_labeled(after, value))
+        if walk is None:
+            return self._event_payload(self.db.next_unlabeled(after))
+        if walk == MULTI_WALK:
+            return self._event_payload(self.db.next_multi(after))
+        if walk == LABELED_WALK:
+            return self._event_payload(self.db.next_labeled(after, None))
+        if walk in self.labels:
+            return self._event_payload(self.db.next_labeled(after, walk))
+        return error(f"filter must be {MULTI_WALK}, {LABELED_WALK} or a label", 400)
 
     def one_event(self, event_id: int) -> ResponseReturnValue:
         event = self.db.get(event_id)
@@ -216,8 +221,6 @@ def create_review_blueprint(review: Review) -> Blueprint:
     pages = ReviewPages(review)
     bp = Blueprint("review", __name__)
     bp.add_url_rule("/api/review/next", view_func=pages.next_event)
-    bp.add_url_rule("/api/review/multi/next", view_func=pages.next_multi)
-    bp.add_url_rule("/api/review/labeled/next", view_func=pages.next_labeled)
     bp.add_url_rule("/api/review/event/<int:event_id>", view_func=pages.one_event)
     for action, view in (
         ("label", pages.set_label),

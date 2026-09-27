@@ -254,27 +254,13 @@ a table of their own before they can sit beside the human labels.
 
 The Review tab labels at event level with one keystroke or one tap: the cats by name (a digit key
 each, from `CAT_NAMES`), `cat` when which one is not decided, `multiple`, `not_cat`, `unsure` and
-`clean`, with undo, live counts, `?filter=` walks for auditing, whole-clip tiles, split and join,
-watch, and a phone layout. **The only requirement that really matters is speed:** hundreds of
-events reviewed by one person means labeling must be a single action, or it will not happen and
-the classifier never gets its data.
+`clean`, with undo, live counts, `?filter=` walks for auditing, an address that holds the event
+and the walk, whole-clip tiles, split and join, watch, and a phone layout. **The only requirement
+that really matters is speed:** hundreds of events reviewed by one person means labeling must be
+a single action, or it will not happen and the classifier never gets its data.
 
 Next, in this order:
 
-- [ ] **A reload loses your place.** The `?filter=` walks keep their position in page state, so
-      reloading starts the walk over from its first event, and a backlog cannot be worked
-      through in sittings. Put the position in the URL — the event id as the path, the filter as
-      a query parameter — so a reload, the back button or a pasted link lands on the same event.
-      This is the same route the notification deep links need (B.4), so build it once. On the
-      API side the three walks (`/api/review/next`, `/multi/next`, `/labeled/next`) become
-      one `/api/review/next?filter=&after=` — the page already has one `load()` that picks
-      between them, and one route with the same two parameters as the URL is what a
-      reload can replay. The staging table below joins the default walk in this step, so the
-      queue has one source of truth from the start.
-      **Done means** reloading, pressing Back or pasting the URL lands on the same event in the
-      same walk for every filter, a test drives `/api/review/next?filter=&after=` for each filter
-      and gets the sequence the old routes gave, the old three routes are gone, and
-      `check_page.py` shows the event id in the address.
 - [ ] **An explicit review queue, with staging.** Today the queue is
       implicit: the unlabelled events, in review order, and labelling one removes it. There is
       no way to put an event back without erasing its label, and no record of why it came back.

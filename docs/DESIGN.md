@@ -566,6 +566,27 @@ entries are published atomically, so it can run beside the service.
 in place — so the undo history can live in a JS array rather than sessionStorage, and labeling
 is one keypress with no page load between events.
 
+**The address is the position** (2026-09-26, ROADMAP B.3). The review page's address is
+`/review/<event id>?filter=<walk>`, and one route, `/api/review/next?filter=&after=`, serves every
+walk, so the address holds exactly what the page needs to resume: a reload, Back or a pasted link
+shows that event, and the next request continues the walk after it. Moving to another event pushes
+a history entry, so Back steps through the events seen; the first event shown replaces the bare
+`/review` it was reached by, or Back would land on an address that resolves to the same event. An
+id the database no longer has (a regroup renumbers events) says so and falls back to the walk's
+next event. The unlabeled queue takes `after` like the other walks, but the page never sends it:
+labelling removes an event from that walk, so its oldest event is always next. Undo stays in page
+state; the address holds position, not history.
+
+**Leaving an event cancels its strips** (2026-09-26). A strip not yet built holds a connection
+while ffmpeg decodes its clip, and a browser opens only six to one host, so an event with six or
+more uncached clips held up every other request to the server until the builds ended. On the
+14-clip event from the unlit night of 2026-09-14, whose builds each run into the 60 s ffmpeg
+timeout, a fetch took 60 s with the strips pending and 4 ms after cancelling them (headless
+Chromium, 2026-09-26). So every action that moves to another event removes the pending strips'
+sources before sending its own request, and the page does the same on `beforeunload`: Chrome sends
+a reload's request before the old document unloads, so `pagehide` comes too late. The build itself
+runs on to the end on the server; making it fast is the tiles item in ROADMAP B.3.
+
 **The label table is separate from event** (per the roadmap): model predictions and human labels
 can later coexist via the `source` column without overwriting each other.
 

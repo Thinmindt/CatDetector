@@ -110,10 +110,12 @@ rebuilds every event from the current thresholds: ids change, labels follow thei
 The review page shows every clip of an event and lets the reviewer split an event at a clip or
 join it with the next; those are stored as overrides on the clips (`boundary`, `joins`) and
 survive a `regroup`. `/review?filter=multi` walks the multi-clip events; `?filter=labeled` or
-`?filter=<label>` walks the events already labelled, for auditing and relabelling. Each clip is
-shown as a grid of tiles spanning the whole file, cut client-side from its cached strip image:
-one per second up to `MAX_TILES`, sparser beyond that (`tile_seconds`), the offset drawn into
-each tile. The stride is derived from the clip's keyframe count, **not** from the sidecar: the
+`?filter=<label>` walks the events already labelled, for auditing and relabelling. The address
+carries the event and the walk (`/review/<event id>?filter=<walk>`), so a reload, Back or a pasted
+link lands on the same event, and one route, `/api/review/next?filter=&after=`, serves every
+walk. Each clip is shown as a grid of tiles spanning the whole file, cut client-side from its
+cached strip image: one per second up to `MAX_TILES`, sparser beyond that (`tile_seconds`), the
+offset drawn into each tile. The stride is derived from the clip's keyframe count, **not** from the sidecar: the
 file starts up to `buffer_seconds` before the sidecar's `started_at` (the ring-buffer pre-roll).
 Extraction decodes **keyframes only**, and the recorder pins one keyframe per second
 (`iperiod=CAMERA_FPS`): change either and the tiles land on the wrong seconds. One decode
@@ -159,8 +161,9 @@ one bug the phone layout shipped with (a sheet that showed on load, because a `d
 rule beat the `hidden` attribute) was invisible to every gate. `tests/manual/check_page.py`
 serves the app from a copy of the review database, with no camera, and screenshots `/review` at
 a Pixel 9 portrait (412 x 915) and a laptop size into `test_images/`; `--filter multi` and the
-other walks work too. Run it and read the images before calling a page change done. Flask caches
-templates once rendered, so a server started before an edit serves the old page: restart it.
+other walks work too, and `--event <id>` opens one event as a link would. Run it and read the
+images before calling a page change done. Flask caches templates once rendered, so a server
+started before an edit serves the old page: restart it.
 
 `uv run` targets the project venv directly, so activating it is unnecessary.
 

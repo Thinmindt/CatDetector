@@ -110,7 +110,8 @@ undo, `l` a litter cleaning (enter the poops found per box, `Enter` saves), clic
 the full frame, "watch" to play the clip. With `CAT_NAMES` set, each cat gets a digit key in the
 configured order and `m` marks an event with more than one cat; `c` then means "a cat, which one
 not decided", and `/review?filter=cat` walks those to name them; `→` moves on while walking a
-filter. `main.py` serves it beside the live feed, so it is available whenever the detector is
+filter. The address names the event and the walk (`/review/<event>?filter=multi`), so a reload,
+Back or a shared link returns to the same event. `main.py` serves it beside the live feed, so it is available whenever the detector is
 running.
 
 ## Test, lint, format, type-check

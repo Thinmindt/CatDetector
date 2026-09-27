@@ -21,7 +21,7 @@ def create_app(streamer: WebStreamer | None, review: Review | None) -> Flask:
     """
     app = Flask(__name__)
 
-    def page() -> str:
+    def page(event_id: int | None = None) -> str:  # noqa: ARG001 -- the page reads the id from its address
         return render_template(
             "app.html",
             thumb_width=THUMB_WIDTH,
@@ -35,6 +35,7 @@ def create_app(streamer: WebStreamer | None, review: Review | None) -> Flask:
 
     app.add_url_rule("/", "index", page)
     app.add_url_rule("/review", "review_page", page)
+    app.add_url_rule("/review/<int:event_id>", "review_event", page)
     if streamer is not None:
         app.register_blueprint(streamer.blueprint())
     else:

@@ -10,10 +10,32 @@ const history_ = [];
 let statusTimer = null;
 let busy = false;  // a label request is in flight; the bar and the keys wait
 let snackTimer = null;
+let strips = [];  // the shown event's strip images, cancelled when it changes
 
 // --- tabs -------------------------------------------------------------------
 
-function tabFromPath() { return location.pathname === '/review' ? 'review' : 'live'; }
+// The review address is /review/<event id>?filter=<walk>, so a reload, Back or
+// a pasted link lands on the same event in the same walk.
+function tabFromPath() { return location.pathname.startsWith('/review') ? 'review' : 'live'; }
+
+function eventFromPath() {
+  const match = location.pathname.match(/^\/review\/(\d+)$/);
+  return match ? Number(match[1]) : null;
+}
+
+function reviewUrl(id) {
+  return (id ? `/review/${id}` : '/review') + (FILTER ? `?filter=${FILTER}` : '');
+}
+
+// A move to another event is a new history entry; the first event shown
+// replaces the bare /review it was reached by.
+function followInAddress(id) {
+  const shown = eventFromPath();
+  if (shown === id) return;
+  const url = reviewUrl(id);
+  if (shown === null) history.replaceState(null, '', url);
+  else history.pushState(null, '', url);
+}
 
 function activate(tab, push) {
   for (const name of ['live', 'review']) {
@@ -30,12 +52,9 @@ function activate(tab, push) {
     feed.removeAttribute('src');  // closes the MJPEG connection
     clearInterval(statusTimer);
     statusTimer = null;
-    if (REVIEW && !current) load();
   }
-  if (push) {
-    const url = tab === 'live' ? '/' : '/review' + (FILTER ? `?filter=${FILTER}` : '');
-    history.pushState(null, '', url);
-  }
+  if (push) history.pushState(null, '', tab === 'live' ? '/' : reviewUrl(current?.id));
+  if (tab === 'review' && REVIEW) showAddressed();
 }
 
 document.querySelectorAll('nav a').forEach(a => a.addEventListener('click', e => {
@@ -95,6 +114,8 @@ function show(data) {
   document.getElementById('bar').hidden = !current;
   renderCounts(data.counts);
   showCleanForm(false);
+  cancelStrips();
+  followInAddress(current ? current.id : null);
   if (!current) return;
   const poops = Object.entries(current.poops || {});
   const found = poops.length
@@ -110,7 +131,7 @@ function show(data) {
     `${hms(current.ended_at)}${badge}${grouped}`;
   document.getElementById('clips').innerHTML =
     current.clips.map((c, i) => clipBlock(c, i ? current.clips[i - 1] : null)).join('');
-  current.clips.forEach(c => loadTiles(current.id, c.index));
+  strips = current.clips.map(c => loadTiles(current.id, c.index));
   padForBar();
 }
 
@@ -134,9 +155,21 @@ function loadTiles(eventId, index) {
     }
   };
   strip.onerror = () => {
+    if (current?.id !== eventId) return;
     grid.innerHTML = '<span class="note warn">frames unavailable (clip unreadable?)</span>';
   };
   strip.src = `/review/${eventId}/clip/${index}/strip.jpg`;
+  return strip;
+}
+
+// A strip still being built holds one of the browser's few connections to the
+// server, so everything that leaves an event cancels its strips first.
+function cancelStrips() {
+  for (const strip of strips) {
+    strip.onload = strip.onerror = null;
+    strip.removeAttribute('src');
+  }
+  strips = [];
 }
 
 function renderCounts(c) {
@@ -191,22 +224,41 @@ function snack(text) {
 
 // --- actions ----------------------------------------------------------------
 
-// The walk being taken: the unlabeled queue, the multi-clip events, or the
-// labeled ones (all, or one label). A walk resumes after the current event.
-const NEXT_ROUTE = MULTI ? 'multi/next' : WALKING ? 'labeled/next' : 'next';
+// The event the address names, or the walk's next if it names none or one
+// that is gone (a regroup renumbers events).
+async function showAddressed() {
+  const id = eventFromPath();
+  if (id === null) {
+    if (!current) await load();
+    return;
+  }
+  if (current?.id === id) return;
+  cancelStrips();
+  const data = await get(`/api/review/event/${id}`);
+  if (eventFromPath() !== id) return;  // the address moved on while this loaded
+  if (data.event) {
+    show(data);
+  } else {
+    snack(`#${id} no longer exists`);
+    history.replaceState(null, '', reviewUrl(null));
+    await load();
+  }
+}
 
 async function load() {
   closeSheet();
+  cancelStrips();
   const params = new URLSearchParams();
-  if (LABELS.includes(FILTER)) params.set('value', FILTER);
+  if (FILTER) params.set('filter', FILTER);
   if (WALKING && current) params.set('after', current.id);
-  show(await get(`/api/review/${NEXT_ROUTE}?${params}`));
+  show(await get(`/api/review/next?${params}`));
 }
 
 // Records the label, says so, and moves on; nothing else is accepted meanwhile.
 async function label(value) {
   if (!current || busy) return;
   closeSheet();
+  cancelStrips();
   setBusy(true);
   try {
     await post(`/api/review/${current.id}/label`, {value});
@@ -232,6 +284,7 @@ async function startClean() {
 
 async function saveCounts() {
   if (!current || busy) return;
+  cancelStrips();
   setBusy(true);
   try {
     const counts = {};
@@ -251,6 +304,7 @@ async function undo() {
   const id = history_.pop();
   if (id === undefined) return;
   document.getElementById('snack').classList.add('gone');
+  cancelStrips();
   show(await get(`/api/review/event/${id}`));
 }
 
@@ -313,6 +367,7 @@ if (REVIEW) {
     else if (e.key === 'ArrowRight' && WALKING) load();
   });
   window.addEventListener('resize', padForBar);
+  window.addEventListener('beforeunload', cancelStrips);  // a reload would queue behind them
   if (WALKING) {
     document.getElementById('mode').textContent =
       MULTI ? '(multi-clip)' : `(${FILTER.replace('_', ' ')})`;
