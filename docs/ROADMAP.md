@@ -536,8 +536,8 @@ Each works for the setup it was built on and would bite someone else:
       `install-service.sh`.
       **Done means** `install-service.sh` stops with a message when the account is not in `video`,
       and the README's install section says so.
-- [ ] Cat names that collide with the page's filters or counts (`total`, `labeled`, `multi`,
-      `multi_clip`) are accepted; refuse them the way `cat` and `multiple` are refused.
+- [ ] Cat names that collide with the page's counts (`total`, `multi_clip`) are accepted;
+      refuse them the way `cat`, `multiple` and the walks `multi` and `labeled` are refused.
       **Done means** they are refused at startup from one reserved set that the page's filters and
       counts are built from, with a test per name.
 - [ ] Digit keys stop at nine cats, and match `e.key`, so on AZERTY the digits need Shift. Match

@@ -260,7 +260,15 @@ def test_without_cat_names_a_name_and_multiple_are_rejected(client: Any) -> None
 
 
 @pytest.mark.parametrize(
-    "names", [("cat", "Ada"), ("Ada", "multiple"), ("Ada", "Ada"), ("",)]
+    "names",
+    [
+        ("cat", "Ada"),
+        ("Ada", "multiple"),
+        ("multi",),
+        ("labeled",),
+        ("Ada", "Ada"),
+        ("",),
+    ],
 )
 def test_a_cat_may_not_take_a_reserved_or_repeated_name(
     db: Any, tmp_path: Path, names: tuple[str, ...]

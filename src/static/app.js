@@ -10,7 +10,7 @@ const history_ = [];
 let statusTimer = null;
 let busy = false;  // a label request is in flight; the bar and the keys wait
 let snackTimer = null;
-let strips = [];  // the shown event's strip images, cancelled when it changes
+let strips = [];  // the shown event's strip images; empty once cancelled
 
 // --- tabs -------------------------------------------------------------------
 
@@ -24,7 +24,8 @@ function eventFromPath() {
 }
 
 function reviewUrl(id) {
-  return (id ? `/review/${id}` : '/review') + (FILTER ? `?filter=${FILTER}` : '');
+  const query = FILTER ? `?filter=${encodeURIComponent(FILTER)}` : '';
+  return (id ? `/review/${id}` : '/review') + query;
 }
 
 // A move to another event is a new history entry; the first event shown
@@ -131,7 +132,7 @@ function show(data) {
     `${hms(current.ended_at)}${badge}${grouped}`;
   document.getElementById('clips').innerHTML =
     current.clips.map((c, i) => clipBlock(c, i ? current.clips[i - 1] : null)).join('');
-  strips = current.clips.map(c => loadTiles(current.id, c.index));
+  restoreTiles();
   padForBar();
 }
 
@@ -162,8 +163,8 @@ function loadTiles(eventId, index) {
   return strip;
 }
 
-// A strip still being built holds one of the browser's few connections to the
-// server, so everything that leaves an event cancels its strips first.
+// Everything that leaves an event cancels its pending strips first, and
+// restores them if it ends up staying.
 function cancelStrips() {
   for (const strip of strips) {
     strip.onload = strip.onerror = null;
@@ -172,8 +173,15 @@ function cancelStrips() {
   strips = [];
 }
 
+function restoreTiles() {
+  if (current && !strips.length && eventFromPath() === current.id) {
+    strips = current.clips.map(c => loadTiles(current.id, c.index));
+  }
+}
+
 function renderCounts(c) {
-  const link = (filter, text) => `<a href="/review?filter=${filter}">${text}</a>`;
+  const link = (filter, text) =>
+    `<a href="/review?filter=${encodeURIComponent(filter)}">${text}</a>`;
   const parts = Object.entries(c).filter(([k]) => !['total','labeled'].includes(k))
     .map(([k, v]) => k === 'multi_clip' ? link('multi', `${k}: ${v}`)
                    : LABELS.includes(k) ? link(k, `${k}: ${v}`) : `${k}: ${v}`)
@@ -232,7 +240,10 @@ async function showAddressed() {
     if (!current) await load();
     return;
   }
-  if (current?.id === id) return;
+  if (current?.id === id) {
+    restoreTiles();
+    return;
+  }
   cancelStrips();
   const data = await get(`/api/review/event/${id}`);
   if (eventFromPath() !== id) return;  // the address moved on while this loaded
@@ -251,7 +262,9 @@ async function load() {
   const params = new URLSearchParams();
   if (FILTER) params.set('filter', FILTER);
   if (WALKING && current) params.set('after', current.id);
-  show(await get(`/api/review/next?${params}`));
+  const from = location.pathname;
+  const data = await get(`/api/review/next?${params}`);
+  if (location.pathname === from) show(data);  // else Back or Forward moved on
 }
 
 // Records the label, says so, and moves on; nothing else is accepted meanwhile.
@@ -260,13 +273,15 @@ async function label(value) {
   closeSheet();
   cancelStrips();
   setBusy(true);
+  const id = current.id;
   try {
-    await post(`/api/review/${current.id}/label`, {value});
-    history_.push(current.id);
-    snack(`#${current.id}: ${value.replace('_', ' ')}`);
-    await load();
+    await post(`/api/review/${id}/label`, {value});
+    history_.push(id);
+    snack(`#${id}: ${value.replace('_', ' ')}`);
+    if (eventFromPath() === id) await load();  // else Back or Forward moved on
   } finally {
     setBusy(false);
+    restoreTiles();
   }
 }
 
@@ -286,17 +301,19 @@ async function saveCounts() {
   if (!current || busy) return;
   cancelStrips();
   setBusy(true);
+  const id = current.id;
   try {
     const counts = {};
     for (const box of [1, 2, 3]) {
       counts[box] = Number(document.getElementById(`box${box}`).value) || 0;
     }
-    await post(`/api/review/${current.id}/counts`, {counts});
-    history_.push(current.id);
-    snack(`#${current.id}: clean, ${Object.values(counts).join('/')}`);
-    await load();
+    await post(`/api/review/${id}/counts`, {counts});
+    history_.push(id);
+    snack(`#${id}: clean, ${Object.values(counts).join('/')}`);
+    if (eventFromPath() === id) await load();
   } finally {
     setBusy(false);
+    restoreTiles();
   }
 }
 
@@ -367,7 +384,8 @@ if (REVIEW) {
     else if (e.key === 'ArrowRight' && WALKING) load();
   });
   window.addEventListener('resize', padForBar);
-  window.addEventListener('beforeunload', cancelStrips);  // a reload would queue behind them
+  window.addEventListener('beforeunload', cancelStrips);
+  window.addEventListener('pageshow', restoreTiles);
   if (WALKING) {
     document.getElementById('mode').textContent =
       MULTI ? '(multi-clip)' : `(${FILTER.replace('_', ' ')})`;

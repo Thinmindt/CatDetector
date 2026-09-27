@@ -21,6 +21,10 @@ FIXED_LABELS = ("cat", "not_cat", "unsure", "clean")
 # Two cats in one event: kept as a visit, excluded from single-label training.
 MULTIPLE = "multiple"
 
+# The walks besides the unlabeled queue and one label's events.
+MULTI_WALK = "multi"
+LABELED_WALK = "labeled"
+
 
 @dataclass(frozen=True)
 class Review:
@@ -33,7 +37,7 @@ class Review:
     cat_names: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
-        reserved = {*FIXED_LABELS, MULTIPLE}
+        reserved = {*FIXED_LABELS, MULTIPLE, MULTI_WALK, LABELED_WALK}
         for name in self.cat_names:
             if not name or name in reserved:
                 raise ValueError(f"CAT_NAMES: {name!r} cannot be a cat's name")
@@ -47,10 +51,6 @@ class Review:
             return FIXED_LABELS
         return (*FIXED_LABELS, *self.cat_names, MULTIPLE)
 
-
-# The walks besides the unlabeled queue and one label's events.
-MULTI_WALK = "multi"
-LABELED_WALK = "labeled"
 
 # Litter boxes by position in frame, left to right; the camera knows no more.
 BOXES = (1, 2, 3)

@@ -21,7 +21,7 @@ def create_app(streamer: WebStreamer | None, review: Review | None) -> Flask:
     """
     app = Flask(__name__)
 
-    def page(event_id: int | None = None) -> str:  # noqa: ARG001 -- the page reads the id from its address
+    def page(**_route: int) -> str:
         return render_template(
             "app.html",
             thumb_width=THUMB_WIDTH,
