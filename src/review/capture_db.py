@@ -5,6 +5,7 @@ import fcntl
 import logging
 import sqlite3
 import threading
+import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from functools import wraps
@@ -16,6 +17,9 @@ from src.review.clip_scan import FoundClip, scan_clips
 from src.review.event_grouping import Boundary, ClipRow, group_clips
 
 log = logging.getLogger(__name__)
+
+HOLD_WAIT_SECONDS = 60
+HOLD_POLL_SECONDS = 0.5
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS event (
@@ -181,14 +185,21 @@ class CaptureDB:
     """
 
     def __init__(
-        self, path: str | Path, *, gap_seconds: float, box_distance_px: float
+        self,
+        path: str | Path,
+        *,
+        gap_seconds: float,
+        box_distance_px: float,
+        hold_wait_seconds: float = HOLD_WAIT_SECONDS,
     ) -> None:
         self.path = Path(path)
         self.gap_seconds = gap_seconds
         self.box_distance_px = box_distance_px
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self._lock = threading.RLock()
-        self._holder = self._hold(self.path.with_name(self.path.name + ".lock"))
+        self._holder = self._hold(
+            self.path.with_name(self.path.name + ".lock"), hold_wait_seconds
+        )
         self._conn = sqlite3.connect(self.path, check_same_thread=False)
         self._conn.row_factory = sqlite3.Row
         self._refuse_old_layout()
@@ -201,18 +212,23 @@ class CaptureDB:
         self._holder.close()
 
     @staticmethod
-    def _hold(lock_path: Path) -> Any:
-        """The lock file, opened and held shared. Raises DatabaseInUseError while a
-        regroup holds it exclusively."""
+    def _hold(lock_path: Path, wait_seconds: float) -> Any:
+        """The lock file, opened and held shared. Waits for a regroup that holds
+        it exclusively, and raises DatabaseInUseError if it outlasts the wait."""
         holder = lock_path.open("a")
-        try:
-            fcntl.flock(holder, fcntl.LOCK_SH | fcntl.LOCK_NB)
-        except BlockingIOError:
-            holder.close()
-            raise DatabaseInUseError(
-                f"{lock_path} is held by a regroup; try again"
-            ) from None
-        return holder
+        deadline = time.monotonic() + wait_seconds
+        while True:
+            try:
+                fcntl.flock(holder, fcntl.LOCK_SH | fcntl.LOCK_NB)
+            except BlockingIOError:
+                if time.monotonic() >= deadline:
+                    holder.close()
+                    raise DatabaseInUseError(
+                        f"{lock_path} is still held by a regroup"
+                    ) from None
+                time.sleep(HOLD_POLL_SECONDS)
+            else:
+                return holder
 
     def _refuse_old_layout(self) -> None:
         columns = {
@@ -281,12 +297,12 @@ class CaptureDB:
     def regroup(self) -> None:
         """Rebuild every event from the rule. Event ids change; labels follow clips.
 
-        Raises DatabaseInUseError if another process has the database open: it would
-        be holding event ids that no longer mean what they did.
+        Raises DatabaseInUseError if another process has the database open.
         """
         try:
             fcntl.flock(self._holder, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError:
+            fcntl.flock(self._holder, fcntl.LOCK_SH)  # a refused upgrade drops it
             raise DatabaseInUseError(
                 f"{self.path} is open in another process; stop it before regrouping"
             ) from None
@@ -325,9 +341,7 @@ class CaptureDB:
         """Merge this event with the next one in time. Returns the merged event,
         or None if there is no later event.
 
-        Raises JoinRefusedError if either side has a clip with no start time: the
-        grouping leaves those alone, so the join would record a merge that
-        never happens.
+        Raises JoinRefusedError if either side has a clip with no start time.
         """
         ordered = self._event_ids_in_order()
         if event_id not in ordered or ordered.index(event_id) + 1 >= len(ordered):
@@ -567,8 +581,8 @@ class CaptureDB:
     def stage(self, event_id: int, reason: str, source: str) -> bool:
         """Put an event back in the review queue, keeping its label.
 
-        Stored against the event's first clip, as poop counts are, so a regroup
-        keeps it with its clips. Returns False if there is no such event.
+        Stored against the event's first clip. Returns False if there is no
+        such event.
         """
         staged = self._stage(event_id, Staging(reason, self._now(), source))
         self._conn.commit()

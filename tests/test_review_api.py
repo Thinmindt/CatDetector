@@ -385,6 +385,9 @@ def test_staging_needs_a_reason_a_known_source_and_an_event(
     client, ids = walks
     for body in ({}, {"reason": " "}, {"reason": 3}, {"reason": "x", "source": "cat"}):
         assert stage(client, ids[0], **body).status_code == 400, body
+    for raw in (["recheck"], "recheck", 3):
+        response = client.post(f"/api/review/{ids[0]}/stage", json=raw)
+        assert response.status_code == 400, raw
     assert stage(client, 999, reason="x").status_code == 404
     assert walk(client, "") == [ids[1], ids[2]]
 
@@ -450,10 +453,14 @@ class CountingAhead:
         self.calls += 1
 
 
-def test_a_label_a_stage_and_a_rescan_ready_the_next_strips(
-    db: Any, clip_dir: Path, tmp_path: Path
+def test_every_change_to_the_queue_readies_the_next_strips(
+    db: Any, tmp_path: Path
 ) -> None:
-    db.ingest(clip_dir)
+    directory = tmp_path / "captures"
+    visit(directory, 0, 40)
+    visit(directory, 500)
+    db.ingest(directory)
+    clip_dir = directory
     ahead = CountingAhead()
     app = Flask(__name__)
     review = Review(
@@ -469,6 +476,8 @@ def test_a_label_a_stage_and_a_rescan_ready_the_next_strips(
 
     client.post(f"/api/review/{event}/label", json={"value": "cat"})
     stage(client, event, reason="check")
+    client.post(f"/api/review/{event}/split", json={"index": 1})
+    client.post(f"/api/review/{event}/join")
     client.post("/api/review/rescan")
 
-    assert ahead.calls == 3
+    assert ahead.calls == 5

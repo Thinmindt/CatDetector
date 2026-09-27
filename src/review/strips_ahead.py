@@ -4,6 +4,7 @@ import logging
 import os
 import sys
 import threading
+import time
 
 from src.review.capture_db import CaptureDB
 from src.review.clip_frames import ClipFrames
@@ -12,25 +13,34 @@ log = logging.getLogger(__name__)
 
 EVENTS_AHEAD = 30
 NICENESS = 10
+WALK_INTERVAL_SECONDS = 600
+RETRY_SECONDS = 600
 
 
 class StripsAhead:
     """One background thread that builds missing strips, one clip at a time.
 
     Call wanted() after anything that changes the queue; a walk in progress
-    starts over from the front of the queue. The database lock is held only
-    while the queue is read, never while ffmpeg reads the share.
+    starts over from the front of the queue. It also walks every
+    WALK_INTERVAL_SECONDS, for changes made by another process, and a clip
+    whose build failed is tried again after RETRY_SECONDS. The database lock is
+    held only while the queue is read, never while ffmpeg reads the share.
     """
 
     def __init__(
-        self, db: CaptureDB, frames: ClipFrames, events: int = EVENTS_AHEAD
+        self,
+        db: CaptureDB,
+        frames: ClipFrames,
+        events: int = EVENTS_AHEAD,
+        retry_seconds: float = RETRY_SECONDS,
     ) -> None:
         self.db = db
         self.frames = frames
         self.events = events
+        self.retry_seconds = retry_seconds
         self._wanted = threading.Event()
         self._stopping = threading.Event()
-        self._failed: set[int] = set()
+        self._failed_at: dict[int, float] = {}
         self._thread = threading.Thread(
             target=self._run, name="strips-ahead", daemon=True
         )
@@ -52,7 +62,7 @@ class StripsAhead:
     def _run(self) -> None:
         _lower_this_threads_priority()
         while True:
-            self._wanted.wait()
+            self._wanted.wait(WALK_INTERVAL_SECONDS)
             if self._stopping.is_set():
                 return
             self._wanted.clear()
@@ -65,16 +75,24 @@ class StripsAhead:
         """Build the missing strips of the next events in the queue. Returns how
         many were built; stops early when the queue changes again."""
         built = 0
+        already = self.frames.built_strips()
         for clip in self.db.clips_ahead(self.events):
             if self._wanted.is_set():
                 break
-            if clip.id in self._failed or self.frames.cached_strip(clip.id):
+            if clip.id in already or self._failed_recently(clip.id):
                 continue
             if self.frames.strip(clip.id, clip.path) is None:
-                self._failed.add(clip.id)
+                self._failed_at[clip.id] = time.monotonic()
             else:
+                self._failed_at.pop(clip.id, None)
                 built += 1
         return built
+
+    def _failed_recently(self, clip_id: int) -> bool:
+        failed_at = self._failed_at.get(clip_id)
+        return (
+            failed_at is not None and time.monotonic() - failed_at < self.retry_seconds
+        )
 
 
 def _lower_this_threads_priority() -> None:

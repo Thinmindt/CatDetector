@@ -118,3 +118,63 @@ def test_the_thread_builds_when_wanted_and_stops(
         assert time.monotonic() < deadline, frames.built
         time.sleep(0.01)
     assert ahead.stop(timeout=WAIT_SECONDS)
+
+
+def test_a_failed_clip_is_tried_again_once_the_retry_time_has_passed(
+    db: Any, tmp_path: Path, queue: list[Any]
+) -> None:
+    """Regression: a failure was remembered for the life of the process, so a
+    brief NAS outage stopped building ahead for every clip it touched."""
+    frames = RecordingFrames(tmp_path / "cache", db, fail=True)
+    ahead = StripsAhead(db, frames, retry_seconds=0)
+    ahead.build_ahead()
+    frames.fail = False
+    assert ahead.build_ahead() == 4
+    assert frames.built == clip_ids(queue[0], queue[2], queue[3]) * 2
+
+
+def test_a_request_for_a_strip_being_built_waits_for_that_build(
+    db: Any, tmp_path: Path, queue: list[Any]
+) -> None:
+    """Two callers for one clip, the builder and the page, decode it once."""
+    release = threading.Event()
+    frames = RecordingFrames(tmp_path / "cache", db)
+    build = frames._build_strip
+
+    def slow_build(clip_id: int, clip: Path) -> Path | None:
+        release.wait(WAIT_SECONDS)
+        return build(clip_id, clip)
+
+    frames._build_strip = slow_build  # type: ignore[method-assign]
+    clip = queue[0].clips[0]
+    results: list[Path | None] = []
+    callers = [
+        threading.Thread(
+            target=lambda: results.append(frames.strip(clip.id, clip.path))
+        )
+        for _ in range(2)
+    ]
+    for caller in callers:
+        caller.start()
+    time.sleep(0.2)
+    release.set()
+    for caller in callers:
+        caller.join(WAIT_SECONDS)
+    assert frames.built == [clip.id]
+    assert len(results) == 2
+    assert results[0] == results[1] is not None
+
+
+def test_built_strips_reads_the_cache_once_and_ignores_other_entries(
+    db: Any, tmp_path: Path
+) -> None:
+    frames = RecordingFrames(tmp_path / "cache", db)
+    for name in (
+        "clip3_strip1s.jpg",
+        "clip12_strip2s.jpg",
+        "clip4_strip1s.0af1.part.jpg",
+        "clip5_t3s.jpg",
+        "clip6.mp4",
+    ):
+        (frames.cache_dir / name).write_bytes(b"x")
+    assert frames.built_strips() == {3, 12}

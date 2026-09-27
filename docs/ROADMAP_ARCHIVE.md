@@ -558,8 +558,9 @@ Moved 2026-09-27: done.
       service holds the database; and a persistent clip-open failure logs one traceback per streak.
       Done 2026-09-27: media URLs are `/review/clip/<clip id>/...`; a join touching an undated
       clip answers 409 with the reason; `--regroup` refuses, and exits 1, while any other
-      `CaptureDB` holds the lock file beside the database; clip-open failures log one traceback
-      and then retry at debug level until an open succeeds. Each test was mutation-checked.
+      `CaptureDB` holds the lock file beside the database; clip-open failures log a traceback at
+      most once a minute, not once per streak, since a streak that lasted days would have hidden
+      every later missed visit. Each test was mutation-checked.
 
 - [x] **The tiles are slow to appear, worst on multi-clip events.** A strip
       is built on its first request: ffmpeg reads the whole clip off the share and decodes every
@@ -578,7 +579,8 @@ Moved 2026-09-27: done.
       `CaptureDB` lock while it runs, and on the Pi the first tile of a fresh multi-clip event
       appears in under a second.
       Done 2026-09-27: `StripsAhead`, one thread, 30 events ahead, woken by every ingest,
-      label, stage and rescan, and reniced to 10 so its ffmpeg is too. On the Pi, against an
+      label, stage, split, join and rescan and every ten minutes, and reniced to 10 so its
+      ffmpeg is too; a page request for a strip being built waits for it. On the Pi, against an
       empty scratch cache, it built the 10 clips of the next 8 queued events in 17.7 s while
       the running service held 30.00 fps (longest frame gap 62 ms); the page's requests for a
       3-clip event's strips then took 16 ms together, served by the app on the Pi from that

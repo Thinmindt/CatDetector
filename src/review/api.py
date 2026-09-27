@@ -83,8 +83,9 @@ def no_such_event() -> ResponseReturnValue:
 
 
 def request_body() -> dict[str, Any]:
-    """The request's JSON object, or an empty one."""
-    return request.get_json(silent=True) or {}
+    """The request's JSON object, or an empty one if it sent anything else."""
+    body = request.get_json(silent=True)
+    return body if isinstance(body, dict) else {}
 
 
 def validated_counts(raw: Any) -> dict[int, int] | None:
@@ -172,6 +173,7 @@ class ReviewPages:
         if not isinstance(index, int) or not 0 < index < len(event.clips):
             return error("index must name a clip after the first", 400)
         self.db.split(event.clips[index].id)
+        self.review.queue_changed()
         return self._event_payload(self.db.get(event_id))
 
     def join(self, event_id: int) -> ResponseReturnValue:
@@ -181,6 +183,7 @@ class ReviewPages:
             joined = self.db.join(event_id)
         except JoinRefusedError as refused:
             return error(str(refused), 409)
+        self.review.queue_changed()
         return self._event_payload(joined)
 
     def rescan(self) -> ResponseReturnValue:
@@ -209,8 +212,7 @@ class ReviewPages:
         mimetype: str,
         produce: Callable[[Clip], Path | None],
     ) -> Response:
-        """A file for one clip, or 404. The URL names the clip, whose files
-        never change, so no regroup can make it serve another clip's.
+        """A file for one clip, or 404.
 
         send_file honours Range requests, which is what lets the player seek.
         """

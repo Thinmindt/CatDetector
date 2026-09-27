@@ -128,8 +128,8 @@ Extraction decodes **keyframes only**, and the recorder pins one keyframe per se
 (`iperiod=CAMERA_FPS`): change either and the tiles land on the wrong seconds. One decode
 yields the strip and the full frames behind its tiles; the strip is published last, so its
 presence means the set is complete. `StripsAhead` builds the strips of the next 30 queued
-events on one reniced thread after every ingest, label, stage and rescan, so the page's request is
-normally a cache hit. "Watch" remuxes the clip to MP4 on demand into
+events on one reniced thread after every change to the queue and every ten minutes, so the page's
+request is normally a cache hit; a request for a strip being built waits for that build. "Watch" remuxes the clip to MP4 on demand into
 `.review_cache`; that cache is keyed by **clip** id (`clip<id>*`), never by event id, because
 event ids change on a regroup; the media URLs name the clip for the same reason
 (`/review/clip/<clip id>/...`). Labels include `clean`, which records a litter cleaning and the

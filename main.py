@@ -271,9 +271,23 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     staging.add_argument("--reason", help="shown with each event; required")
     staging.add_argument("--source", choices=STAGING_SOURCES, default="human")
     args = parser.parse_args(argv)
-    if args.stage and not (args.reason and args.reason.strip()):
-        parser.error("--stage needs a --reason")
+    if args.stage:
+        _check_staging(parser, args)
+    elif _any_staging_option(args):
+        parser.error("--label, --labeled-before, --reason and --source need --stage")
     return args
+
+
+def _any_staging_option(args: argparse.Namespace) -> bool:
+    chosen = (args.label, args.labeled_before, args.reason)
+    return any(value is not None for value in chosen) or args.source != "human"
+
+
+def _check_staging(parser: argparse.ArgumentParser, args: argparse.Namespace) -> None:
+    if not (args.reason and args.reason.strip()):
+        parser.error("--stage needs a --reason")
+    if args.label is None and args.labeled_before is None:
+        parser.error("--stage needs --label, --labeled-before or both")
 
 
 def run_command(args: argparse.Namespace) -> int:

@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import datetime
+import fcntl
 import sqlite3
 import threading
+import time
 from pathlib import Path
 from typing import Any
 
@@ -583,3 +585,35 @@ def test_the_database_opens_again_after_a_refused_regroup(
     other.close()
     db.regroup()
     CaptureDB(db.path, gap_seconds=GAP, box_distance_px=DISTANCE).close()
+
+
+def test_a_refused_regroup_keeps_its_shared_hold(db: Any) -> None:
+    """flock drops the shared lock before trying for the exclusive one, so a
+    refused upgrade left the database open with no hold at all."""
+    other = CaptureDB(db.path, gap_seconds=GAP, box_distance_px=DISTANCE)
+    with pytest.raises(DatabaseInUseError):
+        db.regroup()
+    other.close()
+
+    third = CaptureDB(db.path, gap_seconds=GAP, box_distance_px=DISTANCE)
+    try:
+        with pytest.raises(DatabaseInUseError):
+            third.regroup()
+    finally:
+        third.close()
+
+
+def test_opening_waits_out_a_regroup_and_gives_up_after_the_wait(
+    tmp_path: Path,
+) -> None:
+    """A service restarted during a regroup must not lose review for the run."""
+    path = tmp_path / "captures.db"
+    lock = (tmp_path / "captures.db.lock").open("a")
+    fcntl.flock(lock, fcntl.LOCK_EX)
+    with pytest.raises(DatabaseInUseError):
+        CaptureDB(path, gap_seconds=GAP, box_distance_px=DISTANCE, hold_wait_seconds=0)
+
+    threading.Timer(0.3, lock.close).start()
+    started = time.monotonic()
+    CaptureDB(path, gap_seconds=GAP, box_distance_px=DISTANCE).close()
+    assert time.monotonic() - started >= 0.2

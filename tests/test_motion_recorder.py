@@ -22,7 +22,10 @@ from conftest import (
     needs_real_picamera2,
 )
 
-from src.capture.motion_recorder import _ResilientCircularOutput
+from src.capture.motion_recorder import (
+    OPEN_FAILURE_LOG_INTERVAL_SECONDS,
+    _ResilientCircularOutput,
+)
 from src.clips.format import CAMERA_FPS, partial_name
 from src.clips.sidecar import ClipFacts, CloseReason, read_sidecar, sidecar_name
 
@@ -220,21 +223,25 @@ def test_draining_a_clip_does_not_block_the_caller(recorder: Any) -> None:
     assert recorder.circular_output.stop_calls == 1
 
 
-def test_a_clip_that_cannot_open_logs_one_traceback_per_streak(
+def test_a_clip_that_cannot_open_logs_a_traceback_at_most_once_a_minute(
     recorder: Any, caplog: pytest.LogCaptureFixture
 ) -> None:
     """Regression: motion retries the open on every frame, and each failure
-    logged a full traceback, at 30 Hz for as long as the motion lasted."""
+    logged a full traceback, at 30 Hz for as long as the motion lasted. The
+    quiet must end, or later missed visits would leave no trace at all."""
 
     def tracebacks() -> int:
         return sum(1 for record in caplog.records if record.exc_info)
 
     caplog.set_level(logging.INFO, logger="src.capture.motion_recorder")
-
     recorder.circular_output.fail_on_fileoutput = True
     for _ in range(5):
         assert recorder._start_saving() is None
     assert tracebacks() == 1
+
+    recorder._open_failure_logged_at -= OPEN_FAILURE_LOG_INTERVAL_SECONDS
+    assert recorder._start_saving() is None
+    assert tracebacks() == 2
 
     recorder.circular_output.fail_on_fileoutput = False
     assert recorder._start_saving() is not None
@@ -246,7 +253,7 @@ def test_a_clip_that_cannot_open_logs_one_traceback_per_streak(
     recorder.circular_output.fail_on_fileoutput = True
     for _ in range(3):
         assert recorder._start_saving() is None
-    assert tracebacks() == 2
+    assert tracebacks() == 3
 
 
 def test_a_new_clip_waits_for_the_previous_drain(recorder: Any) -> None:

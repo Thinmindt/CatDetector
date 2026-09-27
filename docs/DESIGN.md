@@ -178,10 +178,12 @@ one check every 5 s: it runs on the capture thread for every motion frame, so an
 `statvfs` plus its warning means 30 syscalls and 30 log lines a second for as long as the disk
 stays full.
 
-**A clip that cannot open is logged once per streak** (2026-09-27). Motion retries `_start_saving`
-on every frame, so an open that keeps failing (a clip directory that is not writable) logged a full
-traceback 30 times a second for as long as the motion lasted. The first failure of a streak is
-logged with its traceback; the rest are not, and the first open that succeeds says so. A missing
+**A clip that cannot open is logged at most once a minute** (2026-09-27). Motion retries
+`_start_saving` on every frame, so an open that keeps failing (a clip directory that is not
+writable) logged a full traceback 30 times a second for as long as the motion lasted. Now a failure
+logs its traceback only if none was logged in the last minute, and the first open that succeeds
+says so. Once per failure streak is not enough: a streak ends only when an open succeeds, so a
+failure that lasted days would have left every missed visit after the first unlogged. A missing
 directory is caught earlier, by `_has_room`, which is already throttled.
 
 **UTC is not used for clip names.** Local time is friendlier for browsing, so collisions across
@@ -469,8 +471,11 @@ loaded before it, lands on whatever event now has that id. A transaction would s
 not the second. So every `CaptureDB` holds a shared `flock` on `<database>.lock` for as long as it
 is open, and `regroup` takes it exclusive without waiting, refusing if anything else holds it. A
 separate file, because closing any descriptor of the database file itself drops the POSIX locks
-SQLite holds on it. `--stage` takes the shared lock like the service does and runs beside it, since
-staging renumbers nothing.
+SQLite holds on it. Linux's `flock` drops the shared lock before it tries for the exclusive one, so
+a refused regroup takes the shared lock back. Opening waits up to a minute for a regroup's exclusive
+lock rather than failing, so a service restarted while one runs still gets its Review tab.
+`--stage` takes the shared lock like the service does and runs beside it, since staging renumbers
+nothing.
 
 **A clip with no sidecar is `recovered`.** It was cut off by a crash before the recorder could write
 one. Its start comes from the filename and its end is estimated from size at `H264_BITRATE`
@@ -627,15 +632,19 @@ server.
 **Strips are built before the page asks** (2026-09-27, ROADMAP B.3). On its first request a strip
 costs a read of the whole clip and a keyframe decode, 1.7 s for a 96 s clip, and a multi-clip event
 fires one per clip at once. `StripsAhead` is one thread that builds the missing strips of the next 30
-events in the review queue, one clip at a time, woken after every ingest, label, stage and rescan; a
-wake-up during a walk starts it over from the front of the queue, since the front is what the page
-shows next. The database lock is held only while the queue is read. The thread renices itself to 10
+events in the review queue, one clip at a time, woken after every ingest, label, stage, split, join
+and rescan, and every ten minutes for changes another process made (`main.py --stage`); a wake-up
+during a walk starts it over from the front of the queue, since the front is what the page shows
+next. The database lock is held only while the queue is read. A walk reads the cache directory once
+rather than globbing it per clip: with 7,683 entries a glob took 6.9 ms, about 280 ms a walk on
+every label (2026-09-27). The thread renices itself to 10
 before its first build, and the ffmpeg it starts inherits that, so a build yields to the encoder:
 building 10 clips from the share took 17.7 s while the service beside it held 30.00 fps, its
-longest frame gap 62 ms (2026-09-27). A clip whose build fails is not retried until the process
-restarts, or every label would rerun a 60 s ffmpeg timeout. A page request that collides with a
-build runs its own; both publish by rename, so the cost is the duplicate work. With the strips
-built, a 3-clip event's three strips were served in 16 ms together (2026-09-27).
+longest frame gap 62 ms (2026-09-27). A clip whose build fails is skipped for ten minutes, or every
+label would rerun a 60 s ffmpeg timeout; it is tried again after that, since the usual cause, the
+share being away, passes. A page request for a strip being built waits for that build (one lock per
+clip in `ClipFrames`) rather than decoding the clip a second time, un-niced. With the strips built,
+a 3-clip event's three strips were served in 16 ms together (2026-09-27).
 
 **The label table is separate from event** (per the roadmap): model predictions and human labels
 can later coexist via the `source` column without overwriting each other.
