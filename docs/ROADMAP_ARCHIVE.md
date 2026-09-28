@@ -286,6 +286,20 @@ check is set up outside this project.
       the ping never runs on the capture thread, and the README's Configuration section
       describes the setting.
 
+Moved 2026-09-27: done.
+
+- [x] **Restart on a capture stall.** When no frame has arrived for 10 s, the detector logs an
+      error, shuts down through the usual cleanup and exits non-zero, so systemd restarts it. A
+      camera that stays dead restarts every ~35 s indefinitely, which is the right failure for
+      recall: it keeps trying and the journal shows every attempt.
+      **Done means** a test with a camera whose capture blocks sees the process exit non-zero
+      through the same cleanup as SIGTERM, a test sees no exit while frames arrive, and the
+      service runs on the Pi for 24 h with no stall restart.
+      Done 2026-09-27: the tests are in `tests/test_main.py`. The service ran this code on the Pi
+      from 2026-09-26 16:50:58 with no restart: in the 30 h to 2026-09-27 22:53 the metrics CSV
+      holds 3.24 million frames at 30.00 fps, the longest gap between them 0.68 s, and the
+      journal has no stall line.
+
 ---
 
 # Part B — knowing which cat

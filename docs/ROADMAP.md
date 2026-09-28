@@ -1,6 +1,6 @@
 # Roadmap: cat detection and identification
 
-Current as of 2026-09-26. This file holds the plan as it stands: what is decided, what is next,
+Current as of 2026-09-27. This file holds the plan as it stands: what is decided, what is next,
 and what is still open. Finished items and the history behind decisions move to
 `ROADMAP_ARCHIVE.md`, under the same section letters, so a citation such as "A.2" finds the plan
 here and its history there.
@@ -187,16 +187,9 @@ web server answered `/api/status` throughout, and nothing alerted. A manual rest
 camera back at 30 fps, and that shutdown completed in 5 s with the camera still wedged. In twelve
 days of the metrics CSV, the longest gap between frames outside a restart or power-off is 1.95 s.
 
-- [ ] **Restart on a capture stall.** When no frame has arrived for 10 s, the detector logs an
-      error, shuts down through the usual cleanup and exits non-zero, so systemd restarts it. A
-      camera that stays dead restarts every ~35 s indefinitely, which is the right failure for
-      recall: it keeps trying and the journal shows every attempt.
-      **Done means** a test with a camera whose capture blocks sees the process exit non-zero
-      through the same cleanup as SIGTERM, a test sees no exit while frames arrive, and the
-      service runs on the Pi for 24 h with no stall restart.
-
-Alerting when capture stops is built: an optional `CAPTURE_HEARTBEAT_URL`, pinged only while
-frames arrive, for a dead man's switch set up outside this project (archive, A.6).
+Both halves are built (archive, A.6): after 10 s with no frame the detector exits non-zero through
+its usual cleanup, so systemd restarts it, and an optional `CAPTURE_HEARTBEAT_URL` is pinged only
+while frames arrive, for a dead man's switch set up outside this project.
 
 ---
 
