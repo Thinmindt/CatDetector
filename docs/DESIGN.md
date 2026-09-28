@@ -646,6 +646,12 @@ share being away, passes. A page request for a strip being built waits for that 
 clip in `ClipFrames`) rather than decoding the clip a second time, un-niced. With the strips built,
 a 3-clip event's three strips were served in 16 ms together (2026-09-27).
 
+**An empty walk names itself and points at the queue** (2026-09-28). A phone restored an old
+`/review?filter=cat` tab, a walk that no longer holds anything because every cat visit is labelled
+by name, and the page said "Nothing left to review here" while 73 events waited in the queue; the
+only way back was a small link at the end of the counts line. An empty walk now says which walk it
+is and offers the queue as a full-size button with the number waiting (unlabelled plus staged).
+
 **The label table is separate from event** (per the roadmap): model predictions and human labels
 can later coexist via the `source` column without overwriting each other.
 

@@ -123,7 +123,10 @@ function show(data) {
   showCleanForm(false);
   cancelStrips();
   followInAddress(current ? current.id : null);
-  if (!current) return;
+  if (!current) {
+    showDone(data.counts);
+    return;
+  }
   const poops = Object.entries(current.poops || {});
   const found = poops.length
     ? ` <span class="label">poops ${poops.map(([b, n]) => `box${b}: ${n}`).join(', ')}</span>`
@@ -143,6 +146,22 @@ function show(data) {
     current.clips.map((c, i) => clipBlock(c, i ? current.clips[i - 1] : null)).join('');
   restoreTiles();
   padForBar();
+}
+
+// An empty walk says which walk it is and how many events wait in the queue.
+function walkName() {
+  if (MULTI) return 'multi-clip events';
+  if (FILTER === 'labeled') return 'labelled events';
+  return `events labelled ${FILTER.replace('_', ' ')}`;
+}
+
+function showDone(counts) {
+  const waiting = counts.total - counts.labeled + (counts.staged || 0);
+  document.getElementById('donetext').textContent =
+    WALKING ? `No ${walkName()} left in this walk.` : 'Nothing left to review.';
+  const toQueue = document.getElementById('toqueue');
+  toQueue.textContent = `go to the review queue (${waiting} waiting)`;
+  toQueue.hidden = !WALKING || waiting === 0;
 }
 
 // One frame per tile, cut from the clip's strip image so the tiles wrap to the
