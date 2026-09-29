@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from conftest import BOX_1, BOX_2, BOX_3, make_clip_file, make_clip_with_facts
+from conftest import BOX_1, BOX_2, BOX_3, make_clip_file, make_clip_with_facts, visit
 from flask import Flask
 
 from src.review.api import Review, create_review_blueprint
@@ -297,3 +297,13 @@ def test_stage_many_refuses_what_it_cannot_read(
 ) -> None:
     client, _ = timeline_client
     assert client.post("/api/review/stage", json=body).status_code == 400
+
+
+def test_a_visit_of_several_clips_is_one_row_spanning_them(
+    db: Any, tmp_path: Path
+) -> None:
+    directory = tmp_path / "captures"
+    visit(directory, 0, 40)
+    db.ingest(directory)
+    (only,) = build_timeline(db.timeline_rows(), TimelineFilter()).rows
+    assert (only.clips, only.seconds) == (2, 55)

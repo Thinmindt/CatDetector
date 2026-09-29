@@ -1,27 +1,23 @@
-// Lint for the page's script. The globals are what the template defines
-// inline before app.js loads, plus the browser.
+// Lint for the page's modules. The globals are the browser's; the template
+// passes its settings as JSON, and d3 arrives as window.d3.
 export default [
   { ignores: ["src/static/vendor/"] },
   {
     files: ["src/static/*.js"],
     languageOptions: {
       ecmaVersion: 2022,
-      sourceType: "script",
+      sourceType: "module",
       globals: {
-        REVIEW: "readonly", LABELS: "readonly", CATS: "readonly", THUMB_WIDTH: "readonly",
         document: "readonly", window: "readonly", location: "readonly", history: "readonly",
-        fetch: "readonly", URLSearchParams: "readonly", Image: "readonly", alert: "readonly",
+        fetch: "readonly", URLSearchParams: "readonly", Image: "readonly",
+        alert: "readonly", prompt: "readonly",
         setInterval: "readonly", clearInterval: "readonly",
         setTimeout: "readonly", clearTimeout: "readonly",
-        event: "readonly",
       },
     },
     rules: {
       "no-undef": "error",
-      "no-unused-vars": ["error", {
-        // Functions the template calls from onclick attributes are unused to eslint.
-        varsIgnorePattern: "^(label|undo|split|join|watch|rescan|startClean|saveCounts|openSheet|closeSheet)$",
-      }],
+      "no-unused-vars": "error",
       "no-unreachable": "error",
       "eqeqeq": "error",
     },

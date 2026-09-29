@@ -87,6 +87,7 @@ npm run lint                                 # lint the page's JavaScript (npm i
 
 uv run python tests/manual/check_camera.py   # hardware smoke test; writes test_images/test_image.jpg
 uv run python tests/manual/check_page.py     # screenshot the review page, phone and desk sizes, no camera
+                                             # (--path '/timeline?hours=22-6' for any other address)
 
 METRICS_CSV=$HOME/metrics.csv uv run python main.py          # + per-frame detection metrics
 
@@ -97,8 +98,13 @@ uv run python main.py --stage --label not_cat --labeled-before 2026-09-20 --reas
 ```
 
 The web UI is **one Flask app on one port** ([src/web_app.py](src/web_app.py)): a page with a
-Live tab and a Review tab, built from `src/templates/app.html`, whose script is
-`src/static/app.js` (the template fills four constants inline before it loads). `main.py` is the only entry
+Live tab, a Review tab and a Timeline tab, built from `src/templates/app.html`. Its script is
+ES modules loaded with no build step: `app.js` switches tabs, `live.js`, `review.js` and
+`timeline.js` are one per tab, and `common.js` is shared. The template passes its settings as a
+JSON block (`id="config"`), and buttons carry `data-action`, never `onclick`: modules expose no
+globals. d3, which draws the timeline's strips, is committed under `src/static/vendor/` from the
+exact version `package.json` pins; after a version bump run `npm run vendor`, and a gate fails if
+the copy drifts. `main.py` is the only entry
 point, so the Review tab is up whenever the detector is. The review half ingests
 `$NETWORK_SHARE_DIR/captures/*.h264` into a local SQLite DB (`DB_PATH`, default `captures.db` —
 local disk, never the share) and serves a keyboard-driven cat/not-cat labeler; frame extraction
@@ -151,7 +157,7 @@ page that holds their ids. Never open the database file itself for a lock: closi
 of it drops SQLite's own POSIX locks.
 
 **Every gate must pass before every commit**: the privacy check, shellcheck, codespell, lint,
-format check, type check, the JavaScript lint, tests. `scripts/check.sh` runs them, and
+format check, type check, the JavaScript lint, the vendored-d3 check, tests. `scripts/check.sh` runs them, and
 `.github/workflows/check.yml` runs the same script on every push. Run it and report the result.
 shellcheck and codespell are pinned dev dependencies, so `uv sync` installs them. The JavaScript
 gate is eslint, pinned by `package.json` and `package-lock.json` and configured in
@@ -175,7 +181,8 @@ one bug the phone layout shipped with (a sheet that showed on load, because a `d
 rule beat the `hidden` attribute) was invisible to every gate. `tests/manual/check_page.py`
 serves the app from a copy of the review database, with no camera, and screenshots `/review` at
 a Pixel 9 portrait (412 x 915) and a laptop size into `test_images/`; `--filter multi` and the
-other walks work too, and `--event <id>` opens one event as a link would. Run it and read the
+other walks work too, `--event <id>` opens one event as a link would, and `--path` takes any
+address, the timeline's included. Run it and read the
 images before calling a page change done. Flask caches templates once rendered, so a server
 started before an edit serves the old page: restart it.
 

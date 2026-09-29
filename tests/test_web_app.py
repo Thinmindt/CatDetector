@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+import re
 from pathlib import Path
 from typing import Any, cast
 
@@ -34,16 +36,19 @@ def streamer(camera_manager: Any) -> Any:
 def test_every_page_route_serves_the_tabbed_page(review_parts: Any) -> None:
     client = create_app(None, review_parts).test_client()
 
-    for path in ("/", "/review", "/review/7"):
+    for path in ("/", "/review", "/review/7", "/timeline"):
         response = client.get(path)
         assert response.status_code == 200, path
-        assert b'data-tab="live"' in response.data
-        assert b'data-tab="review"' in response.data
+        for tab in ("live", "review", "timeline"):
+            assert f'data-tab="{tab}"'.encode() in response.data
     assert b'<meta name="viewport" content="width=device-width' in response.data
     assert b'id="bar"' in response.data  # the label bar fixed to the screen bottom
-    assert b"THUMB_WIDTH = 320" in response.data
-    assert b'LABELS = ["cat", "not_cat", "unsure", "clean"]' in response.data
-    assert b"CATS = []" in response.data
+    assert page_config(response.data) == {
+        "review": True,
+        "labels": ["cat", "not_cat", "unsure", "clean"],
+        "cats": [],
+        "thumbWidth": 320,
+    }
 
 
 def test_the_page_carries_the_cats_in_configured_order(tmp_path: Path) -> None:
@@ -55,11 +60,39 @@ def test_the_page_carries_the_cats_in_configured_order(tmp_path: Path) -> None:
         response = create_app(None, review).test_client().get("/review")
     finally:
         db.close()
-    assert b'CATS = ["Zed", "Ada"]' in response.data
-    assert (
-        b'LABELS = ["cat", "not_cat", "unsure", "clean", "Zed", "Ada", "multiple"]'
-        in response.data
+    config = page_config(response.data)
+    assert config["cats"] == ["Zed", "Ada"]
+    assert config["labels"] == [
+        "cat",
+        "not_cat",
+        "unsure",
+        "clean",
+        "Zed",
+        "Ada",
+        "multiple",
+    ]
+
+
+def test_a_cat_name_cannot_break_out_of_the_page_settings(tmp_path: Path) -> None:
+    db = CaptureDB(tmp_path / "captures.db", gap_seconds=GAP, box_distance_px=DISTANCE)
+    name = "</script><script>alert(1)</script>"
+    review = Review(db, ClipFrames(tmp_path / "cache"), tmp_path / "captures", (name,))
+    try:
+        response = create_app(None, review).test_client().get("/review")
+    finally:
+        db.close()
+    assert b"<script>alert(1)" not in response.data
+    assert page_config(response.data)["cats"] == [name]
+
+
+def page_config(page: bytes) -> dict[str, Any]:
+    """The settings the template writes into the page for its modules."""
+    found = re.search(
+        rb'<script type="application/json" id="config">(.*?)</script>', page, re.DOTALL
     )
+    assert found is not None
+    parsed: dict[str, Any] = json.loads(found[1])
+    return parsed
 
 
 def test_without_a_streamer_the_live_tab_learns_there_is_no_detector(
