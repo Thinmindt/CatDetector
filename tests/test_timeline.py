@@ -12,6 +12,7 @@ from conftest import BOX_1, BOX_2, BOX_3, make_clip_file, make_clip_with_facts, 
 from flask import Flask
 
 from src.review.api import Review, create_review_blueprint
+from src.review.capture_db import TIMELINE_ROWS
 from src.review.clip_frames import ClipFrames
 from src.review.timeline import (
     DATE,
@@ -307,3 +308,57 @@ def test_a_visit_of_several_clips_is_one_row_spanning_them(
     db.ingest(directory)
     (only,) = build_timeline(db.timeline_rows(), TimelineFilter()).rows
     assert (only.clips, only.seconds) == (2, 55)
+
+
+def test_stage_many_skips_the_unlabelled_and_keeps_earlier_staging(
+    db: Any, timeline_client: tuple[Any, dict[str, int]]
+) -> None:
+    """Staging an unlabelled event counted it twice in the queue, and a bulk
+    stage overwrote the reason and source an event was staged with before."""
+    client, names = timeline_client
+    client.post(
+        f"/api/review/{names['bea_night']}/stage",
+        json={"reason": "model unsure", "source": "model"},
+    )
+    every = [row["id"] for row in client.get("/api/timeline").get_json()["rows"]]
+
+    response = client.post(
+        "/api/review/stage", json={"event_ids": every, "reason": "bulk"}
+    )
+
+    assert response.get_json()["staged"] == 2
+    assert db.get(names["bea_night"]).staged.reason == "model unsure"
+    assert db.get(names["open_night"]).staged is None
+    assert db.get(names["ada_morning"]).staged.reason == "bulk"
+    refused = client.post(
+        f"/api/review/{names['open_night']}/stage", json={"reason": "x"}
+    )
+    assert refused.status_code == 409
+
+
+def test_the_payload_caps_its_rows_but_counts_and_offers_them_all(
+    timeline_client: tuple[Any, dict[str, int]], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    client, names = timeline_client
+    monkeypatch.setattr("src.review.api.TIMELINE_ROWS_SENT", 2)
+    body = client.get("/api/timeline").get_json()
+    assert len(body["rows"]) == 2
+    assert body["total"] == 5
+    assert set(body["stageable"]) == {
+        names[n] for n in ("ada_morning", "bea_night", "false_morning")
+    }
+    assert "counts" not in body
+
+
+def test_the_timeline_query_scans_no_table_per_event(db: Any) -> None:
+    """Without an index on clip(event_id) each event's subqueries scanned every
+    clip: 39 ms for 375 events, growing with the square of the archive."""
+    connection = sqlite3.connect(db.path)
+    try:
+        plan = connection.execute(f"EXPLAIN QUERY PLAN {TIMELINE_ROWS}").fetchall()
+    finally:
+        connection.close()
+    correlated_scans = [
+        step[3] for step in plan if step[3].startswith(("SCAN f", "SCAN k"))
+    ]
+    assert correlated_scans == []

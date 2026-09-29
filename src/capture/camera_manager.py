@@ -5,6 +5,7 @@ from collections.abc import Callable
 
 from picamera2 import Picamera2
 
+from src.clips.format import ANALYSIS_SIZE
 from src.clips.frame import Frame
 
 log = logging.getLogger(__name__)
@@ -23,7 +24,7 @@ class CameraManager:
         self._picam2.configure(
             self._picam2.create_video_configuration(
                 main={"size": (1280, 720), "format": "RGB888"},
-                lores={"size": (640, 480), "format": "RGB888"},
+                lores={"size": ANALYSIS_SIZE, "format": "RGB888"},
                 # The full sensor. Chosen by size alone, picamera2 picks a mode
                 # that crops the edges off.
                 sensor={"output_size": (2304, 1296), "bit_depth": 10},

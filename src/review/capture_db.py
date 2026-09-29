@@ -56,6 +56,7 @@ CREATE TABLE IF NOT EXISTS poop_count (
     noted_at TEXT NOT NULL,
     PRIMARY KEY (clip_id, box)
 );
+CREATE INDEX IF NOT EXISTS clip_event ON clip(event_id);
 CREATE TABLE IF NOT EXISTS staged (
     clip_id   INTEGER PRIMARY KEY REFERENCES clip(id),
     reason    TEXT NOT NULL,
@@ -624,9 +625,12 @@ class CaptureDB:
 
     @serialized
     def stage_events(self, event_ids: list[int], reason: str, source: str) -> int:
-        """Stage each of these events. Returns how many exist to be staged."""
+        """Stage those of these events that are labelled and not staged already,
+        so no earlier staging is overwritten. Returns how many were staged."""
+        wanted = set(event_ids) & self._labeled_event_ids(None)
+        wanted -= self._staged_event_ids()
         staging = Staging(reason, self._now(), source)
-        staged = sum(self._stage(event_id, staging) for event_id in event_ids)
+        staged = sum(self._stage(event_id, staging) for event_id in sorted(wanted))
         self._conn.commit()
         return staged
 

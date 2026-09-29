@@ -369,7 +369,7 @@ problem rather than a venv problem. Rebuild with the two-line recovery above.
 |---|---|---|
 | `src/capture/` | everything that touches the camera: `camera_manager`, `motion_detector`, `motion_recorder`, `motion_metrics`, `clip_transfer`, `capture_heartbeat`, `web_streamer` | `picamera2`, `src.clips` |
 | `src/review/` | everything that reads the share and serves the labeler: `clip_scan`, `capture_db`, `event_grouping`, `clip_frames`, `strips_ahead`, `api` | `src.clips`, never `picamera2` |
-| `src/clips/` | what both sides agree a clip is: `format` (suffixes, `partial_name()`, `CAMERA_FPS`, `H264_BITRATE`), `sidecar`, `blob`, `frame` | the standard library and numpy only |
+| `src/clips/` | what both sides agree a clip is: `format` (suffixes, `partial_name()`, `CAMERA_FPS`, `H264_BITRATE`, `ANALYSIS_SIZE`), `sidecar`, `blob`, `frame` | the standard library and numpy only |
 
 `src/web_app.py` assembles the one Flask app from both sides and `src/logging_setup.py` configures
 logging for `main.py`. The two sides share no objects: the contract between them is a clip and its

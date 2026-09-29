@@ -4,9 +4,10 @@ import datetime
 from collections import Counter
 from dataclasses import dataclass, field
 
-# The analysis frame a trigger centroid is measured in, and the boxes across it.
-LORES_WIDTH = 640
-BOX_COUNT = 3
+from src.clips.format import ANALYSIS_SIZE
+
+# Litter boxes by position in frame, left to right; the camera knows no more.
+BOXES = (1, 2, 3)
 
 HOURS_IN_DAY = 24
 
@@ -33,7 +34,8 @@ class TimelineRow:
         """The box by position in frame, 1 = leftmost: the third holding the trigger."""
         if self.trigger_cx is None:
             return None
-        return min(BOX_COUNT, 1 + self.trigger_cx * BOX_COUNT // LORES_WIDTH)
+        width = ANALYSIS_SIZE[0]
+        return min(len(BOXES), 1 + self.trigger_cx * len(BOXES) // width)
 
     @property
     def seconds(self) -> int | None:
@@ -44,6 +46,11 @@ class TimelineRow:
     @property
     def chip(self) -> str:
         return self.label or UNLABELED
+
+    @property
+    def stageable(self) -> bool:
+        """Labelled and not already staged: what "back for review" may take."""
+        return self.label is not None and not self.staged
 
 
 @dataclass(frozen=True)

@@ -14,10 +14,9 @@ const HOURS_IN_DAY = 24;
 const HOUR_TICKS = [0, 3, 6, 9, 12, 15, 18, 21, 24];
 const STRIP_HEIGHT = 72;
 const AXIS_HEIGHT = 18;
-const HANDLE_PX = 28;  // the brush's grab width, wide enough for a thumb
+const HANDLE_PX = 28;  // the brush's grab width
 const EDGE_PX = 22;  // room at each end for the first and last axis labels
 const DAY_TICK_PX = 90;
-const MAX_ROWS = 500;
 const RESIZE_MS = 150;
 
 const colour = (chip) => FIXED_COLOURS[chip]
@@ -27,8 +26,10 @@ const colour = (chip) => FIXED_COLOURS[chip]
 // YYYY-MM-DD; hours: [first, last) as brushed, and outside: whether the
 // filter is the rest of the day; labeledBefore: YYYY-MM-DD.
 const filter = {chips: new Set(), days: null, hours: null, outside: false, labeledBefore: ''};
+const ISO_DAY = /^\d{4}-\d{2}-\d{2}$/;
 let data = null;
 let asked = 0;
+let answered = 0;
 let resizeTimer = null;
 
 // --- the filter and the address ---------------------------------------------
@@ -38,9 +39,10 @@ function readAddress() {
   filter.chips = new Set(params.getAll('label').filter(chip => CHIPS.includes(chip)));
   const from = params.get('from');
   const to = params.get('to');
-  filter.days = from && to ? [from, to] : null;
+  filter.days = ISO_DAY.test(from) && ISO_DAY.test(to) ? [from, to] : null;
   const hours = (params.get('hours') || '').match(/^(\d+)-(\d+)$/);
-  if (hours) {
+  const inDay = (h) => Number(h) >= 0 && Number(h) <= HOURS_IN_DAY;
+  if (hours && hours[1] !== hours[2] && inDay(hours[1]) && inDay(hours[2])) {
     const [first, last] = [Number(hours[1]), Number(hours[2])];
     filter.outside = first > last;
     filter.hours = filter.outside ? [last, first] : [first, last];
@@ -48,7 +50,8 @@ function readAddress() {
     filter.hours = null;
     filter.outside = false;
   }
-  filter.labeledBefore = params.get('labeled_before') || '';
+  const before = params.get('labeled_before') || '';
+  filter.labeledBefore = ISO_DAY.test(before) ? before : '';
 }
 
 function query() {
@@ -71,13 +74,34 @@ export function timelineAddress() {
   return q ? `/timeline?${q}` : '/timeline';
 }
 
+// Staging waits for the answer to the filter on screen.
+function stagingAllowed() {
+  document.getElementById('stageshown').disabled =
+    answered !== asked || !data || data.stageable.length === 0;
+}
+
 async function refresh() {
   if (location.pathname === '/timeline') history.replaceState(null, '', timelineAddress());
   const mine = ++asked;
+  stagingAllowed();
   const body = await get(`/api/timeline?${query()}`);
   if (mine !== asked) return;  // a newer filter was asked for meanwhile
+  answered = mine;
+  if (body.error) {
+    data = null;
+    renderRefused(body.error);
+    return;
+  }
   data = body;
   render();
+}
+
+function renderRefused(message) {
+  renderChips();
+  document.getElementById('summary').textContent =
+    `This filter could not be read (${message}); clear it to start again.`;
+  document.querySelector('#rows tbody').innerHTML = '';
+  stagingAllowed();
 }
 
 // --- days as dates ----------------------------------------------------------
@@ -97,7 +121,8 @@ function isoDay(date) {
 // A strip: stacked bars per slot, an axis, and a brush that snaps to whole
 // slots. place(slot) gives a slot's [left, right) in pixels; slotAt(px) the
 // nearest slot boundary; select([a, b]) or select(null) records a release.
-function drawStrip(svg, {slots, counts, x, axis, place, slotAt, chosen, select}) {
+// widen(edge) is the one-slot range a brush too short to span a slot becomes.
+function drawStrip(svg, {slots, counts, x, axis, place, slotAt, widen, chosen, select}) {
   const width = svg.node().clientWidth;
   const top = STRIP_HEIGHT - AXIS_HEIGHT;
   svg.attr('viewBox', `0 0 ${width} ${STRIP_HEIGHT}`).selectAll('*').remove();
@@ -135,7 +160,7 @@ function drawStrip(svg, {slots, counts, x, axis, place, slotAt, chosen, select})
         return;
       }
       const [a, b] = e.selection.map(slotAt);
-      const range = b > a ? [a, b] : [a, a + 1];
+      const range = b > a ? [a, b] : widen(a);
       e.target.move(brushed, range.map((edge) => x(edge)));
       select(range);
     });
@@ -148,7 +173,7 @@ function drawStrip(svg, {slots, counts, x, axis, place, slotAt, chosen, select})
   return {dim};
 }
 
-// Evenly spaced from the first day; d3's own day ticks restart each month.
+// Every nth day counted from the first.
 function everyNthDay(first, count, width) {
   const step = Math.ceil(count / Math.max(2, Math.floor(width / DAY_TICK_PX)));
   return d3.timeDay.filter((day) => d3.timeDay.count(first, day) % step === 0);
@@ -173,6 +198,8 @@ function drawDays() {
       .tickFormat(d3.timeFormat('%-d %b')).tickSizeOuter(0),
     place: (i) => [x(days[i]), x(d3.timeDay.offset(days[i], 1))],
     slotAt: (px) => d3.timeDay.round(x.invert(px)),
+    widen: (day) => (day < end
+      ? [day, d3.timeDay.offset(day, 1)] : [d3.timeDay.offset(end, -1), end]),
     chosen: filter.days
       ? [dayDate(filter.days[0]), d3.timeDay.offset(dayDate(filter.days[1]), 1)] : null,
     select: (range) => {
@@ -194,6 +221,7 @@ function drawHours() {
     axis: d3.axisBottom(x).tickValues(HOUR_TICKS).tickFormat((h) => `${h}h`).tickSizeOuter(0),
     place: (i) => [x(i), x(i + 1)],
     slotAt: (px) => Math.round(x.invert(px)),
+    widen: (hour) => (hour < HOURS_IN_DAY ? [hour, hour + 1] : [HOURS_IN_DAY - 1, HOURS_IN_DAY]),
     chosen: filter.hours,
     select: (range) => {
       filter.hours = range && range[1] - range[0] < HOURS_IN_DAY ? range : null;
@@ -237,10 +265,12 @@ function length(seconds) {
 
 function rowHtml(row) {
   const chip = row.label || UNLABELED;
-  const stage = row.staged
-    ? '<span class="warn">staged</span>'
-    : `<button class="small" data-action="stage-row" data-id="${row.id}"` +
+  let stage = '';
+  if (row.staged) stage = '<span class="warn">staged</span>';
+  else if (row.label) {
+    stage = `<button class="small" data-action="stage-row" data-id="${row.id}"` +
       ' title="back for review">&#8617;</button>';
+  }
   return `<tr><td><a href="/review/${row.id}">${timeTag(row.started_at)}</a></td>` +
     `<td><span class="swatch" style="background:${colour(chip)}"></span>` +
     `${escaped(chip.replace('_', ' '))}</td><td>${row.box ?? '?'}</td>` +
@@ -248,15 +278,13 @@ function rowHtml(row) {
 }
 
 function renderRows() {
-  const rows = data.rows;
-  const shownNote = rows.length > MAX_ROWS ? ` (the newest ${MAX_ROWS} listed)` : '';
+  const {rows, total} = data;
+  const listed = total > rows.length ? ` (the newest ${rows.length} listed)` : '';
   const scope = describe();
   document.getElementById('summary').textContent =
-    `${rows.length} event${rows.length === 1 ? '' : 's'}${scope ? `, ${scope}` : ''}` +
-    shownNote;
-  document.getElementById('stageshown').disabled = rows.length === 0;
-  document.querySelector('#rows tbody').innerHTML =
-    rows.slice(0, MAX_ROWS).map(rowHtml).join('');
+    `${total} event${total === 1 ? '' : 's'}${scope ? `, ${scope}` : ''}${listed}`;
+  document.querySelector('#rows tbody').innerHTML = rows.map(rowHtml).join('');
+  stagingAllowed();
 }
 
 function render() {
@@ -302,9 +330,9 @@ export function initTimeline() {
     clear: clearFilter,
     'stage-row': (el) => stage([Number(el.dataset.id)],
       `Why should #${el.dataset.id} come back for review?`),
-    'stage-shown': () => stage(data.rows.map((row) => row.id),
-      `Put all ${data.rows.length} events shown back in the review queue,` +
-      ' keeping their labels? Say why:'),
+    'stage-shown': () => stage(data.stageable,
+      `Put the ${data.stageable.length} labelled events shown that are not staged yet` +
+      ' back in the review queue, keeping their labels? Say why:'),
   });
   document.getElementById('labeledbefore').addEventListener('change', (e) => {
     filter.labeledBefore = e.target.value;

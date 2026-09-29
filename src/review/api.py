@@ -15,6 +15,7 @@ from src.review.capture_db import CaptureDB, Clip, Event, JoinRefusedError
 from src.review.clip_frames import ClipFrames
 from src.review.strips_ahead import StripsAhead
 from src.review.timeline import (
+    BOXES,
     HOURS_IN_DAY,
     UNLABELED,
     Timeline,
@@ -38,6 +39,10 @@ STAGED = "staged"
 
 # Who may put an event back in the queue.
 STAGING_SOURCES = ("human", "agent", "model")
+
+# The timeline rows one response carries; the rest are counted, and their ids
+# sent for staging.
+TIMELINE_ROWS_SENT = 500
 
 
 @dataclass(frozen=True)
@@ -78,10 +83,6 @@ class Review:
         """Ready the strips of whatever the queue now holds next."""
         if self.ahead is not None:
             self.ahead.wanted()
-
-
-# Litter boxes by position in frame, left to right; the camera knows no more.
-BOXES = (1, 2, 3)
 
 
 def _iso(when: datetime.datetime | None) -> str | None:
@@ -146,6 +147,8 @@ def _hour_range(text: str | None) -> tuple[int, int] | None:
 
 def timeline_payload(timeline: Timeline) -> dict[str, Any]:
     return {
+        "total": len(timeline.rows),
+        "stageable": [row.id for row in timeline.rows if row.stageable],
         "rows": [
             {
                 "id": row.id,
@@ -156,7 +159,7 @@ def timeline_payload(timeline: Timeline) -> dict[str, Any]:
                 "box": row.box,
                 "staged": row.staged,
             }
-            for row in timeline.rows
+            for row in timeline.rows[:TIMELINE_ROWS_SENT]
         ],
         "by_day": {day.isoformat(): dict(n) for day, n in timeline.by_day.items()},
         "by_hour": [dict(n) for n in timeline.by_hour],
@@ -228,13 +231,18 @@ class ReviewPages:
             reason, source = staging_request(request_body())
         except ValueError as refused:
             return error(str(refused), 400)
-        if not self.db.stage(event_id, reason, source):
+        event = self.db.get(event_id)
+        if event is None:
             return no_such_event()
+        if event.label is None:
+            return error("an unlabelled event is in the review queue already", 409)
+        self.db.stage(event_id, reason, source)
         self.review.queue_changed()
         return self._event_payload(self.db.get(event_id))
 
     def stage_many(self) -> ResponseReturnValue:
-        """Stage the events named by id: what the timeline showed."""
+        """Stage the events named by id, what the timeline showed, skipping those
+        with no label or already staged."""
         body = request_body()
         event_ids = body.get("event_ids")
         if not isinstance(event_ids, list) or not all(
@@ -247,7 +255,7 @@ class ReviewPages:
             return error(str(refused), 400)
         staged = self.db.stage_events(event_ids, reason, source)
         self.review.queue_changed()
-        return jsonify({"staged": staged, "counts": self.db.counts()})
+        return jsonify({"staged": staged})
 
     def timeline(self) -> ResponseReturnValue:
         """Every event the filter in the query string admits, newest first,
@@ -256,8 +264,9 @@ class ReviewPages:
             chosen = timeline_filter(self.labels)
         except ValueError as refused:
             return error(str(refused), 400)
-        payload = timeline_payload(build_timeline(self.db.timeline_rows(), chosen))
-        return jsonify({**payload, "counts": self.db.counts()})
+        return jsonify(
+            timeline_payload(build_timeline(self.db.timeline_rows(), chosen))
+        )
 
     def set_counts(self, event_id: int) -> ResponseReturnValue:
         """Poops found per box at a cleaning, signalled by hand in the clip."""

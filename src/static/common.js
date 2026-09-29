@@ -12,10 +12,11 @@ export async function post(url, body) {
     body: JSON.stringify(body || {})})).json();
 }
 
+const ENTITIES = {'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'};
+
+// Safe in text and in a quoted attribute alike.
 export function escaped(text) {
-  const span = document.createElement('span');
-  span.textContent = text;
-  return span.innerHTML;
+  return String(text).replace(/[&<>"']/g, (c) => ENTITIES[c]);
 }
 
 // Stored times carry no zone and are the Pi's local time, which a browser on

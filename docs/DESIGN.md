@@ -681,9 +681,26 @@ released, which on the LAN answers in milliseconds, and meanwhile only dims the 
 brush. Each strip's counts are computed under every filter but its own (crossfilter's rule), so a
 strip always shows what its brush could select rather than only what it already has. A brush
 cannot wrap, so an hour range across midnight is a brushed range plus an "outside the range"
-toggle, which sends it reversed (`hours=22-6`). Stage-everything sends the ids on screen, not the
-filter, so exactly what the reviewer saw is staged. The box is the third of the 640-px analysis
-frame holding the first clip's trigger, as A.2 counts it; C.3 makes boxes configuration.
+toggle, which sends it reversed (`hours=22-6`). A drag whose two ends round to the same boundary
+selects the one day or hour it touched. Stage-everything sends ids, not the filter, so exactly
+what the reviewer saw is staged, and it waits while a newer filter is loading. Only labelled events
+not already staged are taken, by the server as well as the page: an unlabelled event is in the
+queue already, and restaging would overwrite the reason and source an event was staged with. A
+response carries the first 500 rows, the total, and the ids stageable among all of them, so the
+page stays small as the archive grows without narrowing what staging can reach. An address the
+server would refuse, hand-edited or stale, is read as no filter rather than drawn as an error.
+The box is the third of the analysis frame (`ANALYSIS_SIZE`, the coordinate frame of a sidecar's
+blobs) holding the first clip's trigger, as A.2 counts it; C.3 makes boxes configuration.
+
+**The timeline query uses an index on `clip(event_id)`** (2026-09-28). Two correlated subqueries
+per event, the first clip's trigger and whether any clip is staged, each scanned every clip
+without it: 39 ms for 375 events, growing with the square of the archive, under the lock every
+review request waits on. With the index, 2.5 ms (2026-09-28). A test reads the query plan.
+
+**The strips are drawn for a thumb** (2026-09-28). The brush's grab zone is 28 px, and the axes
+leave 22 px at each end so the first and last labels fit. Day ticks are every nth day counted from
+the first: d3's own day ticks restart at each month, which crowds the ticks either side of it.
+d3's brush ignores a touch that moves only a few pixels, so a slice is a drag, not a tap.
 
 **Times are shown in the browser's locale** (2026-09-28). The review header and the timeline show
 `Sun 27 Sep, 22:59` with the relative time on hover, from `toLocaleString` and
