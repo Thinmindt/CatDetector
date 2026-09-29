@@ -1,6 +1,7 @@
 // Lint for the page's script. The globals are what the template defines
 // inline before app.js loads, plus the browser.
 export default [
+  { ignores: ["src/static/vendor/"] },
   {
     files: ["src/static/*.js"],
     languageOptions: {

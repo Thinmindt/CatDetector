@@ -15,6 +15,7 @@ from typing import Any, NamedTuple
 from src.clips.sidecar import CloseReason, iso
 from src.review.clip_scan import FoundClip, scan_clips
 from src.review.event_grouping import Boundary, ClipRow, group_clips
+from src.review.timeline import TimelineRow
 
 log = logging.getLogger(__name__)
 
@@ -72,6 +73,17 @@ STAGED_EVENTS = (
     "SELECT DISTINCT c.event_id FROM staged s JOIN clip c ON c.id = s.clip_id"
     " WHERE c.event_id IS NOT NULL"
 )
+TIMELINE_ROWS = """
+SELECT e.id, MIN(c.started_at) AS started_at, MAX(c.ended_at) AS ended_at,
+       COUNT(c.id) AS clips, l.value AS label, l.labeled_at,
+       (SELECT f.trigger_cx FROM clip f WHERE f.event_id = e.id
+        ORDER BY f.started_at IS NULL, f.started_at, f.id LIMIT 1) AS trigger_cx,
+       EXISTS (SELECT 1 FROM staged s JOIN clip k ON k.id = s.clip_id
+               WHERE k.event_id = e.id) AS staged
+FROM event e JOIN clip c ON c.event_id = e.id
+LEFT JOIN label l ON l.event_id = e.id
+GROUP BY e.id
+"""
 EVENTS_WITH_SEVERAL_CLIPS = (
     "SELECT event_id FROM clip WHERE event_id IS NOT NULL"
     " GROUP BY event_id HAVING COUNT(*) > 1"
@@ -608,10 +620,32 @@ class CaptureDB:
             query += " AND labeled_at < ?"
             params.append(labeled_before.isoformat())
         event_ids = [int(row["event_id"]) for row in self._conn.execute(query, params)]
+        return self.stage_events(event_ids, reason, source)
+
+    @serialized
+    def stage_events(self, event_ids: list[int], reason: str, source: str) -> int:
+        """Stage each of these events. Returns how many exist to be staged."""
         staging = Staging(reason, self._now(), source)
         staged = sum(self._stage(event_id, staging) for event_id in event_ids)
         self._conn.commit()
         return staged
+
+    @serialized
+    def timeline_rows(self) -> list[TimelineRow]:
+        """Every event as one timeline row, in no particular order."""
+        return [
+            TimelineRow(
+                id=int(row["id"]),
+                started_at=_when(row["started_at"]),
+                ended_at=_when(row["ended_at"]),
+                clips=int(row["clips"]),
+                label=row["label"],
+                labeled_at=_when(row["labeled_at"]),
+                trigger_cx=row["trigger_cx"],
+                staged=bool(row["staged"]),
+            )
+            for row in self._conn.execute(TIMELINE_ROWS)
+        ]
 
     def _stage(self, event_id: int, staging: Staging) -> bool:
         clip_ids = self._clip_ids(event_id)
