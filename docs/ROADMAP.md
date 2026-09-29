@@ -365,10 +365,32 @@ the urinary side of the goal rests on visit frequency and duration per cat (B.6)
       with a stage button, and "stage everything shown, with this reason" for the set. The first
       use is the 110 `not_cat` labels made before 2026-09-20, which cover those made before the
       whole-clip tiles.
-      **Done means** the page lists every event newest first with those columns, each filter
-      returns exactly the events a query on `label` returns (a test per filter), rows link to the
-      event's review URL (B.3), the stage actions write staging rows, and `check_page.py`
-      screenshots the timeline at both sizes.
+      *The page:* a third tab, `/timeline`. Above the list, the filter:
+      - a **date strip**, a bar per day of the events the other filters let through, coloured by
+        label, with a brush (two handles, and the span between them dragged to move it) that
+        selects a date range;
+      - an **hour-of-day strip**, 24 bars with a brush of its own; a range may wrap midnight
+        (22:00 to 06:00);
+      - **label chips**, one per label value, toggled on and off;
+      - an optional **labelled-before** date.
+      Filtering happens once, on the server: `GET /api/timeline` takes the filter as parameters
+      and returns the rows, plus each strip's counts under every filter but its own, so a strip
+      shows what its brush can select. The page asks when a handle is released and highlights
+      the bars under a moving one meanwhile. The filter lives in the address, as the review
+      walk does. The box is the third of the frame holding the first clip's trigger, as A.2
+      counts it (C.3 makes boxes configuration). "Stage everything shown" sends the ids on
+      screen to `POST /api/review/stage`, so exactly what was seen is staged.
+      *Built with:* the page script split into modules the browser loads with no build step,
+      one per tab and one shared; d3 for the brush, scales and axes, pinned in `package.json`
+      and committed as one file under `src/static/vendor/`, with a gate that fails if that file
+      differs from the pinned package. The same branch shows readable times on the review page
+      and adds "back for review" with a reason to its sheet.
+      **Done means** the page lists every event newest first with those columns; the API returns
+      exactly the events a query on the database returns for each filter and for combinations,
+      including an hour range across midnight (a test each); each strip's counts leave out its
+      own filter (a test); rows link to the event's review URL (B.3); both stage actions write
+      staging rows (a test); a reload keeps the filter; `check_page.py` screenshots the timeline
+      at both sizes with a range brushed; and the owner drags a brush by touch on the phone.
 - [ ] Human-in-the-loop: the model labels, low-confidence events are staged into the review
       queue (B.3) with `source=model`, corrections feed the next training round.
       **Done means** the model's predictions are stored beside the human labels (B.2's key),
