@@ -586,6 +586,34 @@ Moved 2026-09-27: done.
       3-clip event's strips then took 16 ms together, served by the app on the Pi from that
       cache. The live service runs this code only once the branch is deployed.
 
+## B.4 Notifications
+
+Moved 2026-09-28: not pursued. The owner labels visits in sittings and will not want a push
+per visit; B.4 is now alerts on a change in a cat's habits, and the alert rule moved there
+from B.6.
+
+Purpose is to close the loop: a capture happens, you get a push, one tap lands on the
+labeling page for that event. Labeling that rides on notifications actually gets done.
+
+**ntfy** is the recommended transport — a single HTTP POST, no account, free app, and
+self-hostable later if you want nothing leaving the LAN. Alternatives: Pushover (paid, polished),
+Telegram bot, SMTP, Home Assistant webhook.
+
+**Send from a worker thread, never from the capture thread.** Every frame consumer runs
+synchronously on `CameraManager`'s capture loop, so a blocking HTTP call to a network service
+would stall frame distribution for every consumer. Queue and fire elsewhere.
+
+One push per visit, not per clip or per frame. A visit is an event, and an event is only closed
+`EVENT_GAP_SECONDS` after its last clip, so the push waits that long. A digest option for quiet
+review can come later.
+
+- [ ] **One push per visit, with a thumbnail and a deep link** to the event's review page (the
+      URL route in B.3).
+      **Done means** a visit sends one push to a configurable ntfy topic within a minute of its
+      event closing, with a thumbnail and a link that opens that event's review page; a test with
+      a send that hangs leaves the frame loop at full rate; a burst of clips from one visit sends
+      one push; and the README says how to subscribe.
+
 ## B.5b Ground truth at cleaning time
 
 Moved 2026-09-26: the finished UI items and the feasibility measurement.
@@ -607,6 +635,17 @@ Moved 2026-09-26: not a task. The goal paragraph and B.5b already say it.
 
 - [ ] Maybe later: tell poop from pee. It looks hard and unreliable, so no alert should depend on
       it.
+
+Moved 2026-09-28: to B.4, reworded, as its one item.
+
+- [ ] Litter box usage is a health signal, and catching bowel or urinary trouble is the goal.
+      Alert on changes in how often a cat visits and how long it stays.
+      That should shape what gets logged from the start (duration in box, time of day), because
+      those are cheap now and unrecoverable later.
+      **Done means** a stated rule (for example, a cat's visits per day or median duration outside
+      its trailing four-week range two days running) runs daily over `captures.db`, a test over a
+      seeded history fires on an injected change and not on normal variation, and a firing reaches
+      the owner through B.4's transport.
 
 ---
 

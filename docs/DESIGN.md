@@ -439,7 +439,7 @@ and letting `INSERT OR IGNORE` discard the known ones costs one CIFS round trip 
 archive on every rescan, and the archive only grows: the startup ingest, and every rescan from the
 review page, would take longer each day. `ingest` selects the known paths once and skips them.
 
-**Event ids are stable across rescans.** Deep links (B.4 notifications) and the UI's undo history
+**Event ids are stable across rescans.** Links into the page (an address, a bookmark) and the undo history
 hold event ids, so `ingest` may extend an event or create one but never renumbers.
 Each group keeps the lowest event id already among its clips. A clip that arrives late, held back
 by an outage of the share, can bridge two existing events; they merge under the lower id. Only `regroup`
