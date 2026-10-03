@@ -124,7 +124,7 @@ def test_a_failed_clip_is_tried_again_once_the_retry_time_has_passed(
     db: Any, tmp_path: Path, queue: list[Any]
 ) -> None:
     """Regression: a failure was remembered for the life of the process, so a
-    brief NAS outage stopped building ahead for every clip it touched."""
+    brief outage of the share stopped building ahead for every clip it touched."""
     frames = RecordingFrames(tmp_path / "cache", db, fail=True)
     ahead = StripsAhead(db, frames, retry_seconds=0)
     ahead.build_ahead()
