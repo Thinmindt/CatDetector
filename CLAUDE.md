@@ -62,7 +62,7 @@ mount can be absent at boot, and SQLite must never live there (roadmap B.2).
 **Clips are not written to the share directly.** `MotionRecorder` writes to
 `LOCAL_CLIP_DIR` (`.clip_cache`) and `ClipTransfer` ships finished clips across on its own
 thread. So the capture and encoder threads never touch the network, recording keeps working
-through a NAS outage, and a clip only appears on the share once it is complete.
+through an outage of the share, and a clip only appears on the share once it is complete.
 
 **A CIFS share should be mounted `soft`**, which is the CIFS default and so often not written
 in fstab (the README's Configuration section has the details). Since clips are staged locally, a
@@ -188,7 +188,7 @@ pre-roll). So check `git branch --show-current` before assuming the service runs
 which branch it is on when you restart it, and after a merge pull `main` and restart so the two
 agree again.
 
-**Testing the recorder without polluting the NAS.** `config.py` calls `load_dotenv()`, which does
+**Testing the recorder without polluting the share.** `config.py` calls `load_dotenv()`, which does
 *not* override variables already in the environment, so scratch paths set on the command line
 win. Point the database and the review cache at scratch too, or the run ingests into the live
 ones:
@@ -418,7 +418,7 @@ Each of these was a real bug. The reasoning is in `docs/DESIGN.md`.
   calls `stop_encoder(self.encoder)` — only the encoder is the recorder's to stop.
 - **Nothing may raise out of the thread that writes clip bytes.** Which thread that is depends
   on the encoder picamera2 picks:
-  - **Pi 5** (`Platform.PISP`, this project's implementation): there is no hardware H.264
+  - **Pi 5** (`Platform.PISP`, the tested platform): there is no hardware H.264
     encoder, so `H264Encoder` is `LibavH264Encoder`. Bytes are written on the **camera event-loop
     thread** (`NullPreview.thread_func` → `process_requests` → `encoder.encode` → `_encode` →
     `outputframe`); `handle_request` logs and re-raises, so an exception ends the event loop and

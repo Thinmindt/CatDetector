@@ -44,13 +44,14 @@ move on.
 
 **The sensor mode is pinned to the full array.** picamera2 picks a sensor mode by output size.
 For these streams it chose 1536x864, a 2x2 binning of a 3072x1728 crop, which keeps only the
-central two thirds of the imx708's width. Asking for 2304x1296, the whole array binned 2x2, widens
-the view enough to keep this installation's three litter boxes in frame (2026-09-10; the number
-of boxes is the installation's, ROADMAP C.3). The detector held 30 fps in this mode.
+central two thirds of the imx708's width. Asking for 2304x1296, the whole array binned 2x2, gives
+the widest view; an installation may widen or crop it to keep its boxes in frame. Tested at
+2304x1296 (2026-09-10): the detector held 30 fps.
 
 Pixel measurements depend on the mode. In the full-array mode an object spans about two thirds as
-many pixels in each direction as in the cropped one, so roughly 0.44 of the area. Metrics recorded
-before 2026-09-10 are in the cropped mode and cannot be compared with later ones.
+many pixels in each direction as in the cropped one, so roughly 0.44 of the area. Metrics from one
+mode cannot be compared with another's, so settle the mode and the framing before recording the
+metrics a threshold is tuned from.
 
 ## Recording
 
@@ -62,15 +63,14 @@ recorded bytes go through picamera2's own encoder pipeline: `H264Encoder` into a
 `LOCAL_CLIP_DIR`; `ClipTransfer` moves finished clips to `$NETWORK_SHARE_DIR/captures/` on its
 own thread. The share is therefore never touched by the capture or encoder threads, which is
 what removes the whole class of network-stall freezes described below. It also means recording
-survives a NAS outage entirely: clips accumulate locally and ship when it returns, where an
-in-memory buffer would fill and start dropping footage.
+survives an outage of the share entirely: clips accumulate locally and ship when it returns,
+where an in-memory buffer would fill and start dropping footage.
 
 Sizing: clip data arrives at `H264_BITRATE / 8` bytes a second, 1.25 MB/s at the constant's value
-of 10 Mbit/s, so the 300 s `max_clip_seconds` ceiling is 375 MB. This installation's SD card had
-~200 GB free on 2026-09-26, roughly 11,000 clips of the average size implied below, so
-`_has_room`'s 1 GB floor is a guard against a months-long outage, not a routine constraint. SD
-wear is not a concern at this volume: ~20 clips/day (2026-09-18) is ~134 GB/year, well under one
-full-card write.
+of 10 Mbit/s, so the 300 s `max_clip_seconds` ceiling is 375 MB. 200 GB of free local disk holds
+roughly 11,000 clips of the average size implied below, so `_has_room`'s 1 GB floor is a guard
+against a months-long outage, not a routine constraint. SD wear is not a concern at this volume:
+~20 clips a day is ~134 GB a year, well under one full-card write.
 
 **Two names, and only one means "done".** The recorder writes `<clip>.h264.part` and renames to
 `<clip>.h264` once the file is closed; `ClipTransfer` copies to `<clip>.h264.part` on the share
@@ -119,7 +119,7 @@ first thing `main.py` does, so this is a startup failure, not a recording one. T
 depends on the encoder picamera2 picks, and `H264Encoder` is a different class per platform
 (`picamera2/encoders/__init__.py`):
 
-- **Pi 5 (`Platform.PISP`), this installation's implementation.** `H264Encoder` is
+- **Pi 5 (`Platform.PISP`), the tested platform.** `H264Encoder` is
   `LibavH264Encoder`, a software x264 encode. Clip bytes are written on picamera2's **camera
   event-loop thread**: `NullPreview.thread_func` → `handle_request` →
   `Picamera2.process_requests`, which calls `encoder.encode` for each request while holding
@@ -188,8 +188,8 @@ foreground, which triggered a clip on every startup. Measured on the imx708 (202
 cropped sensor mode): frame 0 is 100% foreground, frame 1 ~3.8% (still far over any threshold),
 frame 2 onward under 25 pixels. `warmup_frames = 30` is ~1 s of margin.
 
-**Monotonic clock for durations.** A Pi without an RTC backup cell, like this installation's,
-boots with a stale clock that timesyncd then steps. With `time.time()` a backward step makes the
+**Monotonic clock for durations.** A Pi without an RTC backup cell boots with a stale clock that
+timesyncd then steps. With `time.time()` a backward step makes the
 elapsed difference negative and holds a clip open for the size of the jump; a forward step
 truncates one early.
 
@@ -203,7 +203,7 @@ part A.
 than missing a visit, and trying different values should not need a code change. The timeout
 defaults to 10 s and the history to 500 frames.
 
-**The default threshold is 300 px** (2026-09-11, from one visit on this installation). A walking
+**The default threshold is 300 px** (2026-09-11, from one visit). A walking
 cat measures about 400–1,400 foreground px in the full-sensor view, and about 3,300 at peak in the
 cropped mode, so a threshold of 5000 records no visits at all and 2000 loses the end of a visit.
 Idle noise in the same view stays under 100 px in 99.9% of frames and peaks at 228, so 300 sits
@@ -216,7 +216,7 @@ seconds. The timeout then closes the clip. The goal allows a visit to span sever
 neither setting has to be stretched to cover a cat sitting still.
 
 **A dark scene cannot trigger** (2026-09-14). The camera is the IR-filtered imx708, so an unlit
-room is black to it. On this installation's unlit nights, after a light went off, the mean grey
+room is black to it. Unlit, after a light went off, the mean grey
 level sat at 1.1–2.7 and sensor speckle alone gave 200–295 foreground px on every frame. At a
 threshold of 150 that recorded back-to-back 300 s clips of black, about 2 GB/h. Raising the threshold would cost daytime recall and gain nothing,
 because no cat is visible in that footage anyway. So `detect_motion` ignores motion while the
@@ -225,9 +225,8 @@ brightest frame that night (2.7) and the dimmest lit frame that evening (46.1), 
 dim night-light. MOG2 keeps learning in the dark, so its background is current when the light
 returns; the light coming on is itself a whole-frame change and records one clip. Each change
 between dark and lit is logged. This removes the waste, not the gap: visits in the dark go
-unrecorded, which is why light around the clock is a requirement (ROADMAP C.2). This
-installation's boxes have been lit around the clock since 2026-09-16; its nights average
-~125/255 (2026-09-20), and the gate matters only if the light fails.
+unrecorded, which is why light around the clock is a requirement (ROADMAP C.2). A lit night
+averaged ~125/255 (2026-09-20), so the gate matters only if the light fails.
 
 ## Layout
 
@@ -289,10 +288,10 @@ person notices; one such gap cost four and a half hours of recording. Most of th
 favour recall over tidiness:
 
 - **It wants the share's mount but does not require it.** `RequiresMountsFor=/mnt/nas` would stop
-  the detector from starting whenever the NAS is down at boot. Recording does not need the share:
+  the detector from starting whenever the share is down at boot. Recording does not need the share:
   clips are staged on local disk, and `ClipTransfer` refuses a path that is not a mountpoint. The
   unit is still ordered after the mount, so a share that is coming up is there for the first ingest.
-- **It waits for NTP, for at most 90 s.** On this installation's Pi, which has no RTC backup cell,
+- **It waits for NTP, for at most 90 s.** On a Pi with no RTC backup cell,
   fake-hwclock rewinds the clock after a power cut to its last hourly save and NTP corrects it
   about 35 s later (2026-09-14), so a detector that started straight away would stamp clips and
   metrics with the wrong time. `systemd-time-wait-sync.service` would do the waiting, but its
@@ -376,7 +375,7 @@ review page, would take longer each day. `ingest` selects the known paths once a
 **Event ids are stable across rescans.** Deep links (B.4 notifications) and the UI's undo history
 hold event ids, so `ingest` may extend an event or create one but never renumbers.
 Each group keeps the lowest event id already among its clips. A clip that arrives late, held back
-by a NAS outage, can bridge two existing events; they merge under the lower id. Only `regroup`
+by an outage of the share, can bridge two existing events; they merge under the lower id. Only `regroup`
 rebuilds from scratch, and then ids do change, which is why it is a deliberate command and not part
 of a rescan.
 
@@ -467,7 +466,7 @@ property of the import graph rather than of one method's care.
 **The startup ingest runs on its own thread** (2026-09-22). It scans the share, and a soft CIFS
 mount that is unreachable at boot fails each operation only after one to two minutes. Run before
 `monitor()` starts frame distribution, the scan would delay the first recording by that timeout
-during a NAS outage, with the camera and encoder already up. The review page can come up a few
+while the share is down, with the camera and encoder already up. The review page can come up a few
 seconds before the scan lands; `rescan` covers a reviewer who beats it.
 
 **Label shortcuts ignore modified and repeated keys** (2026-09-22). `Ctrl+C` to copy a time from
@@ -530,7 +529,7 @@ number per box. Events are renumbered by
 `regroup`, so counts keyed by event id would be stranded by a threshold change; clip ids never
 change. They are written against the event's first clip and read back across all of its clips, the
 same shape that lets labels follow clips. The box is a **position in frame, numbered left to
-right** — `BOXES` in `api.py` holds 1 to 3, this installation's count (ROADMAP C.3) — not a box
+right** — `BOXES` in `api.py` holds 1 to 3 until ROADMAP C.3 makes it a setting — not a box
 identity: nothing in the pipeline knows one box from another, and the signal is made over
 the box concerned.
 

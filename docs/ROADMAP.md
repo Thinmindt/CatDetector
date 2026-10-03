@@ -29,21 +29,19 @@ are a fixed distance away, a cat's apparent size in pixels is roughly constant. 
 useful fact available, and the trigger does not use it yet (A.3). The number of boxes, where they
 sit and how many cats use them are the installation's, not the project's (C.3).
 
-**The installation this was built on:** a Raspberry Pi 5 with the IR-filtered Camera Module 3,
-three boxes in one frame, three cats, and clips shipped to a NAS. Measurements in this roadmap
-come from it; Part C is about not mistaking it for a requirement.
+Measurements in this roadmap come from one installation, a Raspberry Pi 5 with the IR-filtered
+Camera Module 3; Part C is about not mistaking it for a requirement.
 
-**Hardware split.** This installation's choice: the Pi captures and a Jetson trains, with the
-crops and labels on the share as the handoff to whatever trains (B.5); frames never leave the Pi.
+**Hardware split.** The Pi captures and another machine trains, with the crops and labels on the
+share as the handoff to whatever trains (B.5); frames never leave the Pi.
 
-**Platform.** Raspberry Pi 5 with no Hailo accelerator, so any *on-Pi* inference would be CPU.
-Local disk is ext4 and the NAS share is **CIFS** (204 GB and 467 GB free on 2026-09-26), which is
-why SQLite stays local (B.2). The Jetson's model and JetPack version are not yet recorded; JetPack
-pins its own Python (3.10 on JetPack 6) and PyTorch comes from NVIDIA's wheels, so the training
-environment is separate from this repo's `==3.13.*` pin and should not try to share it.
+**Platform.** A Raspberry Pi 5 with no accelerator, so any *on-Pi* inference would be CPU. The
+share is typically **CIFS**, which is why SQLite stays local (B.2). A training machine keeps its
+own environment: on a Jetson, JetPack pins its own Python (3.10 on JetPack 6) and PyTorch comes
+from NVIDIA's wheels, so it should not try to share this repo's `==3.13.*` pin.
 
-**Thermal headroom.** With the Active Cooler the SoC holds 46–55 °C under the detector with no
-throttling (pi-health, 2026-09-25 to 26); without it, 84–86 °C and throttled. Any extra on-Pi
+**Thermal headroom.** A fanless Pi 5 throttles under the detector at 84–86 °C; with the Active
+Cooler it holds 46–55 °C. Any extra on-Pi
 work, including inference for B.5, has to fit in the headroom that leaves; measure it before
 assuming there is any.
 
@@ -222,7 +220,7 @@ training rather than silently mislabeling it.
 
 ## B.2 Storage
 
-SQLite on local disk (`captures.db`), media on the NAS; never SQLite on the CIFS share, and never
+SQLite on local disk (`captures.db`), media on the share; never SQLite on the CIFS share, and never
 image blobs in SQLite. The built tables are in `src/review/capture_db.py`: `event`, `clip`,
 `label` and `poop_count`, and B.1 adds `crop`. `label` is a table of its own, but its key is the
 event, so an event holds one label: model predictions (B.6) need a key of `(event_id, source)` or
@@ -361,10 +359,10 @@ review can come later.
 ## B.5 Train the classifier
 
 **Keep the training environment out of this repo.** JetPack pins its own Python and PyTorch
-build; a separate project on the Jetson that reads crops from the NAS is cleaner than widening this
-repo's pins to straddle both machines. The Jetson is this installation's choice: any machine with a
-GPU, a Hailo accelerator, or a CPU for a small model will do, and the handoff (crops and labels on
-the share) is the only contract.
+build; a separate project on the training machine that reads crops from the share is cleaner than
+widening this repo's pins to straddle both machines. Any machine with a GPU, a Hailo accelerator,
+or a CPU for a small model will do, and the handoff (crops and labels on the share) is the only
+contract.
 
 **Rough target:** several hundred to a low thousand crops per cat, spread across many distinct
 events, days, and lighting conditions. Event count matters more than crop count; 1000 crops from 5
@@ -536,7 +534,7 @@ Nothing open; finished items are in the archive.
 
 ## C.7 Choices to make options, flagged for the next developer
 
-Each works as it is for this installation and would bite someone else:
+Each works for the setup it was built on and would bite someone else:
 
 - [ ] The web port is fixed at 5000 (`src/web_app.py`); make it a setting.
       **Done means** `WEB_PORT` is read from the environment with 5000 as the default, the startup
@@ -569,8 +567,8 @@ worse. Keep it LAN-only, and add auth and a real WSGI server (waitress/gunicorn)
 reachable from anywhere else. Do not port-forward it.
 
 **Storage growth and retention.** 10 Mbps is ~75 MB per minute of recording, and crops add to
-that. Clips took 32.2 GB across 579 clips from 2026-08-25 to 2026-09-26 (the sum of
-`clip.size_bytes` in `captures.db`), with 467 GB free on the share.
+that. One month of recording came to about 32 GB across about 580 clips (2026-09-26, the sum of
+`clip.size_bytes` in `captures.db`).
 
 - [ ] Set a retention policy before space runs short. Full clips are the bulk and are the least
       valuable once an event is labeled and cropped.
@@ -579,11 +577,10 @@ that. Clips took 32.2 GB across 579 clips from 2026-08-25 to 2026-09-26 (the sum
       only eligible clips removed, and the README says what it deletes. Until B.1's crops exist it
       can only go by label and age.
 
-**Power.** The Pi has powered off without a shutdown four times (latest 2026-09-24), a PMIC
-standby whose cause is not known; pi-wake brings it back within 10 minutes. Each one is a gap in
-the cats' record, and a gap can look like the very change the project exists to flag. On this
-installation a different power supply is being tried. On 2026-09-26 at 06:36 it also had a warm
-reset (`rsts=0x1020`, a watchdog or software reset, cause unknown), a gap of 2.6 minutes.
+**Power.** A Pi that powers off without a shutdown leaves a gap in the cats' record, and a gap
+can look like the very change the project exists to flag. A Pi 5 has been seen to drop into PMIC
+standby with no shutdown and no known cause; an RTC wake alarm kept armed brings it back within
+10 minutes.
 
 **Capture stalls.** On 2026-09-26 from 09:05 to 12:51, a gap of 3 h 46 min, libcamera logged
 "Camera frontend has timed out" (its dequeue timer expired) and the capture thread blocked. The
