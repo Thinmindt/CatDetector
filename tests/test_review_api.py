@@ -397,7 +397,7 @@ def test_a_cat_may_not_be_called_staged(db: Any, tmp_path: Path) -> None:
         Review(db, ClipFrames(tmp_path / "cache"), tmp_path / "captures", ("staged",))
 
 
-# --- review API: findings from the 2026-09-21 review ------------------------
+# --- review API: findings from a code review -------------------------------
 
 
 def test_media_urls_name_the_clip_so_a_split_cannot_change_what_they_serve(

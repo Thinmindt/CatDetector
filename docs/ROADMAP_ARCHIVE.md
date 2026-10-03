@@ -13,14 +13,14 @@ new moves at the end of their section.
 Moved 2026-09-26.
 
 **Hardware/platform facts** (measured 2026-08-24): Raspberry Pi 5, no Hailo accelerator, so any
-*on-Pi* inference would be CPU. Local disk is ext4 with ~210 GB free. `/mnt/nas` is a **CIFS**
-share (~497 GB free) — this matters for storage decisions in B2 [B.2]. Jetson model and JetPack version are not yet recorded; JetPack pins its own Python (3.10 on
-JetPack 6) and PyTorch comes from NVIDIA's wheels, so the training environment is separate from
-this repo's `==3.13.*` pin and should not try to share it.
+*on-Pi* inference would be CPU. Local disk is ext4, and the share is **CIFS** — this matters for
+storage decisions in B2 [B.2]. On a Jetson, JetPack pins its own Python (3.10 on JetPack 6) and
+PyTorch comes from NVIDIA's wheels, so a training environment there is separate from this repo's
+`==3.13.*` pin and should not try to share it.
 
 Status: written 2026-08-24, after fixing clip saving and the startup false trigger.
 
-Moved 2026-09-26: the reasoning behind the hardware split. The roadmap keeps the split as this
+Moved 2026-09-26: the reasoning behind the hardware split. The roadmap keeps the split as one
 installation's choice; C.7 makes training hardware a choice for any installation.
 
 **Hardware split (decided 2026-08-24).** The **Pi stays the capture box** and the **Jetson does
@@ -33,7 +33,7 @@ CUDA turns "fine-tune overnight" into minutes. So crops and labels move to the J
 never do.
 
 Consequence for B.5: training is off-device by design, and the crop/label store must be readable
-from the Jetson — the NAS share is the natural handoff point.
+from the training machine — the share is the natural handoff point.
 
 ---
 
@@ -103,8 +103,8 @@ rule carries on in the roadmap.
       over-capturing rather than missing. Nothing below can be chosen until this data exists.
       **Running since 2026-09-14 17:46**, as the `catdetector` service. Settings are
       `MOTION_THRESHOLD=150` (the smallest cat so far was ~400 px walking in; daytime idle noise
-      passes 150 on 0.017% of frames and never passed 228) and `METRICS_CSV=~/metrics_eval_20260914.csv`,
-      so a visit below the threshold still leaves a trace.
+      passes 150 on 0.017% of frames and never passed 228) and `METRICS_CSV` set, so a visit
+      below the threshold still leaves a trace.
       **The camera is blind at night (measured 2026-09-14).** It is the standard IR-filtered
       Camera Module 3: libcamera reports `imx708`, not `imx708_noir`, and daylight colour is
       neutral. A light was switched off at 20:15 (brightness 45.6 to 3.5 in one frame); after that
@@ -116,16 +116,11 @@ rule carries on in the roadmap.
       illuminator (monochrome at night). A light that switches on with motion would be worse,
       since the pre-roll stays dark and the switch-on changes the whole frame. Motion is ignored
       while mean brightness is below `DARK_BRIGHTNESS` (default 10; see DESIGN.md), which stops the
-      black clips but not the gap. **The boxes have been lit around the clock since 2026-09-16:**
-      nights since 09-18 average ~125/255 in the metrics CSV and record like days, so the gap is
-      closed as long as the light stays on. The loop was
+      black clips but not the gap. **Lighting the boxes around the clock (from 2026-09-16) closed
+      it:** nights since 09-18 averaged ~125/255 in the metrics CSV and recorded like days, so the
+      gap stays closed as long as the light stays on. The loop was
       confirmed at 30.0 fps on hardware (2026-09-12) with `METRICS_CSV` on and recording, all 16
       columns written, so the cleaned-blob and brightness work carries no measurable cost.
-      Collected so far (2026-09-10):
-      - About 5.5 h of per-frame metrics in `~/metrics*.csv`, split into one file per setting.
-        The first 2.6 h, in `metrics_narrowfov_20260910.csv`, used the old cropped view and
-        can't be compared with the rest.
-      - 9 labelled clips, 2 of them cats.
 
       First cat of the threshold-150 run (06:11 on 2026-09-15, seconds after the room light came
       on): recorded in full across two clips 1 s apart, which A.4 grouping should join. While
@@ -138,17 +133,14 @@ rule carries on in the roadmap.
       clips, 15:14, 15:38, 15:48), 2 of a person scooping, the rest speckle or moving light — about
       one false clip an hour in daylight, five of them in the 17:00 hour as the evening sun crossed
       the floor. Every visit was recorded from its first frame, and no lit frame over the threshold
-      failed to start a clip. Boxes: left in all four visits, right in the 15:48 visit, middle not
-      at all. That visit crossed from the left box to the right inside a *single* clip — an instance
-      of A.4's known limit, since grouping places a clip by one trigger position and cannot split
-      one clip between boxes. 30.0 fps all day, no restarts, 51–55 °C, no throttling.
+      failed to start a clip. The 15:48 visit crossed from one box to another inside a *single*
+      clip — an instance of A.4's known limit, since grouping places a clip by one trigger
+      position and cannot split one clip between boxes. 30.0 fps all day, no restarts.
 
-      **That evening and overnight.** 11 more clips between 21:37 and 23:17, most of them the dark
-      cat at the **middle box** (trigger centroids x≈350–400), in stays of one to three minutes, plus
-      one at the left box at 22:10. All three boxes are now attested: left (four visits), right
-      (15:48), middle (21:37 onward). Two cats are clearly distinguishable by coat — a calico and a
-      dark one — which is the B.5 premise holding up. **The dark suppression got its first real
-      test:** the room light went off during the 23:16:53 clip, the recorder logged "Scene is dark;
+      **That evening and overnight.** 11 more clips between 21:37 and 23:17, most of them one cat
+      in stays of one to three minutes at a box no daytime visit had used, so every box was now
+      attested. Two cats are clearly distinguishable by coat, which is the B.5 premise holding
+      up. **The dark suppression got its first real test:** the room light went off during the 23:16:53 clip, the recorder logged "Scene is dark;
       ignoring motion" at 23:16:55 and recorded nothing until morning. The share grew ~1 GB
       overnight, against 4.6 GB in the two hours of black clips the night before the change.
 
@@ -156,8 +148,8 @@ rule carries on in the roadmap.
       the weakest visit, not the average one. The two visits on 2026-09-15 ran 3,000–11,000 px while
       moving — twenty to seventy times the threshold — but 325 px on the entry frame (15:14) and
       47–130 px while the cat stood still (06:11). Entry and stillness are therefore the binding
-      cases, and both are rare events, so the unit to collect is **visits, not hours**. At an
-      expected 5–10 visits a day from 2 cats and 3 boxes, that is roughly a week of the lit setup.
+      cases, and both are rare events, so the unit to collect is **visits, not hours**. At the
+      5–10 visits a day expected then, that is roughly a week of the lit setup.
       Stop when all of these hold:
       - **50+ labelled visits, 100 preferred.** Zero misses in 50 only bounds the true miss rate at
         ~6% (95%); at 100 it is ~3%. Recall is the whole point, so prefer 100.
@@ -165,7 +157,7 @@ rule carries on in the roadmap.
         different regime, not a sample of the same one.
       - **15+ per cat.** A dark cat on dark litter gives a weaker signal than a pale one; the two
         cats seen on 2026-09-15 already look different.
-      - **All three boxes used.** The far box covers fewer pixels and may read weaker.
+      - **Every box used.** A far box covers fewer pixels and may read weaker.
       - **Several days of varied weather, including one overcast.** Sunlight crossing the floor is
         the main daytime false trigger.
       - **The smallest entry blob has stopped dropping over the last ~20 visits.** The real
@@ -174,9 +166,9 @@ rule carries on in the roadmap.
 
       Two things are not the bottleneck. False positives are measurable from hours rather than
       visits, and any candidate rule can be replayed against the metrics CSV without re-recording
-      anything. Storage is ~130 MB/day of metrics plus clips against 209 GB free. The bottleneck is
-      **labelling**, which is one person's keystrokes: ~10 clips a day has to be kept up with, or
-      the backlog outlives the run.
+      anything. Storage is ~130 MB/day of metrics plus clips, small against the free disk. The
+      bottleneck is **labelling**, which is one person's keystrokes: ~10 clips a day has to be kept
+      up with, or the backlog outlives the run.
 
       First look (2026-09-11). This is one cat visit, so it's a sanity check, not a threshold:
       - The one visit (08:04) peaked at 3,264 foreground px and a 2,624 px blob in the old view,
@@ -254,8 +246,8 @@ may bake an event id into a clip.
    `event_id` and reruns the rule; labels follow the clips (kept when a new event's clips agree,
    otherwise the event returns to the unlabeled queue). Manual splits and joins from the UI are
    stored as overrides that `regroup` treats as hard boundaries and links, so a threshold change
-   never undoes a human correction. The 9 clips already in the DB predate sidecars; re-ingest
-   them as one-clip events.
+   never undoes a human correction. Clips already in the DB predate sidecars; re-ingest them as
+   one-clip events.
 4. **Review UI** (done 2026-09-12; details in B.3): the grouping is always visible and always
    correctable —
    every clip of an event is shown, with a split action at each boundary, a join-with-next
@@ -320,10 +312,10 @@ at record time would duplicate it.
 Moved 2026-09-26: the finished items and the schema sketch. The built schema is in
 `src/review/capture_db.py`; the `crop` table carries on in the roadmap.
 
-- [x] **SQLite on local disk, media on the NAS.** SQLite's locking is unreliable over CIFS,
-      and `/mnt/nas` is CIFS — a database file there risks corruption under concurrent
-      access. `captures.db` lives on the ext4 root (210 GB free) and stores NAS *paths*.
-- [x] Images and clips stay on the NAS. Do not put image blobs in SQLite.
+- [x] **SQLite on local disk, media on the share.** SQLite's locking is unreliable over CIFS,
+      and the share is CIFS — a database file there risks corruption under concurrent
+      access. `captures.db` lives on the local ext4 root and stores *paths* on the share.
+- [x] Images and clips stay on the share. Do not put image blobs in SQLite.
 
 Schema sketch:
 
@@ -341,7 +333,7 @@ CREATE TABLE event (
 CREATE TABLE clip (                   -- one visit = one or more clips (A.4)
     id           INTEGER PRIMARY KEY,
     event_id     INTEGER REFERENCES event(id),   -- NULL until grouped
-    path         TEXT NOT NULL UNIQUE,           -- on the NAS
+    path         TEXT NOT NULL UNIQUE,           -- on the share
     started_at   TEXT NOT NULL,
     ended_at     TEXT,
     close_reason TEXT,                -- timeout | max_length | shutdown | recovered
@@ -373,7 +365,7 @@ grouping; the full plan is in A.4.
 
 Moved 2026-09-26: folded into B.1's crops, with the box per crop added.
 
-- [ ] A `crop` table for B.1: event, path on the NAS, when it was captured.
+- [ ] A `crop` table for B.1: event, path on the share, when it was captured.
 
 ## B.3 Labeling UI
 
@@ -429,8 +421,8 @@ meantime has to be revisited, so this goes before the usability items.
       takes any text, so the schema does not change; the page and the API validate against the
       configured list, and an empty list leaves the page as it is today.
 - [x] **`cat` stays, meaning "a cat, which one not decided".** It is the value of every visit
-      labelled before this lands (31 events on 2026-09-20), and it remains the honest answer when
-      the tiles do not show the coat. `/review?filter=cat` is then the per-cat backlog: walk it
+      labelled before this lands, and it remains the honest answer when the tiles do not show
+      the coat. `/review?filter=cat` is then the per-cat backlog: walk it
       and press a digit, and the visit leaves the filter. Nothing is migrated.
 - [x] **`multiple`** (`m`) for two cats in one event, the B.1 edge case: excluded from
       single-label training, kept as a visit.
@@ -440,8 +432,8 @@ daily, one from 2026-09-20, and the review queue agreed 2026-09-21. They follow 
 labels, in the order listed:
 
 - [x] **It is used from a phone, and the buttons are too small to hit** (done 2026-09-22, merged as
-      PR #4; the screenshot check is `tests/manual/check_page.py`). The phone is a Pixel 9
-      (412 x 915 CSS px in portrait). The page has no `viewport` meta tag, so the phone renders it
+      PR #4; the screenshot check is `tests/manual/check_page.py`). The target is a phone of
+      412 x 915 CSS px in portrait. The page has no `viewport` meta tag, so the phone renders it
       at desktop width and shrinks it; that alone is most of "too small", and adding the tag is
       the first step, after which every size below means what it says. The layout, agreed
       2026-09-22 after comparing the labelling apps that solve the same problem (Zooniverse's
@@ -472,9 +464,9 @@ labels, in the order listed:
         to see a cat), with the event header on two lines and the counts line wrapped below the
         content. A tap on a tile opens it full width, as the zoom cursor promises today.
       - **Done means**: a screenshot from `chromium --headless --window-size=412,915` shows the
-        bar, two tile columns and no horizontal scroll, and a sitting on the Pixel 9 labels a
-        backlog without a mis-tap. The screenshot is the agent's check; the sitting is the
-        owner's.
+        bar, two tile columns and no horizontal scroll, and a sitting on a phone that size labels
+        a backlog without a mis-tap. The screenshot is the agent's check; the sitting is a
+        person's.
 
 Moved 2026-09-26: absorbed into C.6, times stored in UTC and shown in local time.
 
@@ -508,10 +500,10 @@ Moved 2026-09-27: done.
 - [x] **An explicit review queue, with staging.** Today the queue is
       implicit: the unlabelled events, in review order, and labelling one removes it. There is
       no way to put an event back without erasing its label, and no record of why it came back.
-      The need is real now: the 110 `not_cat` labels made before 2026-09-20 (`label.labeled_at`)
+      The need is real now: the `not_cat` labels made before 2026-09-20 (`label.labeled_at`)
       include those made from the first eight seconds of each clip, before the whole-clip tiles
-      (95 are older than the tiles' commit on 2026-09-17 21:10), but nothing can walk them
-      without losing the labels. A **staging table** fixes that: one row
+      landed on 2026-09-17, but nothing can walk them without losing the labels. A **staging
+      table** fixes that: one row
       per staged event with a reason, when it was staged and by whom (`human`, `agent`, later
       `model`), stored against the event's first clip as poop counts are, so a `regroup` keeps
       it with its clips. The default walk becomes the unlabelled events **plus** the staged ones, in the
@@ -528,12 +520,12 @@ Moved 2026-09-27: done.
       **Done means** the default walk serves the unlabelled events and the staged ones in one
       order, a staged event shows its label and reason, one label press clears its staging row,
       the API and `main.py --stage` both stage, a test stages a labelled event, walks to it and
-      confirms it without losing the label, and the 110 early `not_cat` labels can be staged in
+      confirms it without losing the label, and the early `not_cat` labels can be staged in
       one command.
       Done 2026-09-27: a `staged` table keyed by clip, as specified; `main.py --stage --label
-      not_cat --labeled-before 2026-09-20` staged 110 events in a copy of the live database,
-      and a regroup of that copy kept all 110. The page shows the reason beside the label. The
-      API route is `POST /api/review/<event>/stage` with `reason` and `source`.
+      not_cat --labeled-before 2026-09-20` staged every one of those events in a copy of the live
+      database, and a regroup of that copy kept them all. The page shows the reason beside the
+      label. The API route is `POST /api/review/<event>/stage` with `reason` and `source`.
 
 - [x] **Four findings from the 2026-09-21 code review**, deferred until the unified route and
       the queue are in, because two of them are simpler once the route carries ids:
@@ -584,12 +576,12 @@ Moved 2026-09-27: done.
       empty scratch cache, it built the 10 clips of the next 8 queued events in 17.7 s while
       the running service held 30.00 fps (longest frame gap 62 ms); the page's requests for a
       3-clip event's strips then took 16 ms together, served by the app on the Pi from that
-      cache. The live service runs this code only once the branch is deployed.
+      cache.
 
 ## B.4 Notifications
 
-Moved 2026-09-28: not pursued. The owner labels visits in sittings and will not want a push
-per visit; B.4 is now alerts on a change in a cat's habits, and the alert rule moved there
+Moved 2026-09-28: not pursued. Visits are labelled in sittings, and a push per visit is not
+wanted; B.4 is now alerts on a change in a cat's habits, and the alert rule moved there
 from B.6.
 
 Purpose is to close the loop: a capture happens, you get a push, one tap lands on the
@@ -645,7 +637,7 @@ Moved 2026-09-28: to B.4, reworded, as its one item.
       **Done means** a stated rule (for example, a cat's visits per day or median duration outside
       its trailing four-week range two days running) runs daily over `captures.db`, a test over a
       seeded history fires on an injected change and not on normal variation, and a firing reaches
-      the owner through B.4's transport.
+      a person through B.4's transport.
 
 ---
 
@@ -706,8 +698,8 @@ clock wait is bounded instead of enabling `systemd-time-wait-sync.service`, and 
 wanted rather than required.
 
 - **Start at boot and restart on failure** (deferred 2026-09-10, done 2026-09-14). That day the Pi
-  powered itself off at 12:57 (overheating suspected) and was switched back on at 17:23, but
-  main.py was started by hand, so nothing was recorded until someone restarted it. The unit has
+  powered itself off at 12:57 and was switched back on at 17:23, but main.py was started by
+  hand, so nothing was recorded until someone restarted it. The unit has
   `WantedBy=multi-user.target` and `Restart=on-failure`.
   **`RestartSec` must be at least ~15 s.** Measured 2026-09-12: after an unclean kill (`kill -9`,
   a crash, a power cut) the camera stays busy for 10-15 s, and a restart during that window dies
@@ -734,7 +726,7 @@ wanted rather than required.
   recovered clip decoded to 365 frames with no ffmpeg errors.
 - ~~`RequiresMountsFor=/mnt/nas` — otherwise clips vanish into an empty mountpoint.~~ Obsolete
   since clips are staged locally and `ClipTransfer` refuses a non-mountpoint. Requiring the mount
-  would only stop recording when the NAS is down at boot, so the unit wants it instead.
-- Clips stay raw `.h264` on the NAS. Playback in the review UI remuxes on demand (B.3), so the
+  would only stop recording when the share is down at boot, so the unit wants it instead.
+- Clips stay raw `.h264` on the share. Playback in the review UI remuxes on demand (B.3), so the
   capture path never runs ffmpeg; revisit only if something else needs seekable files.
 - Retention/pruning, per the storage note above.

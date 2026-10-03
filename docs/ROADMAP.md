@@ -154,7 +154,7 @@ as agreed is in the archive.
       guesses. Too small a gap splits a visit (double-counts frequency, shortens duration); too
       large merges two cats' visits (the labeler marks it `multiple`). The frequency signal is
       the point of the project, so lean toward merging. If two boxes prove too close for a
-      centroid distance, replace it with three fixed rectangles in lores coordinates.
+      centroid distance, replace it with a fixed rectangle per box in lores coordinates.
       **Done means** both are set from measured distributions (gaps between clips inside
       single-cat events against gaps between consecutive events; centroid distances within and
       between boxes), the numbers are in DESIGN.md's Events section, `--regroup` has run, a walk
@@ -180,12 +180,12 @@ against the metrics rows rather than the video.
 
 ## A.6 Keep capturing
 
-A trigger that works is no use while the camera delivers no frames. On 2026-09-26 from 09:05 to
-12:51, libcamera logged "Camera frontend has timed out" and `capture_arrays()` blocked from then
-on without raising. The process stayed alive, so systemd's `Restart=on-failure` never fired; the
-web server answered `/api/status` throughout, and nothing alerted. A manual restart brought the
-camera back at 30 fps, and that shutdown completed in 5 s with the camera still wedged. In twelve
-days of the metrics CSV, the longest gap between frames outside a restart or power-off is 1.95 s.
+A trigger that works is no use while the camera delivers no frames. The camera can stall: libcamera
+logs "Camera frontend has timed out" and `capture_arrays()` blocks from then on without raising.
+The process stays alive, so systemd's `Restart=on-failure` never fires; the web server keeps
+answering `/api/status`, and nothing alerts. A restart brings the camera back at full rate, and
+the shutdown has been seen to complete with the camera still wedged. In normal running, the
+longest gap between frames outside a restart or power-off measured under 2 s.
 
 Both halves are built (archive, A.6): after 10 s with no frame the detector exits non-zero through
 its usual cleanup, so systemd restarts it, and an optional `CAPTURE_HEARTBEAT_URL` is pinged only
@@ -229,9 +229,9 @@ training rather than silently mislabeling it.
 
 SQLite on local disk (`captures.db`), media on the share; never SQLite on the CIFS share, and never
 image blobs in SQLite. The built tables are in `src/review/capture_db.py`: `event`, `clip`,
-`label`, `poop_count` and `staged`, and B.1 adds `crop`. `label` is a table of its own, but its key is the
-event, so an event holds one label: model predictions (B.6) need a key of `(event_id, source)` or
-a table of their own before they can sit beside the human labels.
+`label`, `poop_count` and `staged`, and B.1 adds `crop`. `label` is a table of its own, but its
+key is the event, so an event holds one label: model predictions (B.6) need a key of
+`(event_id, source)` or a table of their own before they can sit beside the human labels.
 
 - [ ] **Prune `.review_cache`.** It keeps every strip, up to 48 full frames (~4 MB) per clip and
       a remuxed MP4 per watched clip, and nothing ever removes them; on a small SD card it
@@ -270,16 +270,17 @@ Non-goals for v1: multi-user, accounts, editing bounding boxes by hand.
 
 ## B.4 Alerts
 
-Only a change in a cat's habits reaches the owner: visits per day, or time in the box, moving out of
+Only a change in a cat's habits sends an alert: visits per day, or time in the box, moving out of
 that cat's usual range, including a cat that stops visiting. There is no push per visit. Visits are
 labelled in sittings, not as they happen, so a push per visit would be noise (archive, B.4).
 
 The rule runs on a schedule over `captures.db`, off the capture path. A gap in the record (the
 service down, the Pi off, the light out) looks exactly like a cat visiting less, so the rule must
 count only the hours the camera was recording and say how many it had. Only the optional metrics
-CSV records those hours today, so the detector must keep its own record of them. The transport is optional, as the capture
-heartbeat is: the project runs without it and names no service. **ntfy** suits it, one HTTP POST
-with no account; Pushover, a Telegram bot, SMTP or a Home Assistant webhook would do as well.
+CSV records those hours today, so the detector must keep its own record of them. The transport is
+optional, as the capture heartbeat is: the project runs without it and names no service.
+**ntfy** suits it, one HTTP POST with no account; Pushover, a Telegram bot, SMTP or a Home
+Assistant webhook would do as well.
 
 - [ ] **Alert on a change in a cat's habits.** Litter box usage is the health signal, and catching
       bowel or urinary trouble is the goal. A stated rule, for example a cat's visits per day or
@@ -287,30 +288,29 @@ with no account; Pushover, a Telegram bot, SMTP or a Home Assistant webhook woul
       scaled by the hours recorded. The alert names the cat and the change and links to the
       timeline filtered to that cat (B.6).
       **Done means** the detector records the hours it received frames in `captures.db`, with or
-      without `METRICS_CSV`; the rule runs daily over `captures.db`; a test over a seeded history fires on
-      an injected rise, an injected drop and a cat that stops visiting, and not on normal variation
-      or on a day the camera was down; a firing reaches a configured URL; and with no URL set,
-      nothing is sent and nothing fails.
+      without `METRICS_CSV`; the rule runs daily over `captures.db`; a test over a seeded history
+      fires on an injected rise, an injected drop and a cat that stops visiting, and not on normal
+      variation or on a day the camera was down; a firing reaches a configured URL; and with no
+      URL set, nothing is sent and nothing fails.
 
 ## B.5 Train the classifier
 
-**Keep the training environment out of this repo.** JetPack pins its own Python and PyTorch
-build; a separate project on the training machine that reads crops from the share is cleaner than
-widening this repo's pins to straddle both machines. Any machine with a GPU, a Hailo accelerator,
-or a CPU for a small model will do, and the handoff (crops and labels on the share) is the only
-contract.
+**Keep the training environment out of this repo.** A training machine's stack may pin its own
+Python and PyTorch build, as JetPack does; a separate project on the training machine that reads
+crops from the share is cleaner than widening this repo's pins to straddle both machines. Any
+machine with a GPU, a Hailo accelerator, or a CPU for a small model will do, and the handoff
+(crops and labels on the share) is the only contract.
 
 **Rough target:** several hundred to a low thousand crops per cat, spread across many distinct
 events, days, and lighting conditions. Event count matters more than crop count; 1000 crops from 5
 visits is 5 examples. Split by event or day, never by crop (B.1). Expect **heavy class imbalance**
-— one cat already uses the boxes more than twice as often as another (A.2's table) — and weight
-the loss or resample rather than letting the majority cat dominate. "Not a cat" negatives come free
-from false triggers; keep them, they are real data.
+— cats seldom use the boxes equally often — and weight the loss or resample rather than letting
+the majority cat dominate. "Not a cat" negatives come free from false triggers; keep them, they
+are real data.
 
 - [ ] **Baseline first:** before any neural net, check whether mean coat color inside the mask
-      separates the cats. Each cat has a distinct pattern and colour, which a top-down view
-      preserves best; if colour alone separates them, that is a few lines of OpenCV and no
-      training loop.
+      separates the cats. A top-down view preserves a coat's pattern and colour best; if colour
+      alone separates the cats, that is a few lines of OpenCV and no training loop.
       **Done means** a script reports, for the labelled single-cat events, how well mean coat
       colour inside the mask separates the cats (a confusion matrix on events held out by day),
       and the result, with the decision it drives, is in DESIGN.md.
@@ -362,9 +362,9 @@ the urinary side of the goal rests on visit frequency and duration per cat (B.6)
       that cat's visit log and the `clean` rows as the cleaning log. Dates readable, relative
       time on hover (C.6). It is also the **selection surface for the review queue** (B.3):
       filters by label value, date range, time of day and labelled-before-a-timestamp, each row
-      with a stage button, and "stage everything shown, with this reason" for the set. The first
-      use is the 110 `not_cat` labels made before 2026-09-20, which cover those made before the
-      whole-clip tiles.
+      with a stage button, and "stage everything shown, with this reason" for the set. Its use is
+      re-auditing labels made before a change to the review page, such as `not_cat` labels made
+      before the whole-clip tiles.
       *The page:* a third tab, `/timeline`. Above the list, the filter:
       - a **date strip**, a bar per day of the events the other filters let through, coloured by
         label, with a brush (two handles, and the span between them dragged to move it) that
@@ -390,7 +390,7 @@ the urinary side of the goal rests on visit frequency and duration per cat (B.6)
       including an hour range across midnight (a test each); each strip's counts leave out its
       own filter (a test); rows link to the event's review URL (B.3); both stage actions write
       staging rows (a test); a reload keeps the filter; `check_page.py` screenshots the timeline
-      at both sizes with a range brushed; and the owner drags a brush by touch on the phone.
+      at both sizes with a range brushed; and a reviewer drags a brush by touch on a phone.
 - [ ] Human-in-the-loop: the model labels, low-confidence events are staged into the review
       queue (B.3) with `source=model`, corrections feed the next training round.
       **Done means** the model's predictions are stored beside the human labels (B.2's key),
@@ -416,7 +416,7 @@ place where that installation is written into the project, or says plainly what 
       `src/capture/` to that module. A Pi 4 (which needs a YUV analysis stream and has a hardware
       encoder) or another camera then becomes a second module. A NoIR camera with an IR light
       would also arrive this way; it is not supported now, because it changes the night regime
-      and the coat colours B.5 relies on, and nobody here can test it.
+      and the coat colours B.5 relies on, and it is untested.
       **Done means** `picamera2` is importable only in the implementation module, the rest of
       `src/capture/` is tested against a fake of the interface, and the docs name the Pi 5 and
       Camera Module 3 as that implementation rather than as requirements.
@@ -424,9 +424,9 @@ place where that installation is written into the project, or says plainly what 
       say clip bytes are written on `V4L2Encoder.thread_poll`. That is the hardware encoder; on a
       Pi 5 picamera2's `H264Encoder` is `LibavH264Encoder`, so that thread never runs. Find where
       output happens there, re-check that nothing can raise out of it, and state the trap per
-      implementation. **Done means** the documented thread is the one a stack trace from this Pi
-      shows. CLAUDE.md and DESIGN.md state both paths from the picamera2 source (2026-09-26);
-      the stack trace is what remains.
+      implementation. **Done means** the documented thread is the one a stack trace from a Pi 5
+      shows. CLAUDE.md and DESIGN.md state both paths from the picamera2 source; the stack trace
+      is what remains.
 
 ## C.2 What every installation needs
 
@@ -449,13 +449,13 @@ Nothing open; finished items are in the archive.
 
 ## C.4 Calibration per installation
 
-- [ ] **The pixel numbers are this mount's.** `MOTION_THRESHOLD`, `EVENT_BOX_DISTANCE_PX`, the
+- [ ] **The pixel numbers are one mount's.** `MOTION_THRESHOLD`, `EVENT_BOX_DISTANCE_PX`, the
       blob kernels and A.3's future size band all depend on mounting height, resolution and the
       size of the cats. Label every default as "from one installation", and turn A.2's derivation
       into a documented procedure anyone can run: a week at a low threshold with `METRICS_CSV`
-      on, label the visits, run A.2's script, which proposes the values. **Done means** the README has
-      a calibration section and the script works on a metrics CSV and a database other than this
-      installation's.
+      on, label the visits, run A.2's script, which proposes the values. **Done means** the README
+      has a calibration section and the script works on a metrics CSV and a database other than the
+      ones the defaults came from.
 
 ## C.5 Storage anywhere
 
@@ -517,8 +517,8 @@ worse. Keep it LAN-only, and add auth and a real WSGI server (waitress/gunicorn)
 reachable from anywhere else. Do not port-forward it.
 
 **Storage growth and retention.** 10 Mbps is ~75 MB per minute of recording, and crops add to
-that. One month of recording came to about 32 GB across about 580 clips (2026-09-26, the sum of
-`clip.size_bytes` in `captures.db`).
+that, so the space a month takes is about 75 MB times the minutes recorded in it. The sum of
+`clip.size_bytes` in `captures.db` gives what an installation has used so far.
 
 - [ ] Set a retention policy before space runs short. Full clips are the bulk and are the least
       valuable once an event is labeled and cropped.
@@ -532,20 +532,20 @@ can look like the very change the project exists to flag. A Pi 5 has been seen t
 standby with no shutdown and no known cause; an RTC wake alarm kept armed brings it back within
 10 minutes.
 
-**Capture stalls.** The camera can stop delivering frames while the process stays alive (once so
-far, 2026-09-26, 3 h 46 min). A.6 restarts it and alerts; what causes it is not known.
+**Capture stalls.** The camera can stop delivering frames while the process stays alive. A.6
+restarts the detector and, through an optional heartbeat check, alerts; what causes a stall is
+not known.
 
-**Coats and litter.** Detection has been tested on three cats' coats and one litter, and other
+**Coats and litter.** Detection has been tested on a few cats' coats and one litter, and other
 combinations may do worse. Untested so far: a dark cat on dark litter gives a weaker foreground
 signal; a mid-dark cat on pale litter may be classed as shadow and not counted at all (MOG2 calls
 a pixel shadow when it is darker than the background by up to half, by OpenCV's defaults; not
-measured here); and the colour baseline in B.5 may not separate similar coats. None of this can
+yet measured); and the colour baseline in B.5 may not separate similar coats. None of this can
 be settled without other cats. Leave the thresholds configurable and report what other
 installations see.
 
 Still open:
 
-- Is the floor around the boxes plain, or patterned/reflective in ways that fight background
-  subtraction?
+- Does a patterned or reflective floor around the boxes fight background subtraction?
 - Should the unit log with `StandardOutput=journal` and drop the timestamp from the log format,
   since journald adds its own? Journal lines carry both today.

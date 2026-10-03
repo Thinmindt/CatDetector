@@ -323,7 +323,7 @@ def test_timeout_survives_a_wall_clock_step(
     """Regression: durations were measured with time.time(), so an NTP step
     backwards held a clip open for the size of the jump.
 
-    This Pi has no RTC backup cell and timesyncd steps the clock at boot.
+    A Pi with no RTC backup cell boots with a stale clock that timesyncd steps.
     Rewinding time.time() must not affect anything: with the old code the
     elapsed difference goes negative and the clip never closes.
     """
