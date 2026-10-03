@@ -58,14 +58,14 @@ below `DARK_BRIGHTNESS`. Every frame is also measured for a cleaned blob (morpho
 close, then the largest contour), which the metrics CSV logs and the sidecar records, but which
 does not yet decide anything.
 
-| setting | default | the service runs |
-|---|---|---|
-| `MOTION_THRESHOLD` | 300 | 150, for the data run (A.2) |
-| `DARK_BRIGHTNESS` | 10 | 10 |
-| `MOTION_TIMEOUT` | 10 s | 10 s |
-| `MOG2_HISTORY` | 500 frames (~17 s) | 500 |
+| setting | default |
+|---|---|
+| `MOTION_THRESHOLD` | 300; a data run sets it lower (A.2) |
+| `DARK_BRIGHTNESS` | 10 |
+| `MOTION_TIMEOUT` | 10 s |
+| `MOG2_HISTORY` | 500 frames (~17 s) |
 
-The boxes are lit around the clock, so nights record like days. The camera is IR-filtered and
+The boxes must be lit around the clock, so nights record like days. The camera is IR-filtered and
 sees nothing in the dark; if the light fails, the dark gate stops black clips but not the gap.
 
 ## A.1 What still stands between this and the goal
@@ -74,56 +74,50 @@ sees nothing in the dark; if the light fails, the dark gate stops black clips bu
    global count. A.3 fixes this.
 2. **A stationary cat fades out.** MOG2 absorbs anything static in ~17 s, so recording can stop
    mid-visit. That is accepted: A.4 links the clips on either side into one event.
-3. **False triggers.** From 2026-09-16 to 25, 162 events were labelled `not_cat`; leaving out
-   the 28 from the light install and a remount, 134, about 13 a day and 0.9 an hour between
-   07:00 and 19:00. They peak around 10:00 and 13:00–15:00, not in the evening: the evening-sun
-   reading came from day one of the run (2026-09-15) alone. What triggered each one (sun, room
-   light, a person) is not labelled. A size band with an upper bound (A.3) is the fix for the
-   lighting ones.
+3. **False triggers.** Daylight, room light and people trigger clips that are labelled
+   `not_cat`, and what triggered each one is not labelled. A size band with an upper bound (A.3)
+   is the fix for the lighting ones.
 
 ## A.2 Measure before tuning
 
-**The data run** has been running since 2026-09-14 as the `catdetector` service, with
-`MOTION_THRESHOLD=150` and `METRICS_CSV` on, over-capturing rather than missing, so a visit below
-the threshold still leaves a trace in the CSV. The trigger is tuned to the weakest visit, not the
-average one: entry frames (325 px seen) and a cat sitting still (47–130 px) are the binding cases
-(one visit each, 2026-09-15), and both are rare, so the unit to collect is **visits, not hours**.
-Only visits under the light, from 2026-09-16, count; earlier ones are a different regime. The run
-stops when every condition below holds.
+**A data run** comes first: the detector runs as the service with a low `MOTION_THRESHOLD` and
+`METRICS_CSV` on, over-capturing rather than missing, so a visit below the threshold still leaves
+a trace in the CSV. The trigger is tuned to the weakest visit, not the average one: entry frames
+and a cat sitting still give the smallest blobs, and both are rare, so the unit to collect is
+**visits, not hours**. Only visits recorded once the setup has settled (lighting, framing, sensor
+mode) count; earlier ones are a different regime. The run stops when every condition below holds.
 
-| condition | why | 2026-09-26 |
-|---|---|---|
-| **50+ labelled visits, 100 preferred** | zero misses in 50 only bounds the miss rate at ~6% (95%); at 100, ~3% | 72 |
-| **10+ at night under the light** | more sensor gain, more noise: a different regime | 27 |
-| **15+ per cat** | a dark cat on dark litter gives a weaker signal than a pale one | 38 / 19 / 15 |
-| **all three boxes used** | the far box covers fewer pixels and may read weaker | left 45, middle 23, right 4 |
-| **several days of varied weather, one overcast** | lighting changes are a daytime false trigger (A.1) | not checked |
-| **the smallest entry blob has stopped dropping over the last ~20 visits** | tuning follows the weakest case | not checked |
+| condition | why |
+|---|---|
+| **50+ labelled visits, 100 preferred** | zero misses in 50 only bounds the miss rate at ~6% (95%); at 100, ~3% |
+| **10+ at night under the light** | more sensor gain, more noise: a different regime |
+| **15+ per cat** | a dark cat on dark litter gives a weaker signal than a pale one |
+| **every box used** | a far box covers fewer pixels and may read weaker |
+| **several days of varied weather, one overcast** | lighting changes are a daytime false trigger (A.1) |
+| **the smallest entry blob has stopped dropping over the last ~20 visits** | tuning follows the weakest case |
 
-How the column is counted, from `captures.db`: a visit is an event labelled with a cat's name
-whose first clip started on or after 2026-09-16 (12 earlier ones excluded); night is an event
-starting between 20:00 and 06:00; per-cat counts run from most visits to fewest; the box is the
-third of the 640-px lores width holding the trigger centroid of the event's **first** clip; an
-overcast day is one whose median daytime (09:00–17:00) brightness in the metrics CSV is among the
-run's lowest and whose clips look overcast; and the smallest entry blob has stopped dropping when
-the smallest trigger `clean_area` of the last 20 visits equals the smallest of the whole run. False
-positives are measurable from hours rather than visits, and any candidate rule can be replayed
-against the metrics CSV without re-recording. Storage is not the constraint (~147 MB/day of
-metrics, 1.71 GB from 2026-09-14 to 09-26, plus clips). **Labelling is**: about 24 events a day
-from 2026-09-16 to 25 (12–16 a day over the last four) have to be kept up with, or the backlog
-outlives the run.
+How each is counted, from `captures.db`: a visit is an event labelled with a cat's name whose
+first clip started on or after the run's start; night is an event starting between 20:00 and
+06:00; the box is the third of the 640-px lores width holding the trigger centroid of the event's
+**first** clip, until C.3 makes boxes configuration; an overcast day is one whose median daytime
+(09:00–17:00) brightness in the metrics CSV is among the run's lowest and whose clips look
+overcast; and the smallest entry blob has stopped dropping when the smallest trigger `clean_area`
+of the last 20 visits equals the smallest of the whole run. False positives are measurable from
+hours rather than visits, and any candidate rule can be replayed against the metrics CSV without
+re-recording. Storage is not the constraint (the metrics CSV grows by roughly 150 MB a day).
+**Labelling is**: each day's events have to be kept up with, or the backlog outlives the run.
 
-- [ ] **Finish the data run** against the table above. The right box is the thin one.
-      **Done means** every row of the table reads met on one date, recounted from `captures.db`
-      by the method above, and the service's drop-in goes back to the default threshold, or to
-      A.3's band, in the change that ticks this box.
+- [ ] **Finish the data run** against the table above.
+      **Done means** every condition holds on one date, recounted from `captures.db` by the
+      method above, and the service's drop-in goes back to the default threshold, or to A.3's
+      band, in the change that ticks this box.
 - [ ] **Derive the size band, with one tool anyone can rerun.** One script, general from the
       start, that reads a `captures.db` and a metrics CSV and does three jobs: from the labelled
       lit events, the distribution of cleaned largest-blob area with a cat present and absent,
       and the band A.3 triggers on (`min_cat_area`, `max_cat_area`); a replay of a candidate
       detector over the metrics rows of A.5's regression set, printing recall and false triggers
-      per hour; and the rest of an installation's numbers (C.4). Waits for the data run. Filter on
-      `started_at` from 2026-09-16, and say in the result how many events were excluded.
+      per hour; and the rest of an installation's numbers (C.4). Waits for the data run. It takes
+      the run's start date and says in the result how many events it excluded.
       **Done means** the script prints the band and the count of excluded events, the band
       replayed against the same CSV would have started a clip in every labelled visit, and CI
       runs it on a small synthetic database and CSV.
