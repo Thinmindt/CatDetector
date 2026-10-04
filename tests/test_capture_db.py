@@ -607,6 +607,7 @@ def test_a_clip_grouped_into_a_peek_at_ingest_makes_it_a_visit(
     visit(directory, 0)
     db.ingest(directory)
     peek = db.next_to_review()
+    db.set_label(peek.id, "cat")
     db.set_peek(peek.id, True)
 
     visit(directory, 40)
@@ -615,6 +616,28 @@ def test_a_clip_grouped_into_a_peek_at_ingest_makes_it_a_visit(
     grown = db.get(peek.id)
     assert len(grown.clips) == 2
     assert not grown.peek
+    assert (grown.label, grown.staged.source) == ("cat", "grouping")
+    assert [event.id for event in walk_queue(db)] == [peek.id]
+
+
+def test_a_peek_joined_to_a_visit_stays_a_visit_after_a_split(
+    db: Any, tmp_path: Path
+) -> None:
+    directory = tmp_path / "captures"
+    visit(directory, 0)
+    visit(directory, 500)
+    db.ingest(directory)
+    peek, _ = walk_queue(db)
+    db.set_label(peek.id, "cat")
+    db.set_peek(peek.id, True)
+    merged = db.join(peek.id)
+
+    db.split(merged.clips[1].id)
+
+    first, *_ = walk_labeled(db)
+    assert first.id == peek.id
+    assert not first.peek
+    assert first.staged is None
 
 
 def test_a_peek_can_be_cleared_and_shows_on_the_timeline(

@@ -472,8 +472,11 @@ own would lose which cat it was, so the label keeps the cat and a `peek` row mar
 row is written on **every** clip of the event, not the first as staging is, and an event is a
 peek only while all its clips carry it: a join with a real visit, or a new clip grouped in at
 ingest, makes the whole a visit, while a split leaves both halves peeks. A merged event that
-might hold a visit is therefore counted as one, which is the error recall prefers. The `p` key
-toggles the mark and stays on the event, so a peek is `p` and then the cat's digit.
+might hold a visit is therefore counted as one, which is the error recall prefers. The rows of
+an event that is no longer a peek are deleted, so a later split cannot revive the mark, and when
+ingest or a regroup caused it rather than the reviewer, the event is staged (source `grouping`)
+so someone looks at the clip that changed it. A label that is not a cat clears the mark. The `p`
+key toggles the mark and stays on the event, so a peek is `p` and then the cat's digit.
 
 **`--regroup` refuses while another process has the database** (2026-09-27). A regroup renumbers
 events, and the review page holds event ids: a label posted during a regroup, or after it by a page

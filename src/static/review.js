@@ -82,6 +82,15 @@ function show(data) {
     showDone(data.counts);
     return;
   }
+  showMeta();
+  document.getElementById('clips').innerHTML =
+    current.clips.map((c, i) => clipBlock(c, i ? current.clips[i - 1] : null)).join('');
+  restoreTiles();
+  padForBar();
+}
+
+// The line above the clips, and the sheet's buttons that depend on the event.
+function showMeta() {
   const poops = Object.entries(current.poops || {});
   const found = poops.length
     ? ` <span class="label">poops ${poops.map(([b, n]) => `box${b}: ${n}`).join(', ')}</span>`
@@ -98,13 +107,9 @@ function show(data) {
   document.getElementById('meta').innerHTML =
     `#${current.id} &mdash; ${timeTag(current.started_at)} &rarr; ` +
     `${hms(current.ended_at)}${badge}${peek}${staged}${grouped}`;
-  document.getElementById('clips').innerHTML =
-    current.clips.map((c, i) => clipBlock(c, i ? current.clips[i - 1] : null)).join('');
   document.getElementById('restage').hidden = !current.label;
   document.getElementById('peektext').textContent = current.peek
     ? 'a visit after all, not a peek' : 'a peek: looked in, used no box';
-  restoreTiles();
-  padForBar();
 }
 
 // An empty walk says which walk it is and how many events wait in the queue.
@@ -338,17 +343,26 @@ async function restage() {
   }
 }
 
-// A peek keeps its label but is not a visit; the mark stays put while the
-// reviewer picks the cat.
+// A peek keeps its label but is not a visit. The page stays on the event, its
+// tiles and any video untouched, while the reviewer picks the cat.
 async function togglePeek() {
   if (!current || busy) return;
   closeSheet();
+  setBusy(true);
   const id = current.id;
-  const data = await post(`/api/review/${id}/peek`, {peek: !current.peek});
-  if (!data.event || eventFromPath() !== id) return;
-  cancelStrips();
-  show(data);
-  snack(`#${id}: ${current.peek ? 'a peek' : 'a visit'}`);
+  try {
+    const data = await post(`/api/review/${id}/peek`, {peek: !current.peek});
+    if (!data.event) {
+      alert(data.error || 'Could not mark this event.');
+      return;
+    }
+    if (current?.id !== id) return;  // the page moved on meanwhile
+    current = data.event;
+    showMeta();
+    snack(`#${id}: ${current.peek ? 'a peek, not a visit' : 'a visit'}`);
+  } finally {
+    setBusy(false);
+  }
 }
 
 function watch(index) {

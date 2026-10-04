@@ -79,6 +79,11 @@ class Review:
             return FIXED_LABELS
         return (*FIXED_LABELS, *self.cat_names, MULTIPLE)
 
+    @property
+    def cat_labels(self) -> tuple[str, ...]:
+        """The labels that say a cat was there: only these may be a peek."""
+        return ("cat", *self.cat_names, MULTIPLE) if self.cat_names else ("cat",)
+
     def queue_changed(self) -> None:
         """Ready the strips of whatever the queue now holds next."""
         if self.ahead is not None:
@@ -220,9 +225,12 @@ class ReviewPages:
         value = request_body().get("value")
         if value not in self.labels:
             return error(f"value must be one of {self.labels}", 400)
-        if self.db.get(event_id) is None:
+        event = self.db.get(event_id)
+        if event is None:
             return no_such_event()
         self.db.set_label(event_id, value)
+        if event.peek and value not in self.review.cat_labels:
+            self.db.set_peek(event_id, False)
         self.review.queue_changed()
         return jsonify({"ok": True, "counts": self.db.counts()})
 

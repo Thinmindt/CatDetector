@@ -141,8 +141,9 @@ request is normally a cache hit; a request for a strip being built waits for tha
 event ids change on a regroup; the media URLs name the clip for the same reason
 (`/review/clip/<clip id>/...`). Labels include `clean`, which records a litter cleaning and the
 poop count per box (`poop_count` table, roadmap B.5b). A **peek**, a cat that looks in and uses
-no box, keeps its cat label and is marked beside it (`peek` table, a row per clip; the `p` key):
-it is not a visit, so anything that counts visits leaves it out.
+no box, keeps its cat label and is marked beside it (`peek` table, a row per clip; the `p` key).
+It is not a visit: A.2's counts and B.4's habit rule leave it out, while the timeline and the
+progress line count events by label and show the mark.
 
 `METRICS_CSV` turns on the instrumentation for roadmap A.2. Point it at **local disk**, never at
 the share: one row per frame at 30 fps is the small-write pattern CIFS handles worst. Rows are

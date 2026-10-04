@@ -411,6 +411,17 @@ def test_a_peek_is_marked_shown_and_cleared_without_leaving_the_queue(
     assert cleared.get_json()["event"]["peek"] is False
 
 
+def test_a_label_that_is_not_a_cat_clears_the_peek(
+    walks: tuple[Any, list[int]],
+) -> None:
+    client, ids = walks
+    for value, kept in (("Ada", True), ("multiple", True), ("not_cat", False)):
+        client.post(f"/api/review/{ids[1]}/peek", json={"peek": True})
+        client.post(f"/api/review/{ids[1]}/label", json={"value": value})
+        shown = client.get(f"/api/review/event/{ids[1]}").get_json()["event"]
+        assert shown["peek"] is kept, value
+
+
 def test_a_peek_needs_true_or_false_and_an_event(
     walks: tuple[Any, list[int]],
 ) -> None:
