@@ -536,7 +536,7 @@ Moved 2026-09-26: done.
       the staging table does not exist yet, so it joins the default walk with the staging item.
       Driving it in headless Chromium showed Back on a 14-clip event waiting 60 s behind that
       event's strip builds, so leaving an event now cancels its pending strips (DESIGN.md,
-      Review UI).
+      Showing a clip).
 
 Moved 2026-09-27: done.
 
@@ -751,7 +751,7 @@ cats without any neural network.
 Moved 2026-09-26: done 2026-09-14. Retention carries on under the roadmap's storage risk.
 
 **Done 2026-09-14:** `deploy/catdetector.service.in`, installed with `deploy/install-service.sh`. The
-reasoning for each setting is in DESIGN.md (Process). Two items below changed on the way in: the
+reasoning for each setting is in DESIGN.md (Running as a service). Two items below changed on the way in: the
 clock wait is bounded instead of enabling `systemd-time-wait-sync.service`, and the share is
 wanted rather than required.
 

@@ -177,7 +177,7 @@ as agreed is in the archive.
       centroid distance, replace it with a fixed rectangle per box in lores coordinates.
       **Done means** both are set from measured distributions (gaps between clips inside
       single-cat events against gaps between consecutive events; centroid distances within and
-      between boxes), the numbers are in DESIGN.md's Events section, `--regroup` has run, a walk
+      between boxes), the numbers are in DESIGN.md, From clips to events, `--regroup` has run, a walk
       of `?filter=multi` finds no event merging two visits, and a walk of one day's events in
       order finds no visit split in two. The first data (2026-10-03): the twelve joins reviewers
       made had gaps of 0 to 141 s, mostly 17 s or less, and centroid distances of 185 to 295 px,

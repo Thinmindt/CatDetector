@@ -503,7 +503,7 @@ Each of these was a real bug. The reasoning is in `docs/DESIGN.md`.
 
 Not bugs, but do not mistake them for correct:
 
-- Detection is a **global pixel count**. Excluding shadows (DESIGN.md, Detection) does not make
+- Detection is a **global pixel count**. Excluding shadows (DESIGN.md, Detecting motion) does not make
   it good — only honest.
 - No spatial coherence: scattered noise and one solid cat-sized blob are indistinguishable.
   The largest blob is logged, both raw and after cleanup, but nothing yet *triggers* on it —
