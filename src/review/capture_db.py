@@ -2,6 +2,7 @@
 
 import datetime
 import fcntl
+import itertools
 import logging
 import sqlite3
 import threading
@@ -382,19 +383,41 @@ class CaptureDB:
         this, following = self.get(event_id), self.get(next_id)
         if this is None or following is None:
             return None
+        joined = self._merge(this, following)
+        self._conn.commit()
+        return joined
+
+    def _merge(self, this: Event, following: Event) -> Event:
+        """Make each clip continue the one before it in time, then place them.
+
+        The events' clips can interleave, and an override naming a later clip is
+        never honoured, so the first clip of the later event is not enough.
+        Raises JoinRefusedError, with nothing changed, if they cannot be grouped.
+        """
         for event in (this, following):
             if event.started_at is None:
                 raise JoinRefusedError(
                     f"#{event.id} has a clip with no start time, so it cannot be"
                     " grouped with another"
                 )
-        self._conn.execute(
+        merged = sorted(
+            (*this.clips, *following.clips), key=lambda c: (c.started_at, c.path)
+        )
+        self._conn.executemany(
             "UPDATE clip SET boundary = ?, joins = ? WHERE id = ?",
-            (Boundary.JOIN.value, this.clips[-1].path, following.clips[0].id),
+            [
+                (Boundary.JOIN.value, earlier.path, clip.id)
+                for earlier, clip in itertools.pairwise(merged)
+            ],
         )
         self._place_clips(keep_events=True, by_reviewer=True)
-        self._conn.commit()
-        return self.get(min(event_id, next_id))
+        joined = self.get(min(this.id, following.id))
+        if joined is None or len(joined.clips) != len(merged):
+            self._conn.rollback()
+            raise JoinRefusedError(
+                f"#{this.id} and #{following.id} could not be grouped"
+            )
+        return joined
 
     @serialized
     def next_multi(self, after_id: int | None) -> Event | None:

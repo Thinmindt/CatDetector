@@ -329,6 +329,24 @@ def test_join_merges_with_the_next_event_and_survives_regroup(
     assert db.counts()["total"] == 1
 
 
+def test_join_merges_events_whose_clips_interleave(db: Any, tmp_path: Path) -> None:
+    """Two boxes at once: each event has a clip that starts inside the other's span."""
+    directory = tmp_path / "captures"
+    for offset, place in ((0, BOX_1), (30, BOX_3), (50, BOX_1), (80, BOX_3)):
+        make_clip_with_facts(directory, at(offset), seconds=15, place=place)
+    db.ingest(directory)
+    first, second = walk_queue(db)
+    assert [c.started_at for c in first.clips] == [at(0), at(50)]
+    assert [c.started_at for c in second.clips] == [at(30), at(80)]
+
+    merged = db.join(first.id)
+
+    assert [c.started_at for c in merged.clips] == [at(o) for o in (0, 30, 50, 80)]
+    assert db.counts()["total"] == 1
+    db.regroup()
+    assert db.counts()["total"] == 1
+
+
 def test_join_with_no_later_event_is_none(db: Any, tmp_path: Path) -> None:
     directory = tmp_path / "captures"
     visit(directory, 0)

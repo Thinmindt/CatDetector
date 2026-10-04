@@ -776,12 +776,17 @@ reviewer is looking at — falls through to the first entry, and the audit silen
 oldest event instead of advancing.
 
 **Split and join are overrides on clips, not edits to events.** A split marks the clip that begins
-the new visit (`boundary = 'split'`); a join marks the first clip of the later event with the path
-of the clip it continues (`boundary = 'join'`, `joins = <path>`). Both then re-run the ordinary
-placement, so the rule and the overrides always agree and `regroup` reproduces the reviewer's
-decisions. The split's later half starts unlabeled, because it is a visit the reviewer has not
-judged; the first half keeps its id and label. A join names its target clip rather than "the
-previous event" so that interleaved boxes cannot make it land on the wrong visit.
+the new visit (`boundary = 'split'`); a join marks every clip of the two events but the earliest
+with the path of the clip before it in time (`boundary = 'join'`, `joins = <path>`). Both then
+re-run the ordinary placement, so the rule and the overrides always agree and `regroup` reproduces
+the reviewer's decisions. The split's later half starts unlabeled, because it is a visit the
+reviewer has not judged; the first half keeps its id and label. A join names its target clip
+rather than "the previous event" so that interleaved boxes cannot make it land on the wrong visit.
+It marks every clip, not only the later event's first, because placement runs in time order and
+honours a join only to a clip already placed: when two events' clips interleave (two cats, two
+boxes, at once), the later event's first clip starts before the earlier event's last, and the
+single mark it used to write was silently ignored (2026-10-03). A join that grouping still keeps
+apart is refused and rolled back rather than reported as done.
 
 **A join that touches an undated clip is refused** (2026-09-27). Grouping places only clips with a
 start time; one whose name did not parse stands alone whatever its overrides say. A join onto one
