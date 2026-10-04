@@ -4,6 +4,12 @@ Why the code is shaped the way it is. Kept here so the source can stay terse.
 
 Entries cite `ROADMAP.md` by section (A.2, A.4, B.5b, …).
 
+Each section is one thing the system does. It opens with how that works today, with a picture
+where there is a flow, a state machine or more than one thread, and the entries under it are the
+decisions that gave it that shape: what was decided, why, and when it was measured. The pictures
+are Mermaid, which GitHub renders in place; a box or an arrow in one is a claim about the code and
+is held to the same standard as a sentence.
+
 ## Goal
 
 **The point of the project is catching bowel or urinary trouble in a cat.** Knowing which cat
@@ -20,6 +26,49 @@ made a visit is the way there, not the goal itself. Three things follow from it:
   nothing should depend on it.
 
 ## The system at a glance
+
+One process on the Pi does everything, in two halves that share no objects. The capture half owns
+the camera, decides when something is moving and writes clips to local disk; the review half reads
+those clips back from the share, groups them into visits and serves the page a person labels them
+on. The whole contract between the halves is a clip and its sidecar on the share, so either half
+can change without the other noticing, and the review half imports without the camera stack, which
+is how it runs on a machine with no camera and what the lint gate (`TID251`) keeps true.
+
+```mermaid
+flowchart TB
+  subgraph capture["src/capture, on the Pi with the camera"]
+    cam(["Picamera2, one per process"])
+    cam -- "capture_arrays(main, lores), ~30 fps" --> fan["CameraManager: one capture thread, consumers in order"]
+    fan --> det["MotionDetector: MOG2 on the lores frame"]
+    fan --> web["WebStreamer: the newest main frame"]
+    det --> rec["MotionRecorder"]
+    det -. "FrameMetrics, every frame" .-> csv[("METRICS_CSV")]
+    cam --> ring["H264Encoder into CircularOutput: a 5 s ring buffer, continuously"]
+    rec -- "begin / stop" --> ring
+    ring --> local[("LOCAL_CLIP_DIR: clip.h264 + clip.h264.json")]
+    local --> ship["ClipTransfer, every 60 s"]
+  end
+  ship --> share[("the share: captures/*.h264 + *.json")]
+  subgraph review["src/review, the labeler"]
+    scan["clip_scan, then event grouping"] --> db[("captures.db, SQLite on local disk")]
+    ff["ClipFrames: ffmpeg into .review_cache"]
+    db --> api["Flask: /review, /timeline, /api/…"]
+    ff --> api
+  end
+  share --> scan
+  share --> ff
+  web --> live["/video_feed, MJPEG"]
+  live --> page["one page: Live, Review and Timeline tabs"]
+  api --> page
+```
+
+Two things in the picture carry most of the weight. The camera's frames take two independent
+paths: the fan-out, on one capture thread, feeds detection and the live view, while the recorded
+bytes go through picamera2's own encoder into a ring buffer that the recorder diverts to a file
+when motion starts. And nothing on the capture side writes to the share: clips land on local disk
+and `ClipTransfer` ships them on its own thread, so the camera never waits on the network and
+recording survives an outage of the share. Each half keeps its own state on local disk, the clip
+cache on one side and the database and frame cache on the other; the share holds only the clips.
 
 **Two independent video paths.** The consumer fan-out feeds detection and the web view. The
 recorded bytes go through picamera2's own encoder pipeline: `H264Encoder` into a
@@ -80,6 +129,32 @@ datetimes to strings in the scan means the database parses them back for the gro
 assigned it.
 
 ## Threads and locks
+
+The process runs about ten threads. The table is the map: what each one does, which locks it
+takes and what it must never do. The entries under it are the measurements and failures that put
+each rule there.
+
+| Thread | Runs | Takes | Must never |
+|---|---|---|---|
+| main | `main.py`'s setup, then `monitor()`: once a second, how old is the last frame; the shutdown | — | — |
+| capture (`CameraManager._distribute_frames`) | `capture_arrays` for both streams, then every consumer in turn: `MotionRecorder._process_frames` (detect, open or close a clip) and `WebStreamer._consume_frames` (copy the frame) | `_frame_lock` around the capture alone; `WebStreamer.frame_lock` for one assignment | wait on a disk, the network or another thread. A consumer that blocks it stops detection, and after 10 s the process restarts |
+| picamera2's output thread: the camera event loop on a Pi 5, `V4L2Encoder.thread_poll` on a Pi 4 | the H.264 encode of every `main` frame and every write of clip bytes, through `_ResilientCircularOutput` | `Picamera2.lock`, the encoder's lock, `CircularOutput._lock` | raise, which ends the loop and freezes capture; write anywhere but local disk |
+| drain, one per clip end (`MotionRecorder._finish_clip`) | `CircularOutput.stop()`: the ring written out, then the sidecar, then the rename | `CircularOutput._lock` for the whole drain, which the output thread waits on | write to the share |
+| metrics writer (`MetricsLog`) | rows off a bounded queue into the CSV | — | block the capture thread: a full queue drops the row |
+| `ClipTransfer` | every 60 s, copy finished clips to the share, sidecar first | — | — ; it is the one capture-side thread that may block on the share |
+| `CaptureHeartbeat` | one GET a minute, 10 s timeout, while the last frame is under 10 s old | — | log the URL |
+| Flask request threads (`threaded=True`) | the pages, the review API, and one `generate_frames` generator per live viewer | `CaptureDB._lock`, through `@serialized`; a per-clip build lock in `ClipFrames` | hold `CaptureDB._lock` while reading the share; hold `WebStreamer.frame_lock` across a `yield` |
+| `startup-ingest` | one scan of the share when the process starts | `CaptureDB._lock` only to insert what the scan found | — |
+| `strips-ahead`, reniced to 10 | the strips of the next 30 queued events, one clip at a time | `CaptureDB._lock` to read the queue; the clip's build lock | hold the database lock while ffmpeg runs |
+| stall deadline (`threading.Timer`) | `os._exit(1)` 60 s after a stall, if the cleanup has not finished | — | — |
+
+Across processes, every open `CaptureDB` holds a shared `flock` on `<database>.lock`, and
+`regroup` takes it exclusive.
+
+The rule the table enforces: the two threads the camera depends on, the capture thread and
+picamera2's output thread, wait on nothing that can stall: not a network share, not another
+thread, not a lock held across I/O. Everything that can block, the share, ffmpeg, HTTP, the CSV,
+has a thread of its own, and the review side does its share I/O with no database lock held.
 
 **Consumers run outside `_frame_lock`.** The lock covers capture only. Consumers run
 synchronously on the capture thread, so a slow one throttles everything; a lock held across them
@@ -151,6 +226,11 @@ seconds before the scan lands; `rescan` covers a reviewer who beats it.
 
 ## Capturing frames
 
+`CameraManager` configures two streams from the one sensor: `main` at 1280x720 for the recording
+and the live view, `lores` at 640x480 (`ANALYSIS_SIZE`) for detection, from the full array binned
+2x2. One blocking `capture_arrays` call a frame returns both, which paces the loop at the sensor's
+~30 fps, and the consumers run one after another on that thread.
+
 **One `Picamera2` per process.** picamera2 allows only one instance, so `CameraManager` owns it
 and everything else borrows via `get_camera()`.
 
@@ -176,6 +256,34 @@ mode cannot be compared with another's, so settle the mode and the framing befor
 metrics a threshold is tuned from.
 
 ## Detecting motion
+
+Every `lores` frame is measured the same way whether or not metrics are being logged, and the
+trigger decides from that measurement. MOG2 holds the background model; the pixels it marks as
+foreground rather than shadow are counted, and their largest region is kept both raw and after a
+morphological clean-up. The trigger is the count against `MOTION_THRESHOLD`, gated by a warmup
+and by the frame's brightness; the cleaned blob is what the sidecar records.
+
+```mermaid
+flowchart TB
+  lores["lores frame, 640 × 480, to grey"] --> mog["MOG2: 255 foreground, 127 shadow"]
+  mog --> thr["threshold > 127: shadows out"]
+  thr --> cnt["countNonZero → foreground_px"]
+  thr --> raw["largest contour → blob"]
+  thr --> clean["open 3×3, close 9×9, largest contour → clean_blob"]
+  lores --> br["mean grey → brightness"]
+  cnt & raw & clean & br --> fm["FrameMetrics, one per frame"]
+  fm -. "when METRICS_CSV is set" .-> csv[("CSV, written off-thread")]
+  fm --> gate{"30 frames of warmup done, and brightness ≥ DARK_BRIGHTNESS?"}
+  gate -- no --> still["not moving"]
+  gate -- yes --> cmp{"foreground_px > MOTION_THRESHOLD?"}
+  cmp -- no --> still
+  cmp -- yes --> moving["moving: last_blob = clean_blob"]
+  moving --> rec["MotionRecorder starts or keeps a clip; last_blob becomes the sidecar's trigger and last blob"]
+```
+
+The settings an installation tunes, `MOTION_THRESHOLD`, `MOTION_TIMEOUT`, `MOG2_HISTORY` and
+`DARK_BRIGHTNESS`, come from the environment and reach the detector as constructor arguments.
+Calibration, at the end of this document, is how a data run turns into their values.
 
 **MOG2 warmup.** MOG2 has no background model on its first frame and reports the whole frame as
 foreground, which triggered a clip on every startup. Measured on the imx708 (2026-08-24, in the
@@ -247,6 +355,39 @@ averaged ~125/255 (2026-09-20), so the gate matters only if the light fails.
 CSV, so `MetricsLog` leaves the old file alone, writes to a timestamped sibling and logs a warning.
 
 ## Recording and shipping a clip
+
+The encoder runs continuously into a five-second ring buffer, and nothing reaches disk until
+motion starts. From there a clip's life is a sequence of renames, each atomic because it stays
+within one filesystem, and only a final name means complete: that holds on local disk, where the
+recorder writes, and again on the share, where `ClipTransfer` copies to. The facts the raw stream
+cannot carry, when the clip started and ended, where the cat was and why the clip closed, travel in
+a sidecar that is written before the clip takes its final name and copied before it.
+
+```mermaid
+stateDiagram-v2
+  direction TB
+  state "Local disk" as local {
+    Part: clip.h264.part
+    Final: clip.h264 + clip.h264.json
+    Cut: clip.h264.part, after a crash
+    [*] --> Part: motion
+    Part --> Final: motion stops, 300 s, shutdown, or a failed write
+    Part --> Cut: crash or power cut
+    Cut --> Final: renamed at the next start, no sidecar
+  }
+  state "The share" as share {
+    Staged: clip.h264.part
+    Shipped: clip.h264 + clip.h264.json
+    Staged --> Shipped: renamed within the share
+  }
+  Final --> Staged: ClipTransfer copies the .json, then the clip
+  state "captures.db" as db {
+    Clip: a clip row
+    Event: a visit of one or more clips
+    Clip --> Event: grouped by gap and place
+  }
+  Shipped --> Clip: ingest reads the sidecar once
+```
 
 **Two names, and only one means "done".** The recorder writes `<clip>.h264.part` and renames to
 `<clip>.h264` once the file is closed; `ClipTransfer` copies to `<clip>.h264.part` on the share
@@ -331,6 +472,28 @@ the SD card, filling the boot media, and the share would hide those clips the mo
 over them. Clips wait on local disk instead and ship when the mount returns.
 
 ## Running as a service
+
+The detector runs as the `catdetector` systemd unit, built from `deploy/catdetector.service.in`.
+`main.py` builds the pieces in an order that lets each fail without taking the rest down, then
+`monitor()` blocks on the main thread watching the age of the last frame. There are three ways
+out, and they differ in the exit code, which is what tells systemd whether to restart.
+
+```mermaid
+flowchart TB
+  systemd["systemd starts catdetector"] --> ntp["ExecStartPre: wait for NTP, at most 90 s"]
+  ntp --> start["main.py: camera · recover .part clips · encoder into the ring ·<br>ClipTransfer · Flask · review (startup ingest, strips ahead) · heartbeat"]
+  start --> mon["monitor(): frame distribution runs;<br>every second, how old is the last frame?"]
+  mon -- "SIGTERM (systemctl stop) or Ctrl-C" --> down["shut_down: stop distribution (join ≤ 5 s) →<br>recorder.cleanup (close the clip, drain ≤ 30 s, stop_encoder) →<br>transfer.stop → heartbeat.stop"]
+  down --> exit0["exit 0: not restarted"]
+  mon -- "no frame for 10 s" --> stall["SystemExit(1), SIGTERM ignored,<br>60 s timer armed"]
+  stall --> down2["the same shut_down"]
+  down2 --> exit1["exit 1"]
+  stall -. "timer fires first" .-> force["os._exit(1)"]
+  force --> exit1
+  mon -- "crash" --> exitn["exit ≠ 0"]
+  exit1 & exitn --> restart["Restart=on-failure after RestartSec=20<br>(the camera stays busy 10–15 s)"]
+  restart --> systemd
+```
 
 **`main.py` degrades rather than dying.** If the recorder cannot be constructed, the web stream
 still comes up — it is often how you find out something is wrong — and a review database that
@@ -452,6 +615,49 @@ section.
 
 ## From clips to events
 
+Ingest registers each clip once, from its sidecar, and groups clips into events: one visit, one
+or more clips, chained by `event_grouping`'s rule when a clip starts within `EVENT_GAP_SECONDS`
+of the previous clip's end and within `EVENT_BOX_DISTANCE_PX` of where that clip left the cat.
+Event ids survive a rescan but are rebuilt by `regroup`, while clip ids never change. So every
+fact that must outlive a change of thresholds hangs off a clip: a reviewer's split or join, a
+staging, a poop count, a peek, a frame cache entry; and labels, keyed by event, are remembered per
+clip through a regroup and restored where an event's clips agree.
+
+```mermaid
+erDiagram
+  event ||--|{ clip : "groups, by gap and place"
+  event ||--o| label : "follows the clips through a regroup"
+  clip ||--o| staged : "on the event's first clip"
+  clip ||--o{ poop_count : "first clip, one row per box"
+  clip ||--o| peek : "on every clip of the event"
+  clip ||--o{ asked : "first clip, one row per question"
+  event {
+    int id PK "renumbered by regroup"
+  }
+  clip {
+    int id PK "never changes; keys the frame cache and the media URLs"
+    int event_id FK
+    text path UK
+    text started_at
+    text ended_at
+    text close_reason "timeout, max_length, shutdown, abandoned, recovered"
+    int trigger_cx "the triggering blob's centroid, with trigger_cy"
+    int last_cx "the last blob's centroid, with last_cy"
+    text boundary "split or join: the reviewer's override"
+    text joins "path of the clip a join continues"
+  }
+  label {
+    text value "cat, not_cat, unsure, clean, a cat's name, multiple"
+    text source "human; model later"
+  }
+  staged {
+    text reason
+    text source "human, agent or model; grouping and calibration from the code"
+  }
+```
+
+Timestamp columns are left out of the picture.
+
 **Clips are grouped into events at ingest, by one rule, from the sidecars.** `event_grouping`
 holds the rule as a pure function over `ClipRow`s so it can be tested against synthetic timelines
 with no database. `CaptureDB` calls it from two places: `ingest`, for every rescan, and `regroup`,
@@ -566,6 +772,27 @@ Migration code for them would outlive its purpose; a clear error at startup is e
 
 ## Showing a clip
 
+A clip is a raw H.264 stream on a CIFS share, so the page never reads one directly. `ClipFrames`
+decodes it once with ffmpeg, keyframes only, into a strip of captioned tiles and the full frames
+behind them, published into `.review_cache` by rename so a half-written entry is never served;
+Watch remuxes it to MP4 the same way. `StripsAhead` does that work before the page asks, at low
+priority, for the next thirty events in the queue.
+
+```mermaid
+flowchart TB
+  clip[("clip.h264 on the share")] --> ff["ffmpeg -skip_frame nokey: every keyframe, one a second"]
+  ff --> n["n keyframes; stride = ⌈n / 48⌉"]
+  n --> pick["every stride-th keyframe"]
+  pick --> full["clip&lt;id&gt;_t&lt;s&gt;s.jpg: the full frames, renamed into the cache"]
+  pick --> thumb["320 px wide, the offset drawn in"]
+  thumb --> strip["clip&lt;id&gt;_strip&lt;stride&gt;s.jpg, published last"]
+  strip --> page["the page cuts the tiles from the strip"]
+  full --> page
+  clip --> mp4["Watch: ffmpeg -c copy → clip&lt;id&gt;.mp4, same rename"]
+  ahead["StripsAhead, nice 10: the next 30 queued events"] -. "builds" .-> ff
+  req["a page request for an unbuilt strip"] -. "waits on that clip's build lock" .-> ff
+```
+
 **ffmpeg, not cv2.VideoCapture.** VideoCapture cannot handle the raw elementary streams the
 recorder writes: on a real clip it reported a garbage frame count, failed its first read, and
 could not seek. ffmpeg decodes the same files cleanly (~0.4 s for one full frame on a Pi 5,
@@ -658,6 +885,13 @@ side for every clip whether or not anyone ever watches it. The `<video>` element
 advertised either way.
 
 ## The review page
+
+One Flask app on one port serves one template with three tabs: Live, the MJPEG feed and the
+recorder's status; Review, the labeler; and Timeline, brushable strips of counts by day and hour.
+The script is ES modules with no build step, one per tab plus `common.js`. The server owns every
+rule that would otherwise exist twice, such as the timeline's filter; the browser owns position,
+which lives in the address, and the undo history. A change to the page is checked by looking at
+it: `tests/manual/check_page.py` screenshots it at a phone's size and a laptop's.
 
 **Single-page UI.** Labeling navigates no pages — next event and images are fetched and swapped
 in place — so the undo history can live in a JS array rather than sessionStorage, and labeling
@@ -804,6 +1038,10 @@ It copies the database so it never writes the live one, and reuses the live fram
 entries are published atomically, so it can run beside the service.
 
 ## Calibration
+
+A data run ends in `main.py --calibrate`, which reads the run's metrics CSV and the review
+database, proposes the trigger settings and stages for review what it cannot decide. The entries
+below are the rules it applies and the measurements behind them.
 
 **A data run ends in one command, `main.py --calibrate`** (2026-10-03, ROADMAP A.2). Every mount
 needs its own numbers, so the counting, the derivation and the replay are code anyone reruns
