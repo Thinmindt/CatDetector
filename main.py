@@ -298,6 +298,9 @@ def calibrate_installation(args: argparse.Namespace) -> int:
     if not metrics or not pathlib.Path(metrics).is_file():
         log.error("--calibrate needs the data run's metrics CSV: --metrics PATH")
         return 1
+    if not pathlib.Path(Config.DB_PATH).is_file():
+        log.error("No review database at %s: run from the checkout", Config.DB_PATH)
+        return 1
     db = open_db()  # held throughout, so a regroup cannot renumber the events
     try:
         result = calibrate(

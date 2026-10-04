@@ -638,6 +638,15 @@ def test_calibrate_fails_plainly_without_a_usable_metrics_csv(
     configure(monkeypatch, db, tmp_path / "none.csv")
     args = main.parse_args(["--calibrate", "--since", "2026-09-16"])
     assert main.run_command(args) == 1
+    csv = tmp_path / "metrics.csv"
+    csv.write_text("timestamp\n")
+    monkeypatch.setattr("main.Config.DB_PATH", str(tmp_path / "elsewhere.db"))
+    args = main.parse_args(
+        ["--calibrate", "--since", "2026-09-16", "--metrics", str(csv)]
+    )
+    assert main.run_command(args) == 1
+    assert not (tmp_path / "elsewhere.db").exists()  # not created empty
+    monkeypatch.setattr("main.Config.DB_PATH", str(db.path))
     other_layout = tmp_path / "old.csv"
     other_layout.write_text("timestamp,foreground_px\n")
     args = main.parse_args(
