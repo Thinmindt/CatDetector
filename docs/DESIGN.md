@@ -65,40 +65,31 @@ flowchart TB
 Two things in the picture carry most of the weight. The camera's frames take two independent
 paths: the fan-out, on one capture thread, feeds detection and the live view, while the recorded
 bytes go through picamera2's own encoder into a ring buffer that the recorder diverts to a file
-when motion starts. And nothing on the capture side writes to the share: clips land on local disk
+when motion starts; changing frame distribution does not change what is recorded, and vice versa.
+And nothing on the capture side writes to the share: clips land on local disk
 and `ClipTransfer` ships them on its own thread, so the camera never waits on the network and
 recording survives an outage of the share. Each half keeps its own state on local disk, the clip
 cache on one side and the database and frame cache on the other; the share holds only the clips.
 
-**Two independent video paths.** The consumer fan-out feeds detection and the web view. The
-recorded bytes go through picamera2's own encoder pipeline: `H264Encoder` into a
-`CircularOutput`. Changing frame distribution does not change what is recorded, and vice versa.
+**The local clip cache is sized for a long outage of the share.** Clips accumulate on local
+disk while the share is away and ship when it returns, where an in-memory buffer would fill
+and drop footage. Clip data arrives at `H264_BITRATE / 8` bytes a second, 1.25 MB/s at the
+constant's value of 10 Mbit/s, so the 300 s `max_clip_seconds` ceiling is 375 MB. Clips have
+averaged ~18 MB, so every 100 GB of free local disk holds roughly 5,500 of them, and
+`_has_room`'s 1 GB floor is a guard against a months-long outage, not a routine constraint.
+SD wear is not a concern at this volume: 20 such clips a day is ~134 GB a year, a fraction of
+a card's write endurance.
 
-**Clips are written to local disk, then shipped.** `MotionRecorder` writes to
-`LOCAL_CLIP_DIR`; `ClipTransfer` moves finished clips to `$NETWORK_SHARE_DIR/captures/` on its
-own thread. The share is therefore never touched by the capture or encoder threads, which is
-what removes the whole class of network-stall freezes described under Threads and locks. It also means recording
-survives an outage of the share entirely: clips accumulate locally and ship when it returns,
-where an in-memory buffer would fill and start dropping footage.
+**`src/` is three packages: `capture`, `review`, and `clips` for what both agree a clip is**
+(2026-09-20): its names, its sidecar, the `Blob` and `Frame` types. The rule that the review
+side imports without the camera stack is ruff's `banned-api` (`TID251`) on `picamera2` and
+`libcamera`, with a per-file allowance for `src/capture`, so a stray import fails the lint gate
+rather than a machine without a camera; a rule written only as prose is broken without anyone
+noticing. `Blob` lives in `src/clips` rather than `motion_metrics` because the sidecar needs it,
+and importing it from `motion_metrics` drags the CSV writer and the morphology kernels into the
+review side.
 
-Sizing: clip data arrives at `H264_BITRATE / 8` bytes a second, 1.25 MB/s at the constant's value
-of 10 Mbit/s, so the 300 s `max_clip_seconds` ceiling is 375 MB. Clips have averaged ~18 MB, so
-every 100 GB of free local disk holds roughly 5,500 of them, and `_has_room`'s 1 GB floor is a
-guard against a months-long outage, not a routine constraint. SD wear is not a concern at this
-volume: 20 such clips a day is ~134 GB a year, a fraction of a card's write endurance.
-
-**`src/` is split by which side of the share a module lives on** (2026-09-20). `src/capture`
-touches the camera; `src/review` reads the share and serves the labeler; `src/clips` is what both
-agree a clip is: its names, its sidecar, the `Blob` and `Frame` types. The sides share no objects;
-the clip and its sidecar on the share are the whole contract, so either side can change without
-the other noticing. The rule that the review side imports without the camera stack is ruff's
-`banned-api` (`TID251`) on `picamera2` and `libcamera`, with a per-file allowance for
-`src/capture`, so a stray import fails the lint gate rather than a machine without a camera; a
-rule written only as prose is broken without anyone noticing. `Blob` lives in `src/clips` rather
-than `motion_metrics` because the sidecar needs it, and importing it from `motion_metrics` drags
-the CSV writer and the morphology kernels into the review side.
-
-**One app, one port, two tabs** (2026-09-12). `web_app.create_app` takes the streamer and the
+**One app, one port** (2026-09-12). `web_app.create_app` takes the streamer and the
 review parts as optionals and serves whatever it was given, and a review database that fails to
 open leaves the Live tab up rather than taking the detector down, in the same spirit as a broken
 recorder leaving the stream up. `main.py` is the only entry point (2026-09-20): with the detector
@@ -141,7 +132,7 @@ each rule there.
 | picamera2's output thread: the camera event loop on a Pi 5, `V4L2Encoder.thread_poll` on a Pi 4 | the H.264 encode of every `main` frame and every write of clip bytes, through `_ResilientCircularOutput` | `Picamera2.lock`, the encoder's lock, `CircularOutput._lock` | raise, which ends the loop and freezes capture; write anywhere but local disk |
 | drain, one per clip end (`MotionRecorder._finish_clip`) | `CircularOutput.stop()`: the ring written out, then the sidecar, then the rename | `CircularOutput._lock` for the whole drain, which the output thread waits on | write to the share |
 | metrics writer (`MetricsLog`) | rows off a bounded queue into the CSV | — | block the capture thread: a full queue drops the row |
-| `ClipTransfer` | every 60 s, copy finished clips to the share, sidecar first | — | — ; it is the one capture-side thread that may block on the share |
+| `ClipTransfer` | every 60 s, copy finished clips to the share, sidecar first | — | nothing; it is the one capture-side thread that may block on the share |
 | `CaptureHeartbeat` | one GET a minute, 10 s timeout, while the last frame is under 10 s old | — | log the URL |
 | Flask request threads (`threaded=True`) | the pages, the review API, and one `generate_frames` generator per live viewer | `CaptureDB._lock`, through `@serialized`; a per-clip build lock in `ClipFrames` | hold `CaptureDB._lock` while reading the share; hold `WebStreamer.frame_lock` across a `yield` |
 | `startup-ingest` | one scan of the share when the process starts | `CaptureDB._lock` only to insert what the scan found | — |
@@ -321,10 +312,9 @@ anywhere in the frame against one threshold, with no spatial coherence, so scatt
 one cat-sized blob look the same. Shadows do not count; see Shadows above. See ROADMAP.md
 part A.
 
-**Threshold, timeout and MOG2 history are environment settings** (`MOTION_THRESHOLD`,
-`MOTION_TIMEOUT`, `MOG2_HISTORY`). A.2's data runs use a low threshold, catching too much rather
-than missing a visit, and trying different values should not need a code change. The timeout
-defaults to 10 s and the history to 500 frames.
+**A data run uses a low threshold** (ROADMAP A.2), catching too much rather than missing a
+visit, and trying another value needs no code change. `MOTION_TIMEOUT` defaults to 10 s and
+`MOG2_HISTORY` to 500 frames.
 
 **The default threshold is 300 px** (2026-09-11, from one visit). A walking
 cat measures about 400–1,400 foreground px in the full-sensor view, and about 3,300 at peak in the
@@ -437,7 +427,7 @@ with `ffmpeg -i clip.h264 -c copy clip.mp4` if that matters.
 
 **Bounded clip length and a free-space check.** Nothing else closes a clip except the motion
 timeout, and anything that keeps triggering — a sunbeam, a moving shadow — would record without
-bound at `H264_BITRATE` (4.5 GB/hour; see Sizing under The system at a glance). ENOSPC is not merely a failed
+bound at `H264_BITRATE` (4.5 GB/hour; see the clip cache's sizing under The system at a glance). ENOSPC is not merely a failed
 recording; it is the `OSError` above. `_has_room` guards the *local* clip directory, throttled to
 one check every 5 s: it runs on the capture thread for every motion frame, so an unthrottled
 `statvfs` plus its warning means 30 syscalls and 30 log lines a second for as long as the disk
@@ -530,6 +520,16 @@ recall over tidiness:
 - **`RestartSec=20`**, because the camera stays busy for 10–15 s after an unclean exit (below), and a faster restart would crash-loop on "Camera __init__ sequence did not complete".
 - **`Restart=on-failure`.** SIGTERM takes the clean-shutdown path and exits 0, so a
   `systemctl stop` is not undone.
+- **`TimeoutStopSec=60`** covers the 30 s final clip flush and the metrics writer's 10 s join.
+- **It runs the venv's Python, not `uv run`**, which can sync the environment at startup, and so
+  change or fail it at boot.
+
+Per-run detection settings live in a systemd drop-in
+(`systemctl edit catdetector`), not in `.env` and not in the tracked unit. Putting `METRICS_CSV`
+in `.env` would make the test suite's `build_recorder` calls open the real metrics file, and a
+run's settings in the tracked unit would be one machine's experiment published as the default.
+The tracked file is a template: `install-service.sh` fills in the user, the checkout path and the
+share's mount unit, so the unit is not tied to one account or directory.
 
 **After an unclean stop the camera stays busy ~10-15 s.** A `kill -9`, a crash or a power cut
 gives libcamera no chance to release the sensor, so the next `Picamera2()` fails with "Camera
@@ -595,16 +595,6 @@ and the watcher alerts on silence.
   chance to prove themselves.
 - **Failures are logged once per streak**, with a line when pings get through again, so a
   watcher that is down for a day costs two log lines rather than 1,440.
-- **`TimeoutStopSec=60`** covers the 30 s final clip flush and the metrics writer's 10 s join.
-- **It runs the venv's Python, not `uv run`**, which can sync the environment at startup, and so
-  change or fail it at boot.
-
-Per-run detection settings live in a systemd drop-in
-(`systemctl edit catdetector`), not in `.env` and not in the tracked unit. Putting `METRICS_CSV`
-in `.env` would make the test suite's `build_recorder` calls open the real metrics file, and a
-run's settings in the tracked unit would be one machine's experiment published as the default.
-The tracked file is a template: `install-service.sh` fills in the user, the checkout path and the
-share's mount unit, so the unit is not tied to one account or directory.
 
 **Logging root at WARNING, application loggers at INFO.** A blanket INFO root turns on every
 third-party logger; picamera2 narrates every state change and buries the application's own.
@@ -695,10 +685,9 @@ its label, so confirming it is the same keystroke that made it; the page shows t
 the label. A staging row names who staged it (`human`, `agent`, `model`), so the same queue serves
 a reviewer's re-audit, an agent's finding and, later, a model's low-confidence prediction.
 
-**A staging row hangs off a clip, as poop counts do** (2026-09-27). It is written against the event's
-first clip and read back across all of its clips, so a `regroup` keeps it with the footage it was
-about; keyed by event id it would have landed on whatever event took that id. If a merge brings two
-staged clips together, the event shows the earlier staging, and a label clears both.
+**A staging row is written against the event's first clip** (2026-09-27) and read back across
+all of its clips. If a merge brings two staged clips together, the event shows the earlier
+staging, and a label clears both.
 
 **A peek is a mark beside the label, not a label** (2026-10-03, ROADMAP B.3). A cat that looks
 in and uses no box is still that cat, which is what the classifier learns from, but it is not a
@@ -713,15 +702,12 @@ ingest or a regroup caused it rather than the reviewer, the event is staged (sou
 so someone looks at the clip that changed it. A label that is not a cat clears the mark. The `p`
 key toggles the mark and stays on the event, so a peek is `p` and then the cat's digit.
 
-**Poop counts hang off a clip, not an event** (2026-09-16, ROADMAP B.5b). Whoever scoops signals
-the count by hand over the box; the reviewer reads it out of the cleaning clip and types one
-number per box. Events are renumbered by
-`regroup`, so counts keyed by event id would be stranded by a threshold change; clip ids never
-change. They are written against the event's first clip and read back across all of its clips, the
-same shape that lets labels follow clips. The box is a **position in frame, numbered left to
-right** — `BOXES` in `api.py` holds 1 to 3 until ROADMAP C.3 makes it a setting — not a box
-identity: nothing in the pipeline knows one box from another, and the signal is made over
-the box concerned.
+**Poop counts are typed from the cleaning clip, one per box** (2026-09-16, ROADMAP B.5b).
+Whoever scoops signals the count by hand over the box; the reviewer reads it out of the clip.
+The rows are written against the event's first clip, as staging is. The box is a **position in
+frame, numbered left to right** — `BOXES` in `timeline.py` holds 1 to 3 until ROADMAP C.3 makes
+it a setting — not a box identity: nothing in the pipeline knows one box from another, and the
+signal is made over the box concerned.
 
 **Split and join are overrides on clips, not edits to events.** A split marks the clip that begins
 the new visit (`boundary = 'split'`); a join marks every clip of the two events but the earliest
@@ -757,9 +743,6 @@ nothing.
 one. Its start comes from the filename and its end is estimated from size at `H264_BITRATE`
 (`BYTES_PER_SECOND` in `clip_scan`). It has no centroids, and the rule lets an unknown position
 match on time alone rather than strand the clip in its own event.
-
-**The frame cache is keyed by clip id, not event id.** Clip ids never change; event ids do on a
-`regroup`, and one event has several clips. Cache files are named `clip<id>_...`.
 
 **Media URLs name the clip** (2026-09-27). The strip, frame and video routes are
 `/review/clip/<clip id>/...`. Named by event and index, one URL served a different clip after a split,
@@ -1002,16 +985,13 @@ d3's brush ignores a touch that moves only a few pixels, so a slice is a drag, n
 JPEG encode of every frame on the server, so the Live tab sets the image source when it is shown
 and removes it when it is not, which closes the connection and ends the generator.
 
-**The page's script is a static file** (2026-09-22). Inline in the template it was invisible to
-every gate: syntax errors and undefined names reached the browser. As `src/static/app.js` it is
-linted by eslint as the fifth gate, with eslint pinned by `package-lock.json` so the gate means
-the same on every machine.
-
 **The page is modules with no build step** (2026-09-28, ROADMAP B.6). One 424-line script served
 both tabs through eleven page-wide variables, and the timeline would have doubled it. Browsers
 load `<script type="module">` directly, so the script is split by tab (`live.js`, `review.js`,
 `timeline.js`), with `common.js` for fetching, escaping and times and `app.js` for the tabs,
-and each tab's state is private to its module. A framework was not adopted: React, Vue or Svelte
+and each tab's state is private to its module. The modules are static files, linted by eslint
+as one of the gates, with eslint pinned by `package-lock.json`; inline in the template, the
+script was invisible to every gate and its syntax errors reached the browser (2026-09-22). A framework was not adopted: React, Vue or Svelte
 each need a bundler, a build on the Pi before every restart and generated files kept in step with
 the source, for one small page served on a LAN. The template passes its settings as one JSON
 block (`<script type="application/json" id="config">`, written by Jinja's `tojson`, which escapes
