@@ -82,9 +82,12 @@ sees nothing in the dark; if the light fails, the dark gate stops black clips bu
 
 **A data run** comes first: the detector runs as the service with a low `MOTION_THRESHOLD` and
 `METRICS_CSV` on, over-capturing rather than missing, so a visit below the threshold still leaves
-a trace in the CSV. The trigger is tuned to the weakest visit, not the average one: entry frames
-and a cat sitting still give the smallest blobs, and both are rare, so the unit to collect is
-**visits, not hours**. Only visits recorded once the setup has settled (lighting, framing, sensor
+a trace in the CSV. The trigger is tuned to the weakest visit, not the average one, so the unit
+to collect is **visits, not hours**. A visit's strength is the **largest** cleaned blob it
+produces, not the blob that started its clip: a band that ignores a cat's head peeking in at the
+frame's edge still fires a second later when the whole cat steps in, so what decides recall is
+whether a visit ever reaches the band. A dark or low-contrast coat on the litter is the weak case,
+since its cleaned blob breaks into pieces. Only visits recorded once the setup has settled (lighting, framing, sensor
 mode) count; earlier ones are a different regime. The run stops when every condition below holds.
 
 | condition | why |
@@ -94,16 +97,20 @@ mode) count; earlier ones are a different regime. The run stops when every condi
 | **15+ per cat** | a dark cat on dark litter gives a weaker signal than a pale one |
 | **every box used** | a far box covers fewer pixels and may read weaker |
 | **several days of varied weather, one overcast**, unless the boxes' own light swamps daylight | lighting changes are a daytime false trigger (A.1) |
-| **the smallest entry blob has stopped dropping over the last ~20 visits** | tuning follows the weakest case |
+| **the weakest visit has stopped getting weaker over the last ~20 visits** | the band's lower edge follows the weakest visit |
 
-How each is counted, from `captures.db`: a visit is an event labelled with a cat's name whose
-first clip started on or after the run's start; night is an event starting between 20:00 and
+How each is counted, from `captures.db` and the metrics CSV: a visit is an event labelled with a
+cat's name, in which a cat steps into a box, whose first clip started on or after the run's start
+(a cat that only looks in is not a visit, and one visit split into two events, the same cat
+seconds apart, is joined before counting, or it counts twice and the second half starts on a
+sitting cat's twitch); night is an event starting between 20:00 and
 06:00; the box is the third of the 640-px lores width holding the trigger centroid of the event's
 **first** clip, until C.3 makes boxes configuration; the weather comes from whoever runs the
 installation or a weather record, because the metrics CSV's brightness cannot show it (the
-camera's auto-exposure holds it level through the day); and the smallest entry blob has stopped
-dropping when none of the last 20 visits has a trigger `clean_area` below the smallest of the
-visits before them. False positives are measurable from
+camera's auto-exposure holds it level through the day); a visit's strength is the largest
+`clean_area` in the CSV's rows from its first clip's start to its last clip's end; and the
+weakest visit has stopped getting weaker when none of the last 20 visits is weaker than the
+weakest of the visits before them. False positives are measurable from
 hours rather than visits, and any candidate rule can be replayed against the metrics CSV without
 re-recording. Storage is not the constraint (the metrics CSV grows by roughly 150 MB a day).
 **Labelling is**: each day's events have to be kept up with, or the backlog outlives the run.
@@ -115,7 +122,9 @@ re-recording. Storage is not the constraint (the metrics CSV grows by roughly 15
 - [ ] **Derive the size band, with one tool anyone can rerun.** One script, general from the
       start, that reads a `captures.db` and a metrics CSV and does three jobs: from the labelled
       lit events, the distribution of cleaned largest-blob area with a cat present and absent,
-      and the band A.3 triggers on (`min_cat_area`, `max_cat_area`); a replay of a candidate
+      and the band A.3 triggers on (`min_cat_area`, `max_cat_area`), its lower edge below the
+      weakest visit's largest blob and its upper edge above a cat leaping in or out, which
+      stretches the blob; a replay of a candidate
       detector over the metrics rows of A.5's regression set, printing recall and false triggers
       per hour; and the rest of an installation's numbers (C.4). Waits for the data run. It takes
       the run's start date and says in the result how many events it excluded.
