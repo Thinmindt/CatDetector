@@ -207,11 +207,8 @@ Moved 2026-10-03: done.
       **Done means** the command prints the table, the settings and their replay, stages each
       doubt once, CI runs it on a small synthetic database and CSV whose answer is known, and the
       README section exists.
-      Done 2026-10-03: as specified, plus `--boxes` for fewer than three boxes. On the run that
-      motivated it (47 million CSV rows, 6 min on the Pi 5) it counted 126 visits, replayed the
-      run's own 150 at 1.70 false triggers an hour (the detector really recorded 1.61), proposed
-      `MOTION_THRESHOLD=2876` (0.91 an hour) and a band of 1,384-111,502 px (0.82), all missing
-      no visit, and staged 20 doubts, so the result printed as provisional.
+      Done 2026-10-03: as specified, plus `--boxes` for fewer than three boxes. Two weeks of CSV
+      (47 million rows) take about six minutes on a Pi 5.
 
 - [x] **Measure boxes by where the cat stays, and visits by how much is recorded.** A visit's box
       was the third holding its first clip's trigger, which is mostly the cat's head entering at
@@ -226,10 +223,11 @@ Moved 2026-10-03: done.
       **Done means** the report shows boxes by dwell with each box's weakest visit, coverage per
       rule, the sweep and the proposal by coverage, and tests cover a visit in two boxes, a dwell
       too short to count, and a threshold whose coverage falls below the line.
-      Done 2026-10-04: as specified. On the same run, now 129 visits: boxes 1-3 used in 50, 37
-      and 37 visits (weakest 6,417, 4,192 and 4,854 px); thresholds 150 to 2876 all missed no
-      visit, at 1.69 to 0.90 false triggers an hour and 100 % to 83 % of the median visit
-      recorded; 600 proposed (1.17 an hour, 98 %); start 2876 held at 150 gave 0.75 and 100 %.
+      Done 2026-10-04: as specified. A stay in a box runs from the blob's first sighting there to
+      its last before it shows in another box, since a still cat fades from view; a visit counts as missed when no trigger fell inside it, not
+      when no clip overlapped it; the replay ends a clip at a restart and at the recorder's
+      300 s limit; and the proposal also keeps the visits recorded under 80 % within 5 % of the
+      run's own count, or says that no threshold qualifies.
 
 ## A.3 Detect a cat-sized thing
 

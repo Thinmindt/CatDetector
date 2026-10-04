@@ -41,8 +41,10 @@ PERSIST_FRAMES = 2
 # The proposed threshold is the highest of the sweep that misses no visit and
 # records at least this share of the median visit.
 COVERAGE_KEPT = 0.98
-# Visits recorded less than this are counted in the report.
+# Visits recorded less than this are counted, and the proposal may leave this
+# share of the visits more of them than the run's own threshold did.
 COVERAGE_POOR = 0.8
+POORLY_RECORDED_EXTRA = 0.05
 
 WEAKEST_TO_ASK = 3
 # A not_cat event is asked about when it held a blob the size of a typical
@@ -61,6 +63,9 @@ RESTART_GAP_SECONDS = 2.0
 # A clip starts with the ring buffer's footage (MotionRecorder's buffer_seconds),
 # no further back than the end of the clip before it.
 PRE_ROLL = datetime.timedelta(seconds=5)
+# The recorder closes a clip this long (MotionRecorder's max_clip_seconds); the
+# next trigger opens another.
+MAX_CLIP = datetime.timedelta(seconds=300)
 
 # The metrics CSV's columns this reads, by the header motion_metrics writes.
 COLUMNS = (
@@ -170,13 +175,24 @@ class Peaks:
         self.cleans.append(clean)
         self.centres.append(centre)
 
-    def by_box(self, floor: int) -> dict[int, list[int]]:
-        """The blobs of at least `floor` px, by the box their centre is in."""
-        boxes: dict[int, list[int]] = {}
-        for clean, centre in zip(self.cleans, self.centres, strict=True):
-            if clean >= floor and centre >= 0:
-                boxes.setdefault(box_at(centre), []).append(clean)
-        return boxes
+    def stays(self, floor: int) -> dict[int, tuple[int, int]]:
+        """Per box, the longest stay of a blob of at least `floor` px, in frames
+        from its first sighting there to its last, and the largest blob there. A
+        stay ends only when the blob shows in another box: a cat sitting still
+        fades into the background, so its blob can vanish for a long while."""
+        found: dict[int, tuple[int, int]] = {}
+        box, first = 0, 0
+        for number, (clean, centre) in enumerate(
+            zip(self.cleans, self.centres, strict=True)
+        ):
+            if clean < floor or centre < 0:
+                continue
+            here = box_at(centre)
+            if here != box:
+                box, first = here, number
+            longest, largest = found.get(box, (0, 0))
+            found[box] = (max(longest, number - first + 1), max(largest, clean))
+        return found
 
 
 def scan_peaks(
@@ -220,9 +236,9 @@ def stayed_in(peaks: Peaks, floor: int) -> dict[int, int]:
     """The boxes where a blob of at least `floor` px stayed long enough to be
     used, each with the largest blob there."""
     return {
-        box: max(blobs)
-        for box, blobs in peaks.by_box(floor).items()
-        if len(blobs) >= BOX_DWELL_SECONDS * CAMERA_FPS
+        box: largest
+        for box, (longest, largest) in peaks.stays(floor).items()
+        if longest >= BOX_DWELL_SECONDS * CAMERA_FPS
     }
 
 
@@ -349,19 +365,21 @@ def sweep(run_threshold: int, visits: list[Visit]) -> list[int]:
     largest foreground count."""
     ceiling = math.floor(min(visit.peaks.foreground for visit in visits) * LOWER_MARGIN)
     thresholds = [run_threshold]
-    while thresholds[-1] * 2 < ceiling:
-        thresholds.append(thresholds[-1] * 2)
-    return [*thresholds, ceiling] if ceiling > run_threshold else thresholds
+    while max(thresholds[-1], 1) * 2 < ceiling:
+        thresholds.append(max(thresholds[-1], 1) * 2)
+    return [*thresholds, ceiling] if ceiling > thresholds[-1] else thresholds
 
 
 @dataclass
 class Replay:
-    """One rule run over the CSV: the clips it would have recorded, and how many
-    of them started outside every visit."""
+    """One rule run over the CSV, as the recorder would have acted on it: the
+    clips it would have recorded, how many started outside every visit, and the
+    visits it triggered on."""
 
     rule: Rule
     timeout: datetime.timedelta
     false_triggers: int = 0
+    caught: set[int] = field(default_factory=set)
     spans: list[tuple[datetime.datetime, datetime.datetime]] = field(
         default_factory=list
     )
@@ -369,45 +387,66 @@ class Replay:
     counted_at: int = -2  # the frame number the streak last grew on
     opened: datetime.datetime | None = None
     last: datetime.datetime | None = None
+    restarted: datetime.datetime | None = None  # the ring holds nothing before
 
-    def feed(self, frame: Frame, number: int, visits: WindowIndex) -> None:
+    def feed(
+        self, frame: Frame, when: datetime.datetime, number: int, visits: WindowIndex
+    ) -> None:
         value = frame[CLEAN] if self.rule.column == CLEAN else frame[FOREGROUND]
+        self._cut_at_limit(when)
         if self.rule.low <= value <= self.rule.high:
             self.streak = self.streak + 1 if self.counted_at == number - 1 else 1
             self.counted_at = number
             if self.streak >= self.rule.persist:
-                self._trigger(frame, visits)
+                self._trigger(frame[0], when, visits)
                 return
-        if self.rule.hold is not None and value > self.rule.hold:
-            self._extend(frame)
+        if (
+            self.rule.hold is not None
+            and value > self.rule.hold
+            and self._recording(when)
+        ):
+            self.last = when
 
-    def _trigger(self, frame: Frame, visits: WindowIndex) -> None:
-        when = datetime.datetime.fromisoformat(frame[0])
+    def _trigger(self, time: str, when: datetime.datetime, visits: WindowIndex) -> None:
+        here = visits.holding(time)
+        self.caught.update(here)
         if not self._recording(when):
             self.finish()
             self.opened = when
-            self.false_triggers += not visits.holding(frame[0])
+            self.false_triggers += not here
         self.last = when
-
-    def _extend(self, frame: Frame) -> None:
-        if self.last is None:
-            return
-        when = datetime.datetime.fromisoformat(frame[0])
-        if self._recording(when):
-            self.last = when
 
     def _recording(self, when: datetime.datetime) -> bool:
         last = self.last
         return last is not None and datetime.timedelta(0) <= when - last <= self.timeout
 
+    def _cut_at_limit(self, when: datetime.datetime) -> None:
+        """Close a clip that has run MAX_CLIP, as the recorder does; the next
+        trigger opens another."""
+        if self.opened is not None and when - self.opened > MAX_CLIP:
+            self.last = self.opened + MAX_CLIP - self.timeout
+            self.finish()
+            self.last = None
+
+    def restart(self, stopped: datetime.datetime, when: datetime.datetime) -> None:
+        """The detector stopped after the frame at `stopped` and restarted at
+        `when`: the clip being recorded ended with it, and the next one's
+        pre-roll reaches back no further than the restart."""
+        if self.last is not None:
+            self.last = min(self.last, stopped - self.timeout)
+        self.finish()
+        self.last = None
+        self.streak = 0
+        self.restarted = when
+
     def finish(self) -> None:
         """Close the clip being recorded, if any."""
         if self.opened is None or self.last is None:
             return
-        start = self.opened - PRE_ROLL
-        if self.spans:
-            start = max(start, self.spans[-1][1])
-        self.spans.append((start, self.last + self.timeout))
+        earliest = [self.opened - PRE_ROLL]
+        earliest += [self.spans[-1][1]] if self.spans else []
+        earliest += [self.restarted] if self.restarted else []
+        self.spans.append((max(earliest), self.last + self.timeout))
         self.opened = None
 
     def coverage(self, visits: list[Visit]) -> list[float]:
@@ -433,10 +472,10 @@ class Outcome:
     """What one rule would have done."""
 
     rule: Rule
-    missed: int
+    missed: int  # visits it never triggered on
     false_per_hour: float
     median_coverage: float
-    poorly_recorded: int
+    poorly_recorded: int  # visits it recorded less than COVERAGE_POOR of
 
 
 def replay(
@@ -448,21 +487,51 @@ def replay(
 ) -> list[Outcome]:
     """Run each rule over every lit frame, as the detector would have: not in
     the dark, and not while it warms up after a restart."""
-    replays = [Replay(rule, timeout) for rule in rules]
-    index = WindowIndex(w for v in visits if (w := window_of(v.row)))
-    floor = min(each.rule.floor for each in replays)
-    lit = 0
-    warming = _Warmup()
+    run = _Run(
+        [Replay(rule, timeout) for rule in rules],
+        WindowIndex(w for v in visits if (w := window_of(v.row))),
+        dark_brightness,
+    )
     for number, frame in enumerate(frames):
-        if warming.skips(frame[0]) or frame[3] < dark_brightness:
-            continue
-        lit += 1
-        if frame[FOREGROUND] < floor and frame[CLEAN] < floor:
-            continue
-        for each in replays:
-            each.feed(frame, number, index)
-    hours = lit / CAMERA_FPS / 3600
-    return [_outcome(each, visits, hours) for each in replays]
+        run.feed(number, frame)
+    hours = run.lit / CAMERA_FPS / 3600
+    return [_outcome(each, visits, hours) for each in run.replays]
+
+
+class _Run:
+    """The rules side by side, fed one frame at a time."""
+
+    def __init__(
+        self, replays: list[Replay], visits: WindowIndex, dark_brightness: float
+    ) -> None:
+        self.replays = replays
+        self.visits = visits
+        self.dark_brightness = dark_brightness
+        self.floor = min(each.rule.floor for each in replays)
+        self.warming = _Warmup()
+        self.lit = 0
+
+    def feed(self, number: int, frame: Frame) -> None:
+        if self._skipped(frame):
+            return
+        self.lit += 1
+        if frame[FOREGROUND] < self.floor and frame[CLEAN] < self.floor:
+            return
+        when = datetime.datetime.fromisoformat(frame[0])
+        for each in self.replays:
+            each.feed(frame, when, number, self.visits)
+
+    def _skipped(self, frame: Frame) -> bool:
+        """Whether the detector would not act on this frame: while warming up
+        after a restart, which ends any clip, or in the dark."""
+        if not self.warming.skips(frame[0]):
+            return frame[3] < self.dark_brightness
+        if self.warming.left == WARMUP_FRAMES and self.warming.previous:
+            stopped = datetime.datetime.fromisoformat(self.warming.previous)
+            restart = datetime.datetime.fromisoformat(frame[0])
+            for each in self.replays:
+                each.restart(stopped, restart)
+        return True
 
 
 def _outcome(each: Replay, visits: list[Visit], hours: float) -> Outcome:
@@ -470,19 +539,27 @@ def _outcome(each: Replay, visits: list[Visit], hours: float) -> Outcome:
     shares = each.coverage(visits)
     return Outcome(
         each.rule,
-        missed=sum(share == 0 for share in shares),
+        missed=sum(visit.row.id not in each.caught for visit in visits),
         false_per_hour=each.false_triggers / hours if hours else 0.0,
         median_coverage=statistics.median(shares) if shares else 0.0,
         poorly_recorded=sum(share < COVERAGE_POOR for share in shares),
     )
 
 
-def proposal(outcomes: list[Outcome]) -> Outcome:
-    """The highest plain threshold that misses no visit and keeps the median
-    visit recorded; the run's own when none above it does."""
+def proposal(outcomes: list[Outcome], visits: int) -> Outcome | None:
+    """The highest plain threshold that misses no visit, keeps the median visit
+    recorded, and leaves few more visits poorly recorded than the run's own; or
+    None if not even the run's own does."""
     plain = [o for o in outcomes if o.rule.column == FOREGROUND and o.rule.hold is None]
-    kept = [o for o in plain if not o.missed and o.median_coverage >= COVERAGE_KEPT]
-    return max(kept or plain[:1], key=lambda o: o.rule.low)
+    allowed = plain[0].poorly_recorded + math.floor(visits * POORLY_RECORDED_EXTRA)
+    kept = [
+        o
+        for o in plain
+        if not o.missed
+        and o.median_coverage >= COVERAGE_KEPT
+        and o.poorly_recorded <= allowed
+    ]
+    return max(kept, key=lambda o: o.rule.low, default=None)
 
 
 @dataclass
@@ -490,11 +567,12 @@ class _Warmup:
     """The frames after each restart the detector does not act on."""
 
     last: str | None = None
+    previous: str | None = None  # the frame before the last
     left: int = 0
 
     def skips(self, time: str) -> bool:
         restarted = self.last is None or not _soon_after(self.last, time)
-        self.last = time
+        self.previous, self.last = self.last, time
         self.left = WARMUP_FRAMES if restarted else max(self.left - 1, 0)
         return self.left > 0
 
@@ -736,11 +814,11 @@ def report(calibration: Calibration) -> list[str]:
             f"Provisional: {c.open_questions} question(s) wait in the review queue,",
             "and the answers can move these numbers. Answer them, then run again.",
         ]
-    return lines + _apply_lines(c.outcomes)
+    return lines + _apply_lines(c.outcomes, len(c.visits))
 
 
 def _outcome_lines(outcomes: list[Outcome], visits: int) -> list[str]:
-    chosen = proposal(outcomes)
+    chosen = proposal(outcomes, visits)
     lines = [
         f"Replayed over the CSV ({visits} visits):",
         (
@@ -754,22 +832,30 @@ def _outcome_lines(outcomes: list[Outcome], visits: int) -> list[str]:
             f"  {outcome.rule!s:<44} {outcome.missed:>6} {outcome.false_per_hour:>8.2f}"
             f" {outcome.median_coverage:>9.0%} {outcome.poorly_recorded:>6}{mark}"
         )
-    kept = f"{COVERAGE_KEPT:.0%}"
+    kept, extra = f"{COVERAGE_KEPT:.0%}", f"{POORLY_RECORDED_EXTRA:.0%}"
     lines += [
         "",
-        "'recorded' is the median share of a visit its clips cover; the proposal",
-        f"is the highest plain threshold that misses none and records {kept}.",
-        "A held threshold (start high, keep recording above the run's) and the band",
-        "wait for A.3.",
+        "'recorded' is the median share of a visit its clips cover. The proposal is",
+        f"the highest plain threshold that misses none, records {kept} of the median",
+        f"visit, and leaves at most {extra} of the visits more under",
+        f"{COVERAGE_POOR:.0%} than the run's own. A held threshold (start high, keep",
+        "recording above the run's) and the band wait for A.3.",
     ]
     return lines
 
 
-def _apply_lines(outcomes: list[Outcome]) -> list[str]:
+def _apply_lines(outcomes: list[Outcome], visits: int) -> list[str]:
+    chosen = proposal(outcomes, visits)
+    if chosen is None:
+        return [
+            "",
+            "No threshold meets that, not even the run's own: look at the poorly",
+            "recorded visits before changing anything.",
+        ]
     return [
         "",
         "In the service's drop-in (sudo systemctl edit catdetector):",
         "  [Service]",
-        f"  Environment=MOTION_THRESHOLD={proposal(outcomes).rule.low - 1}",
+        f"  Environment=MOTION_THRESHOLD={chosen.rule.low - 1}",
         "and drop METRICS_CSV there once the data run is over.",
     ]

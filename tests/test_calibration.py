@@ -20,18 +20,28 @@ from src.clips.sidecar import iso
 from src.review.api import cat_labels
 from src.review.calibration import (
     COLUMNS,
+    MAX_CLIP,
     PRE_ROLL,
     WARMUP_FRAMES,
+    Outcome,
+    Peaks,
+    Replay,
+    Rule,
     Settings,
     Tally,
+    Visit,
     Window,
     WindowIndex,
     calibrate,
     proposal,
     read_frames,
+    replay,
     report,
     split_doubts,
+    stayed_in,
+    sweep,
     threshold_rule,
+    window_of,
 )
 from src.review.capture_db import CaptureDB
 from src.review.timeline import BOXES, TimelineRow
@@ -150,7 +160,7 @@ PASSING = START + datetime.timedelta(hours=10, minutes=40)
 
 def visit_frames(spec: Spec) -> list[str]:
     """The frame that starts the clip comes a moment before its recorded start,
-    as the detector logs it; then 11 s at the visit's peak in its box, and 20 s
+    as the detector logs it; then 11 s at the visit's peak in its box, and 21 s
     sitting still at a lower count and half the blob, in its box or a second one."""
     second = seconds(1)
     still = spec.box if spec.other_box is None else spec.other_box
@@ -167,7 +177,7 @@ def visit_frames(spec: Spec) -> list[str]:
         ),
         *burst(
             spec.started_at + 12 * second,
-            20 * FPS,
+            21 * FPS,  # a second past the visit's end, as the camera runs on
             spec.squat,
             min(spec.squat, spec.clean // 2),
             box=still,
@@ -220,6 +230,34 @@ def run(specs: list[Spec], settings: Settings = SETTINGS) -> Any:
     return calibrate(run_rows(specs), START, lines_opener(lines), settings)
 
 
+def chosen(result: Any) -> Outcome:
+    outcome = proposal(result.outcomes, len(result.visits))
+    assert outcome is not None
+    return outcome
+
+
+def visit_at(event_id: int, start: float, end: float) -> Visit:
+    """A visit from `start` to `end` seconds after START."""
+    when = START + seconds(start)
+    spec = Spec(event_id, when, "Ada", 0, 0, 0)
+    row = replace(spec.row(), ended_at=START + seconds(end))
+    return Visit(row, Peaks())
+
+
+def rows_at(start: float, end: float, foreground: int) -> list[str]:
+    """Frames at the camera's rate from `start` to `end` seconds after START."""
+    count = round((end - start) * FPS)
+    return [
+        frame(START + seconds(start) + TICK * n, foreground, 0, LIT)
+        for n in range(count)
+    ]
+
+
+def outcomes_of(lines: list[str], visits: list[Visit], *rules: Rule) -> list[Outcome]:
+    header = ",".join(("x", *COLUMNS))
+    return replay(read_frames([header, *lines]), rules, visits, 10, seconds(10))
+
+
 # --- reading ----------------------------------------------------------------
 
 
@@ -268,8 +306,9 @@ def test_the_columns_warmup_and_pre_roll_are_the_capture_side_s() -> None:
     assert set(COLUMNS) <= set(FIELDS)
     warmup = inspect.signature(MotionDetector).parameters["warmup_frames"]
     assert warmup.default == WARMUP_FRAMES
-    buffer = inspect.signature(MotionRecorder).parameters["buffer_seconds"]
-    assert datetime.timedelta(seconds=buffer.default) == PRE_ROLL
+    recorder = inspect.signature(MotionRecorder).parameters
+    assert datetime.timedelta(seconds=recorder["buffer_seconds"].default) == PRE_ROLL
+    assert datetime.timedelta(seconds=recorder["max_clip_seconds"].default) == MAX_CLIP
 
 
 # --- the whole run ----------------------------------------------------------
@@ -300,7 +339,7 @@ def test_a_finished_run_proposes_settings_that_miss_no_visit() -> None:
     hours = 1 / result.outcomes[0].false_per_hour * 4
     false = [round(o.false_per_hour * hours) for o in result.outcomes]
     assert false == [4, 1, 1, 1, 2]
-    assert proposal(result.outcomes).rule == threshold_rule(500)
+    assert chosen(result).rule == threshold_rule(500)
     text = "\n".join(report(result))
     assert "Environment=MOTION_THRESHOLD=500" in text
 
@@ -314,7 +353,7 @@ def test_a_threshold_that_closes_clips_on_a_still_cat_is_not_proposed() -> None:
     assert coverage["MOTION_THRESHOLD=300"] == 1.0
     assert coverage["MOTION_THRESHOLD=500"] < 0.8
     assert coverage["MOTION_THRESHOLD=500, held above 150"] == 1.0
-    assert proposal(result.outcomes).rule == threshold_rule(300)
+    assert chosen(result).rule == threshold_rule(300)
 
 
 def test_boxes_are_where_the_cat_stayed_not_where_it_came_in() -> None:
@@ -391,6 +430,77 @@ def test_a_new_low_among_the_last_visits_is_not_settled() -> None:
 
     assert result.conditions[-1].met is False
     assert not result.done
+
+
+def test_a_visit_covered_only_by_its_neighbour_s_clip_is_missed() -> None:
+    first, second = visit_at(1, 0, 15), visit_at(2, 16, 40)
+    lines = rows_at(-1, 0, 0) + rows_at(0, 10, 1000) + rows_at(10, 40, 200)
+    high, low = outcomes_of(
+        lines, [first, second], threshold_rule(500), threshold_rule(150)
+    )
+
+    assert (high.missed, low.missed) == (1, 0)
+    assert 0 < high.median_coverage < 1  # its clip ran on into the second visit
+
+
+def test_a_restart_ends_the_clip_at_the_last_frame_before_it() -> None:
+    visit = visit_at(1, 0, 60)
+    steady = rows_at(-1, 0, 0) + rows_at(0, 60, 1000)
+    gapped = rows_at(-1, 0, 0) + rows_at(0, 20, 1000) + rows_at(25, 60, 1000)
+    rule = threshold_rule(500)
+
+    (whole,) = outcomes_of(steady, [visit], rule)
+    (broken,) = outcomes_of(gapped, [visit], rule)
+    assert whole.median_coverage == 1.0
+    assert 0.9 < broken.median_coverage < 1.0  # the 5 s with no frames are lost
+
+
+def test_a_clip_is_cut_at_the_recorder_s_limit_and_reopened() -> None:
+    visit = visit_at(1, 0, 400)
+    replays = [Replay(threshold_rule(500), seconds(10))]
+    run_lines = rows_at(-1, 0, 0) + rows_at(0, 400, 1000)
+    header = ",".join(("x", *COLUMNS))
+    index = WindowIndex([window_of(visit.row)])  # type: ignore[list-item]
+    for number, each in enumerate(read_frames([header, *run_lines])):
+        when = datetime.datetime.fromisoformat(each[0])
+        if number > WARMUP_FRAMES:
+            replays[0].feed(each, when, number, index)
+    replays[0].finish()
+    spans = replays[0].spans
+    assert len(spans) == 2
+    assert spans[0][1] - spans[0][0] <= MAX_CLIP + PRE_ROLL
+
+
+def test_the_sweep_ends_from_a_run_threshold_of_zero() -> None:
+    visits = [Visit(visit_at(1, 0, 10).row, Peaks(foreground=1000))]
+    assert sweep(0, visits) == [0, 2, 4, 8, 16, 32, 64, 128, 256, 500]
+
+
+def test_the_proposal_needs_coverage_for_most_visits_and_says_when_none_does() -> None:
+    def outcome(threshold: int, median: float, poorly: int, missed: int = 0) -> Outcome:
+        return Outcome(threshold_rule(threshold), missed, 1.0, median, poorly)
+
+    run_own = outcome(150, 1.0, 4)
+    # 100 visits allow 5 more poorly recorded than the run's 4.
+    assert proposal([run_own, outcome(300, 0.99, 9)], 100) == outcome(300, 0.99, 9)
+    assert proposal([run_own, outcome(300, 0.99, 10)], 100) == run_own
+    assert proposal([run_own, outcome(300, 0.97, 4)], 100) == run_own
+    assert proposal([run_own, outcome(300, 1.0, 4, missed=1)], 100) == run_own
+    assert proposal([outcome(150, 0.9, 4)], 100) is None
+
+
+def test_several_short_passes_through_a_box_are_not_a_stay() -> None:
+    passes = Peaks()
+    for _ in range(3):  # 4 s in box 3, then 4 s in box 1, three times
+        for centre in (BOX_X[2],) * 4 * FPS + (BOX_X[0],) * 4 * FPS:
+            passes.add(1000, 600, centre)
+    assert stayed_in(passes, 300) == {}
+
+    sitting = Peaks()
+    for n in range(40 * FPS):  # in box 3, gone for 25 s as it fades while still
+        seen = n < 5 * FPS or n >= 30 * FPS
+        sitting.add(1000, 600 if seen else 0, BOX_X[2] if seen else -1)
+    assert stayed_in(sitting, 300) == {3: 600}
 
 
 def test_split_doubts_pair_one_cat_across_any_label_within_the_gap() -> None:

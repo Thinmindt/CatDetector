@@ -106,16 +106,17 @@ started on or after the run's start, and one visit split into two events, the sa
 apart, is joined before counting, or it counts twice and the second half starts on a sitting cat's
 twitch; night is an event starting between 20:00 and 06:00; a box is used in a visit when the
 cleaned blob, at least half the weakest visit's peak, stays 10 s in the box's third of the 640-px
-lores width, until C.3 makes boxes configuration; the weather comes from whoever runs the
-installation or a weather record, because the metrics CSV's brightness cannot show it (the camera's
-auto-exposure holds it level through the day); a visit's strength is the largest `clean_area` in
-the CSV's rows from its first clip's start to its last clip's end; and the weakest visit has
-stopped getting weaker when none of the last 20 visits is weaker than the weakest of the visits
-before them. False positives are measurable from hours rather than visits, and any candidate rule
-can be replayed against the metrics CSV without re-recording. Storage is not the constraint (the
-metrics CSV grows by roughly 150 MB a day). **Labelling is**: each day's events have to be kept up
-with, or the backlog outlives the run. `main.py --calibrate` counts the conditions, stages what
-needs a second look and proposes the settings (archive, A.2).
+lores width (from its first sighting there to its last before it shows in another box, since a
+still cat fades from view), until C.3 makes boxes configuration; the weather comes from whoever
+runs the installation or a weather record, because the metrics CSV's brightness cannot show it (the
+camera's auto-exposure holds it level through the day); a visit's strength is the largest
+`clean_area` in the CSV's rows from its first clip's start to its last clip's end; and the weakest
+visit has stopped getting weaker when none of the last 20 visits is weaker than the weakest of the
+visits before them. False positives are measurable from hours rather than visits, and any candidate
+rule can be replayed against the metrics CSV without re-recording. Storage is not the constraint
+(the metrics CSV grows by roughly 150 MB a day). **Labelling is**: each day's events have to be
+kept up with, or the backlog outlives the run. `main.py --calibrate` counts the conditions, stages
+what needs a second look and proposes the settings (archive, A.2).
 
 - [ ] **Finish the data run** against the table above.
       **Done means** `--calibrate` reports every condition met, and the service's drop-in takes
@@ -421,8 +422,8 @@ the urinary side of the goal rests on visit frequency and duration per cat (B.6)
       shows what its brush can select. The page asks when a handle is released and highlights
       the bars under a moving one meanwhile. The filter lives in the address, as the review
       walk does. The box is the third of the frame holding the first clip's trigger, until A.4
-      records where the cat stayed (C.3 makes boxes configuration). "Stage everything shown" sends the ids on
-      screen to `POST /api/review/stage`, so exactly what was seen is staged.
+      records where the cat stayed (C.3 makes boxes configuration). "Stage everything shown"
+      sends the ids on screen to `POST /api/review/stage`, so exactly what was seen is staged.
       *Built with:* the page script split into modules the browser loads with no build step,
       one per tab and one shared; d3 for the brush, scales and axes, pinned in `package.json`
       and committed as one file under `src/static/vendor/`, with a gate that fails if that file
