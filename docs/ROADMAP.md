@@ -104,19 +104,32 @@ How each is counted, from `captures.db` and the metrics CSV: a visit is an event
 cat's name and not marked as a peek (B.3: a cat that looks in and uses no box), whose first clip
 started on or after the run's start, and one visit split into two events, the same cat seconds
 apart, is joined before counting, or it counts twice and the second half starts on a sitting cat's
-twitch; night is an event starting between 20:00 and 06:00; the box is the third of the 640-px
-lores width holding the trigger centroid of the event's **first** clip, until C.3 makes boxes
-configuration; the weather comes from whoever runs the installation or a weather record, because
-the metrics CSV's brightness cannot show it (the camera's auto-exposure holds it level through the
-day); a visit's strength is the largest `clean_area` in the CSV's rows from its first clip's start
-to its last clip's end; and the weakest visit has stopped getting weaker when none of the last 20
-visits is weaker than the weakest of the visits before them. False positives are measurable from
-hours rather than visits, and any candidate rule can be replayed against the metrics CSV without
-re-recording. Storage is not the constraint (the metrics CSV grows by roughly 150 MB a day).
-**Labelling is**: each day's events have to be kept up with, or the backlog outlives the run.
-`main.py --calibrate` counts the conditions, stages what needs a second look and proposes the
-settings (archive, A.2).
+twitch; night is an event starting between 20:00 and 06:00; a box is used in a visit when the
+cleaned blob, at least half the weakest visit's peak, stays 10 s in the box's third of the 640-px
+lores width, until C.3 makes boxes configuration; the weather comes from whoever runs the
+installation or a weather record, because the metrics CSV's brightness cannot show it (the camera's
+auto-exposure holds it level through the day); a visit's strength is the largest `clean_area` in
+the CSV's rows from its first clip's start to its last clip's end; and the weakest visit has
+stopped getting weaker when none of the last 20 visits is weaker than the weakest of the visits
+before them. False positives are measurable from hours rather than visits, and any candidate rule
+can be replayed against the metrics CSV without re-recording. Storage is not the constraint (the
+metrics CSV grows by roughly 150 MB a day). **Labelling is**: each day's events have to be kept up
+with, or the backlog outlives the run. `main.py --calibrate` counts the conditions, stages what
+needs a second look and proposes the settings (archive, A.2).
 
+- [ ] **Measure boxes by where the cat stays, and visits by how much is recorded.** A visit's box
+      was the third holding its first clip's trigger, which is mostly the cat's head entering at
+      the frame's top edge: on one run (2026-10-03) that gave the right box 4 visits, while the
+      blob stayed 10 s or more in the right third in 38, and 66 of 126 visits stayed in more than
+      one box. `--calibrate` counts boxes by that dwell and reports each box's weakest visit. Its
+      replay also reports how much of each visit a rule records (each clip's span with the 5 s
+      pre-roll), since a threshold that starts and holds clips alike lets them close while a cat
+      squats: at 2876 the median visit was 84 % recorded, against 100 % at the run's 150. It
+      replays a sweep of thresholds up from the run's and proposes the highest that misses no visit
+      and keeps the median visit 98 % recorded, and replays A.3's start-and-hold pair beside it.
+      **Done means** the report shows boxes by dwell with each box's weakest visit, coverage per
+      rule, the sweep and the proposal by coverage, and tests cover a visit in two boxes, a dwell
+      too short to count, and a threshold whose coverage falls below the line.
 - [ ] **Finish the data run** against the table above.
       **Done means** `--calibrate` reports every condition met, and the service's drop-in takes
       the threshold it proposes, without `METRICS_CSV`, in the change that ticks this box.
@@ -125,17 +138,37 @@ settings (archive, A.2).
 
 The cleaned blob is already measured on every frame (A.0); what is left is making it the trigger.
 
+- [ ] **Start and hold thresholds.** One threshold both starts a clip and keeps it going, so
+      raising it to cut false triggers also closes clips while a cat sits still. Start a clip above
+      `MOTION_THRESHOLD` and keep it recording while the foreground count stays above a lower
+      `MOTION_HOLD_THRESHOLD` (by default equal, which is today's behaviour). Replayed on one run
+      (2026-10-03), a start of 2876 with a hold of 150 missed no visit, kept the median visit 100 %
+      recorded, and cut false triggers from 1.68 to 0.76 an hour and clips from 898 to 494; 2876
+      alone recorded 84 %, and the size band below managed 0.82 an hour.
+      **Done means** `MotionDetector` takes both, a test shows a count between the two neither
+      starting a clip nor letting a running one close, `--calibrate` proposes the pair, and its
+      replay of the pair misses no labelled visit.
 - [ ] Trigger on a **size band** (`min_cat_area < area < max_cat_area`) from A.2. The upper
       bound rejects lighting changes: a cat cannot be 60% of the frame. The band is only
       defensible because the overhead mount keeps apparent size constant.
       **Done means** `MotionDetector` starts a clip on a cleaned blob inside the configured band
       and not on the global count, tests cover a blob just inside, just below and just above the
-      band, and `--calibrate`'s replay over A.5's set misses no labelled visit.
+      band, and `--calibrate`'s replay over A.5's set misses no labelled visit. Measure it after
+      the hold item: on one run it beat a calibrated threshold only narrowly (0.82 against 0.91
+      false triggers an hour), and its upper edge came from exposure shifts, not a cat.
 - [ ] Require the blob to persist N consecutive frames (keep N at 2-3 — recall matters more
       than precision).
       **Done means** N is a setting (default 2), a test shows a one-frame flicker inside the band
       starting nothing and N frames starting a clip, and `--calibrate`'s replay at that N misses no
       labelled visit.
+
+- [ ] **Lock exposure and white balance.** The camera re-exposes as a dark cat crosses the frame,
+      and the shift reads as foreground across the scene: on one run, blobs of 30,000 to 89,000 px
+      came with it, while a cat leaping out of a box reached about 26,000. Under the constant light
+      the boxes need anyway, fixed exposure and colour gains (picamera2's `AeEnable` and
+      `AwbEnable` off, with values taken from the light) should remove that class of false trigger.
+      **Done means** a setting fixes them, a week runs with it, and `--calibrate` shows the
+      strongest visit and the false triggers an hour before and after.
 
 The box the trigger computes is the one B.1's crops are cut from; Part B needs it as the training
 crop, so it is not computed twice.
@@ -158,7 +191,19 @@ as agreed is in the archive.
       single-cat events against gaps between consecutive events; centroid distances within and
       between boxes), the numbers are in DESIGN.md's Events section, `--regroup` has run, a walk
       of `?filter=multi` finds no event merging two visits, and a walk of one day's events in
-      order finds no visit split in two.
+      order finds no visit split in two. The first data (2026-10-03): the twelve joins reviewers
+      made had gaps of 0 to 141 s, mostly 17 s or less, and centroid distances of 185 to 295 px,
+      all past 120 and half across a box boundary, while different cats followed each other as
+      closely as 13 s, so neither a wider distance nor "same box" alone separates them.
+- [ ] **An event's boxes are where the cat stayed.** The timeline's box column, and anything
+      counted per box, reads the third holding the first clip's trigger, which is mostly where the
+      cat came in (A.2's measurements). The recorder writes the seconds the cleaned blob spent in
+      each box into the sidecar, ingest stores them per clip, and an event's boxes are those with
+      10 s or more; the timeline shows every one, so a visit to two boxes is counted in both.
+      **Done means** the sidecar carries seconds per box, the timeline filters and shows by them,
+      and tests cover a visit that moves between two boxes and one that only passes through a
+      third.
+
 
 Known limit: two cats in different boxes at the same moment land in one clip, because detection
 is a global count. Grouping cannot separate them; that is what the `multiple` label is for. One
@@ -168,7 +213,8 @@ clip can also cross from one box to another, and grouping places a clip by its t
 
 Score on **recall first**, false-positive rate second. A change that trades recall for precision is
 a regression for this project. The labelled `captures.db` is the regression set; what it lacks is a
-frozen list, so later relabelling does not move the goalposts. `--calibrate`'s replay does the
+frozen list, so later relabelling does not move the goalposts; one run's 126 labelled visits
+(2026-10-03) are enough to freeze. `--calibrate`'s replay does the
 scoring, against the metrics rows rather than the video.
 
 - [ ] **Freeze a labelled set and gate detection changes on it.** Clips labelled cat / no cat /
@@ -189,6 +235,15 @@ longest gap between frames outside a restart or power-off measured under 2 s.
 Both halves are built (archive, A.6): after 10 s with no frame the detector exits non-zero through
 its usual cleanup, so systemd restarts it, and an optional `CAPTURE_HEARTBEAT_URL` is pinged only
 while frames arrive, for a dead man's switch set up outside this project.
+
+- [ ] **A summary per minute.** Once a data run ends, `METRICS_CSV` is off and a visit the trigger
+      missed leaves no trace. One row a minute, kept on local disk and read into `captures.db`:
+      frames received, the largest foreground count and cleaned blob, and the brightness. It gives
+      B.4's rule the hours the camera was recording, and a minute whose largest count came within
+      half of the threshold without starting a clip is a near miss to list for review.
+      **Done means** the rows are written without `METRICS_CSV`, B.4 reads its recorded hours from
+      them, the review page lists near misses for the last week, and a test shows a minute of no
+      frames counted as a gap rather than as a quiet minute.
 
 ---
 
@@ -378,8 +433,8 @@ the urinary side of the goal rests on visit frequency and duration per cat (B.6)
       and returns the rows, plus each strip's counts under every filter but its own, so a strip
       shows what its brush can select. The page asks when a handle is released and highlights
       the bars under a moving one meanwhile. The filter lives in the address, as the review
-      walk does. The box is the third of the frame holding the first clip's trigger, as A.2
-      counts it (C.3 makes boxes configuration). "Stage everything shown" sends the ids on
+      walk does. The box is the third of the frame holding the first clip's trigger, until A.4
+      records where the cat stayed (C.3 makes boxes configuration). "Stage everything shown" sends the ids on
       screen to `POST /api/review/stage`, so exactly what was seen is staged.
       *Built with:* the page script split into modules the browser loads with no build step,
       one per tab and one shared; d3 for the brush, scales and axes, pinned in `package.json`

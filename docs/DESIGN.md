@@ -760,7 +760,8 @@ response carries the first 500 rows, the total, and the ids stageable among all 
 page stays small as the archive grows without narrowing what staging can reach. An address the
 server would refuse, hand-edited or stale, is read as no filter rather than drawn as an error.
 The box is the third of the analysis frame (`ANALYSIS_SIZE`, the coordinate frame of a sidecar's
-blobs) holding the first clip's trigger, as A.2 counts it; C.3 makes boxes configuration.
+blobs) holding the first clip's trigger. That is mostly where the cat came in, not the box it
+used, so A.4 replaces it with the boxes the cat stayed in; C.3 makes boxes configuration.
 
 **The timeline query uses an index on `clip(event_id)`** (2026-09-28). Two correlated subqueries
 per event, the first clip's trigger and whether any clip is staged, each scanned every clip
