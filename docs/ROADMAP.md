@@ -119,18 +119,24 @@ re-recording. Storage is not the constraint (the metrics CSV grows by roughly 15
       **Done means** every condition holds on one date, recounted from `captures.db` by the
       method above, and the service's drop-in goes back to the default threshold, or to A.3's
       band, in the change that ticks this box.
-- [ ] **Derive the size band, with one tool anyone can rerun.** One script, general from the
-      start, that reads a `captures.db` and a metrics CSV and does three jobs: from the labelled
-      lit events, the distribution of cleaned largest-blob area with a cat present and absent,
-      and the band A.3 triggers on (`min_cat_area`, `max_cat_area`), its lower edge below the
-      weakest visit's largest blob and its upper edge above a cat leaping in or out, which
-      stretches the blob; a replay of a candidate
-      detector over the metrics rows of A.5's regression set, printing recall and false triggers
-      per hour; and the rest of an installation's numbers (C.4). Waits for the data run. It takes
-      the run's start date and says in the result how many events it excluded.
-      **Done means** the script prints the band and the count of excluded events, the band
-      replayed against the same CSV would have started a clip in every labelled visit, and CI
-      runs it on a small synthetic database and CSV.
+- [ ] **Calibrate with one command, `main.py --calibrate`.** Every new mounting needs its own
+      data run, so the method above is a command anyone reruns, not a script for one Pi. It reads
+      `captures.db` and the metrics CSV, from the run's start (`--since`), and prints the table
+      above with the counts so far (the weather is the reviewer's call) and how many events it
+      left out. Once every measured condition holds it prints the settings, each replayed over
+      the CSV with the visits it would miss (none, or it says so) and its false triggers per lit
+      hour: `MOTION_THRESHOLD` for today's global-count trigger, below every visit's largest
+      foreground count, and A.3's band (`min_cat_area`, `max_cat_area`), its lower edge below the
+      weakest visit's largest blob and its upper edge above the largest, which a cat leaping in
+      or out reaches. It stages the events that need a person's eye, each once and with the
+      question: the same cat seconds apart (one visit split in two?), the weakest visits (a
+      peek?), and `not_cat` events holding a visit-sized blob (a cat after all?), so calibrating
+      happens in the review queue like any labelling. The README's "Calibrating an installation"
+      walks a new installation through it: the data run, labelling, `--calibrate` until it
+      reports done, then the drop-in.
+      **Done means** the command prints the table, the settings and their replay, stages each
+      doubt once, CI runs it on a small synthetic database and CSV whose answer is known, and the
+      README section exists.
 
 ## A.3 Detect a cat-sized thing, not "some pixels changed"
 
@@ -141,11 +147,11 @@ The cleaned blob is already measured on every frame (A.0); what is left is makin
       defensible because the overhead mount keeps apparent size constant.
       **Done means** `MotionDetector` starts a clip on a cleaned blob inside the configured band
       and not on the global count, tests cover a blob just inside, just below and just above the
-      band, and A.2's replay over A.5's set misses no labelled visit.
+      band, and `--calibrate`'s replay over A.5's set misses no labelled visit.
 - [ ] Require the blob to persist N consecutive frames (keep N at 2-3 — recall matters more
       than precision).
       **Done means** N is a setting (default 2), a test shows a one-frame flicker inside the band
-      starting nothing and N frames starting a clip, and A.2's replay at that N still misses no
+      starting nothing and N frames starting a clip, and `--calibrate`'s replay at that N misses no
       labelled visit.
 
 The box the trigger computes is the one B.1's crops are cut from; Part B needs it as the training
@@ -179,14 +185,14 @@ clip can also cross from one box to another, and grouping places a clip by its t
 
 Score on **recall first**, false-positive rate second. A change that trades recall for precision is
 a regression for this project. The labelled `captures.db` is the regression set; what it lacks is a
-frozen list, so later relabelling does not move the goalposts. A.2's script does the scoring,
-against the metrics rows rather than the video.
+frozen list, so later relabelling does not move the goalposts. `--calibrate`'s replay does the
+scoring, against the metrics rows rather than the video.
 
 - [ ] **Freeze a labelled set and gate detection changes on it.** Clips labelled cat / no cat /
       ambiguous, listed by clip name, since event ids change on a regroup. The list is one
       installation's data, so it lives beside the database, not in the repository.
-      **Done means** the list exists, A.2's script scores a candidate detector against it, and
-      A.3's change is accepted only if recall on the set does not drop.
+      **Done means** the list exists, `--calibrate`'s replay scores a candidate detector against
+      it, and A.3's change is accepted only if recall on the set does not drop.
 
 ## A.6 Keep capturing
 
@@ -463,11 +469,11 @@ Nothing open; finished items are in the archive.
 
 - [ ] **The pixel numbers are one mount's.** `MOTION_THRESHOLD`, `EVENT_BOX_DISTANCE_PX`, the
       blob kernels and A.3's future size band all depend on mounting height, resolution and the
-      size of the cats. Label every default as "from one installation", and turn A.2's derivation
-      into a documented procedure anyone can run: a week at a low threshold with `METRICS_CSV`
-      on, label the visits, run A.2's script, which proposes the values. **Done means** the README
-      has a calibration section and the script works on a metrics CSV and a database other than the
-      ones the defaults came from.
+      size of the cats. Label every default as "from one installation". `--calibrate` (A.2)
+      proposes the threshold and the band; `EVENT_BOX_DISTANCE_PX`, `EVENT_GAP_SECONDS` and the
+      blob kernels are still guesses with no procedure. **Done means** `--calibrate` also proposes
+      the grouping thresholds from the joins and splits reviewers made, and every default says
+      where it came from.
 
 ## C.5 Storage anywhere
 
