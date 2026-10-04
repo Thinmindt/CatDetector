@@ -692,37 +692,56 @@ class CaptureDB:
     def stage_events(self, event_ids: list[int], reason: str, source: str) -> int:
         """Stage those of these events that are labelled and not staged already,
         so no earlier staging is overwritten. Returns how many were staged."""
-        wanted = set(event_ids) & self._labeled_event_ids(None)
-        wanted -= self._staged_event_ids()
+        wanted = set(event_ids) & self._stageable_event_ids()
         staging = Staging(reason, self._now(), source)
         staged = sum(self._stage(event_id, staging) for event_id in sorted(wanted))
         self._conn.commit()
         return staged
 
     @serialized
-    def ask(self, event_id: int, question: str, reason: str, source: str) -> bool:
-        """Stage a labelled event with this question, unless any of its clips was
-        asked it before. One staged already is left as it is, to ask another time.
-        Returns whether it was staged."""
+    def ask(self, questions: list[tuple[int, str, str]], source: str) -> int:
+        """Stage each (event, question, reason) whose event is labelled, not staged
+        already, and was never asked that question on any of its clips; one staged
+        already is left as it is, to ask another time. Returns how many were staged.
+        """
+        stageable = self._stageable_event_ids()
+        staged = 0
+        for event_id, question, reason in questions:
+            if event_id in stageable and self._ask(event_id, question, reason, source):
+                stageable.discard(event_id)
+                staged += 1
+        self._conn.commit()
+        return staged
+
+    def _ask(self, event_id: int, question: str, reason: str, source: str) -> bool:
         clip_ids = self._clip_ids(event_id)
-        stageable = self._labeled_event_ids(None) - self._staged_event_ids()
-        if not clip_ids or event_id not in stageable:
-            return False
         marks = self._marks(clip_ids)
         asked = self._conn.execute(
             f"SELECT 1 FROM asked WHERE question = ? AND clip_id IN ({marks})",  # noqa: S608 -- placeholders, not values
             (question, *clip_ids),
         ).fetchone()
-        if asked is not None:
+        if not clip_ids or asked is not None:
             return False
         now = self._now()
         self._conn.execute(
             "INSERT INTO asked (clip_id, question, asked_at) VALUES (?, ?, ?)",
             (clip_ids[0], question, now),
         )
-        self._stage(event_id, Staging(reason, now, source))
-        self._conn.commit()
-        return True
+        return self._stage(event_id, Staging(reason, now, source))
+
+    @serialized
+    def staged_by(self, source: str) -> int:
+        """How many events wait in the queue staged by this source."""
+        row = self._conn.execute(
+            "SELECT COUNT(DISTINCT c.event_id) AS n FROM staged s"
+            " JOIN clip c ON c.id = s.clip_id WHERE s.source = ?",
+            (source,),
+        ).fetchone()
+        return int(row["n"])
+
+    def _stageable_event_ids(self) -> set[int]:
+        """Labelled and not staged: what staging may take without overwriting."""
+        return self._labeled_event_ids(None) - self._staged_event_ids()
 
     @serialized
     def timeline_rows(self) -> list[TimelineRow]:

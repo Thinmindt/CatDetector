@@ -109,16 +109,16 @@ uv run python main.py --stage --label not_cat --labeled-before 2026-09-20 --reas
 the service first. `--stage` puts labelled events back in the review queue with a reason, keeping
 their labels, and runs beside the service; `--label` and `--labeled-before` choose the events.
 
-The Review tab of the web UI (`http://<pi-ip>:5000/review`) scans the captures directory into
-a local database and serves a keyboard-driven labeler — `c` cat, `n` not a cat, `u` unsure, `z`
-undo, `l` a litter cleaning (enter the poops found per box, `Enter` saves), click a tile to see
-the full frame, "watch" to play the clip. With `CAT_NAMES` set, each cat gets a digit key in the
-configured order and `m` marks an event with more than one cat; `c` then means "a cat, which one
-not decided", and `/review?filter=cat` walks those to name them; `→` moves on while walking a
-filter. `p` marks a **peek**, a cat that looks in and uses no box: press it, then the cat's
-digit. A peek keeps the cat's name but does not count as a visit. The address names the event and the walk (`/review/<event>?filter=multi`), so a reload,
-Back or a shared link returns to the same event. `main.py` serves it beside the live feed, so it is available whenever the detector is
-running.
+The Review tab of the web UI (`http://<pi-ip>:5000/review`) scans the captures directory into a
+local database and serves a keyboard-driven labeler — `c` cat, `n` not a cat, `u` unsure, `z` undo,
+`l` a litter cleaning (enter the poops found per box, `Enter` saves), click a tile to see the full
+frame, "watch" to play the clip. With `CAT_NAMES` set, each cat gets a digit key in the configured
+order and `m` marks an event with more than one cat; `c` then means "a cat, which one not decided",
+and `/review?filter=cat` walks those to name them; `→` moves on while walking a filter. `p` marks a
+**peek**, a cat that looks in and uses no box: press it, then the cat's digit. A peek keeps the
+cat's name but does not count as a visit. The address names the event and the walk
+(`/review/<event>?filter=multi`), so a reload, Back or a shared link returns to the same event.
+`main.py` serves it beside the live feed, so it is available whenever the detector is running.
 
 The Timeline tab (`/timeline`) lists every event newest first, with its time, label, box, length
 and clip count. Label chips choose which labels show, so one cat's rows are that cat's visit log;
@@ -153,8 +153,10 @@ recording everything, labelled by hand.
    uv run python main.py --calibrate --since 2026-09-16
    ```
 
-   It reads the database and the CSV (`METRICS_CSV`, or `--metrics PATH`); a couple of weeks of
-   CSV takes a few minutes. It prints what the run needs, with the counts so far: 50 visits (100
+   It reads the database and the CSV, and takes the run's settings (`MOTION_THRESHOLD`,
+   `METRICS_CSV`) from the service's drop-in, saying where they came from; `--metrics PATH`
+   names another CSV. A couple of weeks of CSV takes several minutes. With fewer than three
+   boxes, name the thirds of the frame, left to right, that hold one: `--boxes 1,3`. It prints what the run needs, with the counts so far: 50 visits (100
    is better), 10 at night, 15 per cat, every box used, and the weakest visit no longer getting
    weaker. Varied weather, with an overcast day, is yours to judge; it does not matter if the
    boxes' own light swamps the daylight. It also puts the events that need a second look in the
@@ -164,7 +166,9 @@ recording everything, labelled by hand.
 4. **Apply the result.** Once every condition holds, it proposes a `MOTION_THRESHOLD`, half the
    weakest visit's largest foreground count, and replays it and the current one over the CSV:
    the proposal must miss no visit, and it says how many clips an hour each would start with no
-   cat in them. Put the proposal in the drop-in, remove `METRICS_CSV`, and restart the service.
+   cat in them. While any of its questions waits in the review queue the numbers are marked
+   provisional; once they are answered, put the proposal in the drop-in, remove `METRICS_CSV`,
+   and restart the service.
    It also prints a size band for the planned blob-size trigger (roadmap A.3), which is not a
    setting yet.
 

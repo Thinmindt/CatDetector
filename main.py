@@ -3,7 +3,9 @@ import datetime
 import logging
 import os
 import pathlib
+import shlex
 import signal
+import subprocess
 import sys
 import threading
 import time
@@ -24,11 +26,13 @@ from src.review.calibration import Settings, calibrate, report
 from src.review.capture_db import CaptureDB, DatabaseInUseError
 from src.review.clip_frames import ClipFrames
 from src.review.strips_ahead import StripsAhead
+from src.review.timeline import BOXES
 from src.web_app import WEB_PORT, create_app, run
 
 log = logging.getLogger(__name__)
 
 CAPTURE_STALL_SECONDS = 10.0
+CALIBRATION_SOURCE = "calibration"
 STALL_EXIT_DEADLINE_SECONDS = 60.0
 EXIT_CAPTURE_STALLED = 1
 
@@ -247,37 +251,72 @@ def stage_events(args: argparse.Namespace) -> int:
         db.close()
 
 
-def calibrate_installation(args: argparse.Namespace) -> int:
-    """Report the data run, stage what needs a look, and propose the settings.
-    Safe beside the service. Returns the exit status."""
-    metrics = args.metrics or Config.METRICS_CSV
-    if not metrics or not pathlib.Path(metrics).is_file():
-        log.error("--calibrate needs the data run's metrics CSV: --metrics PATH")
-        return 1
-    db = open_db()
+# The settings a data run is calibrated with, as the service's drop-in sets them.
+SERVICE = "catdetector"
+RUN_SETTINGS = ("METRICS_CSV", "MOTION_THRESHOLD", "DARK_BRIGHTNESS", "MOTION_TIMEOUT")
+
+
+def service_environment() -> dict[str, str]:
+    """The run settings the service's unit and drop-ins set, which a shell does not
+    see; empty without systemd or the service."""
     try:
-        rows = db.timeline_rows()
-    finally:
-        db.close()
+        shown = subprocess.run(  # noqa: S603 -- fixed command
+            ["systemctl", "show", SERVICE, "--property=Environment", "--value"],  # noqa: S607 -- systemctl from PATH
+            capture_output=True,
+            text=True,
+            check=True,
+            timeout=10,
+        ).stdout
+    except (OSError, subprocess.SubprocessError):
+        return {}
+    pairs = (item.partition("=") for item in shlex.split(shown))
+    return {key: value for key, _, value in pairs if key in RUN_SETTINGS}
+
+
+def calibration_settings(
+    args: argparse.Namespace, service: dict[str, str]
+) -> tuple[Settings, str | None]:
+    """The settings to calibrate with, and the metrics CSV: the service's where
+    its drop-in sets them, else this shell's; --metrics wins over both."""
     settings = Settings(
         cats=Config.CAT_NAMES,
         cat_labels=cat_labels(Config.CAT_NAMES),
-        dark_brightness=Config.DARK_BRIGHTNESS,
-        motion_timeout=Config.MOTION_TIMEOUT,
+        boxes=args.boxes,
+        dark_brightness=float(service.get("DARK_BRIGHTNESS", Config.DARK_BRIGHTNESS)),
+        motion_timeout=float(service.get("MOTION_TIMEOUT", Config.MOTION_TIMEOUT)),
         gap_seconds=Config.EVENT_GAP_SECONDS,
-        motion_threshold=Config.MOTION_THRESHOLD,
+        motion_threshold=int(service.get("MOTION_THRESHOLD", Config.MOTION_THRESHOLD)),
     )
-    result = calibrate(rows, args.since, lambda: lines_of(metrics), settings)
-    db = open_db()
+    return settings, args.metrics or service.get("METRICS_CSV") or Config.METRICS_CSV
+
+
+def calibrate_installation(args: argparse.Namespace) -> int:
+    """Report the data run, stage what needs a look, and propose the settings.
+    Safe beside the service. Returns the exit status."""
+    service = service_environment()
+    settings, metrics = calibration_settings(args, service)
+    if not metrics or not pathlib.Path(metrics).is_file():
+        log.error("--calibrate needs the data run's metrics CSV: --metrics PATH")
+        return 1
+    db = open_db()  # held throughout, so a regroup cannot renumber the events
     try:
-        staged = sum(
-            db.ask(doubt.event_id, doubt.question, doubt.reason, "calibration")
-            for doubt in result.doubts
+        result = calibrate(
+            db.timeline_rows(), args.since, lambda: lines_of(metrics), settings
         )
+        doubts = [(d.event_id, d.question, d.reason) for d in result.doubts]
+        staged = db.ask(doubts, CALIBRATION_SOURCE)
+        result.open_questions = db.staged_by(CALIBRATION_SOURCE)
     finally:
         db.close()
-    lines = report(result)
-    lines.append(f"Staged {staged} event(s) for review; doubts are asked once each.")
+    origin = "the catdetector service" if service else "this shell"
+    lines = [
+        (
+            f"Settings from {origin}: MOTION_THRESHOLD={settings.motion_threshold},"
+            f" metrics {metrics}"
+        ),
+        *report(result),
+        f"Staged {staged} event(s) for review; each question is asked once.",
+    ]
     sys.stdout.write("\n".join(lines) + "\n")
     return 0
 
@@ -315,7 +354,16 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         help="when the data run started, as ISO time; required",
     )
     calibration.add_argument(
-        "--metrics", metavar="PATH", help="its metrics CSV; default METRICS_CSV"
+        "--metrics",
+        metavar="PATH",
+        help="its metrics CSV; default the service's METRICS_CSV",
+    )
+    calibration.add_argument(
+        "--boxes",
+        type=box_list,
+        default=BOXES,
+        metavar="1,2,3",
+        help="the thirds of the frame, left to right, that hold a box; default all",
     )
     staging = parser.add_argument_group("staging, with --stage")
     staging.add_argument("--label", help="only events with this label")
@@ -336,13 +384,20 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     return args
 
 
+def box_list(text: str) -> tuple[int, ...]:
+    boxes = tuple(sorted({int(box) for box in text.split(",") if box.strip()}))
+    if not boxes or not set(boxes) <= set(BOXES):
+        raise argparse.ArgumentTypeError(f"boxes are some of {BOXES}, as 1,3")
+    return boxes
+
+
 def _check_calibration(
     parser: argparse.ArgumentParser, args: argparse.Namespace
 ) -> None:
     if args.calibrate and args.since is None:
         parser.error("--calibrate needs --since, the time the data run started")
-    if not args.calibrate and (args.since or args.metrics):
-        parser.error("--since and --metrics need --calibrate")
+    if not args.calibrate and (args.since or args.metrics or args.boxes != BOXES):
+        parser.error("--since, --metrics and --boxes need --calibrate")
 
 
 def _any_staging_option(args: argparse.Namespace) -> bool:
@@ -359,14 +414,14 @@ def _check_staging(parser: argparse.ArgumentParser, args: argparse.Namespace) ->
 
 def run_command(args: argparse.Namespace) -> int:
     """Run --regroup, --stage or --calibrate. Returns the exit status."""
-    if args.calibrate:
-        return calibrate_installation(args)
     try:
+        if args.calibrate:
+            return calibrate_installation(args)
         if args.regroup:
             log.info("Regrouped: %s", regroup_events())
         else:
             log.info("Staged %d event(s) for review", stage_events(args))
-    except DatabaseInUseError as refused:
+    except (DatabaseInUseError, ValueError) as refused:
         log.error("%s", refused)  # noqa: TRY400 -- the message is the whole story
         return 1
     return 0

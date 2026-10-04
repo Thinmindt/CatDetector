@@ -444,24 +444,42 @@ the whole cat steps in, so what decides recall is whether each visit ever reache
 largest foreground count, the band's lower edge at half its largest cleaned blob. The band's upper
 edge sits a quarter above the strongest visit, which a cat leaping in or out reaches (about
 26,000 px there; peaks of 30,000 to 89,000 px came with an exposure shift as a cat moved), and
-never above half the frame, which only a lighting change fills. Both are replayed over every lit
-frame of the CSV, as the detector would have run: today's single-frame test, and the band after
-two frames in a row, a clip held open while triggers come within `MOTION_TIMEOUT`. A visit is
-missed if no trigger falls inside it; a clip that starts outside every visit is a false trigger.
-The replay of the run's own threshold (150) gave 1.81 false triggers an hour over 423 lit hours,
-against 1.61 an hour of clips the detector really recorded with no cat in them, so it tracks the
-real detector closely enough to compare settings. The CSV is read twice, once for the peaks and
-once for the replay, rather than held in memory: 47 million rows took under five minutes on a
-Pi 5, about the cost of the two passes.
+never above half the frame, which only a lighting change fills.
 
-**Doubts go to the review queue, each once.** The command stages what needs a person's eye, with
-the question, under the source `calibration`: the same cat seconds apart, the weakest visits,
-and `not_cat` events that held a blob the size of a visit (between the weakest visit's peak and
-the 95th percentile of peaks) for as long as nine visits in ten do. The last rule comes from the
-visits rather than a fixed size because people and lighting changes produce visit-sized blobs
-too: a fixed 0.5 s staged 72 events of one run, the visit-derived span 17. An `asked` row, on the
-event's first clip and keyed by the question, stops a rerun asking again once the reviewer has
-answered; an event already staged is left alone and asked another time.
+**The replay runs the detector's rules over every frame it acted on**: lit frames, and not the
+30 frames after a restart (a gap of over two seconds in the CSV) while MOG2 warms up, since the
+whole first frame reads as foreground. Today's single-frame test and the band after two frames in
+a row are replayed side by side with the threshold the run used, a clip held open while triggers
+come within `MOTION_TIMEOUT`. A visit is missed if no trigger falls inside it; a clip that starts
+outside every visit is a false trigger. A visit's span reaches back one second before its first
+clip's recorded start, because the detector logs the frame that starts a clip a moment before the
+recorder notes the time; without that, every visit added one false trigger to the run's own
+threshold and flattered the proposal. With both corrections the replay of the run's threshold
+(150) gave 1.70 false triggers an hour over 423 lit hours, against 1.61 an hour of clips the
+detector really recorded with no cat in them, close enough to compare settings. The CSV is read
+twice, once for the peaks and once for the replay, rather than held in memory; rows a power cut or
+a tail still being written left damaged are skipped and counted.
+
+**The settings come from the service, not the shell.** A data run's `MOTION_THRESHOLD` and
+`METRICS_CSV` live in the service's drop-in, which a shell never sees, so `--calibrate` reads them
+with `systemctl show catdetector --property=Environment` and says where its settings came from;
+`--metrics` overrides the CSV. It holds the database open throughout, and with it the shared lock,
+so a `--regroup` cannot renumber the events between the count and the staging.
+
+**Doubts go to the review queue, each once, and hold back the result.** The command stages what
+needs a person's eye, with the question, under the source `calibration`: the same cat seconds
+apart, the weakest visits, a visit whose frames show no blob at all (left out of the counts, since
+a strength of 0 would drag every edge to 0), and `not_cat` events that held a blob the size of a
+visit (between the weakest visit's peak and the 95th percentile of peaks) for as long as nine
+visits in ten do. The last rule comes from the visits rather than a fixed size because people and
+lighting changes produce visit-sized blobs too: a fixed 0.5 s staged 72 events of one run, the
+visit-derived span 17. An `asked` row, on the event's first clip and keyed by the question, stops a
+rerun asking again once the reviewer has answered; an event already staged is left alone and asked
+another time. While any calibration question is unanswered the settings are printed as
+provisional, without the drop-in lines, since the answers decide which visit is the weakest.
+
+**Boxes are the thirds of the frame until C.3**, and the command asks for a visit in each third
+named by `--boxes` (all three by default), so an installation with fewer boxes can finish a run.
 
 ## Events
 

@@ -14,7 +14,7 @@ from dataclasses import dataclass, field
 
 from src.clips.format import ANALYSIS_SIZE, CAMERA_FPS
 from src.clips.sidecar import iso
-from src.review.timeline import BOXES, TimelineRow
+from src.review.timeline import TimelineRow
 
 # The run is done when every condition holds (ROADMAP A.2).
 VISITS_NEEDED = 50
@@ -40,15 +40,37 @@ WEAKEST_TO_ASK = 3
 TYPICAL_PEAK_SHARE = 0.95
 SHORTEST_VISITS_SHARE = 0.10
 
+# The detector logs the frame that starts a clip a moment before the clip's
+# recorded start, so an event's span reaches back this far.
+WINDOW_LEAD = datetime.timedelta(seconds=1)
+# After a restart the detector ignores its first frames while MOG2 learns the
+# scene (MotionDetector's warmup_frames); a gap this long in the CSV is a restart.
+WARMUP_FRAMES = 30
+RESTART_GAP_SECONDS = 2.0
+
 # The metrics CSV's columns this reads, by the header motion_metrics writes.
 COLUMNS = ("timestamp", "foreground_px", "clean_area", "brightness")
+
+# Where an ISO timestamp has its date's first dash and the T before the clock,
+# which a damaged row's first cell does not; and where its minute ends.
+DATE_DASH = len("9999")
+CLOCK_T = len("9999-99-99")
+MINUTE = len("9999-99-99T99:99")
 
 # A frame of the CSV: its time as ISO text, foreground pixels, cleaned largest
 # blob, brightness.
 Frame = tuple[str, int, int, float]
 
 
-def read_frames(lines: Iterable[str]) -> Iterator[Frame]:
+@dataclass
+class Tally:
+    """Rows of the CSV that did not parse: a tail still being written, or a
+    row a power cut left half-written."""
+
+    skipped: int = 0
+
+
+def read_frames(lines: Iterable[str], tally: Tally | None = None) -> Iterator[Frame]:
     """The metrics CSV's rows, the columns found by its header."""
     rows = iter(lines)
     header = next(rows, "").strip().split(",")
@@ -56,14 +78,23 @@ def read_frames(lines: Iterable[str]) -> Iterator[Frame]:
     if missing:
         raise ValueError(f"not a metrics CSV: no {', '.join(missing)} column")
     at_time, at_fg, at_clean, at_bright = (header.index(name) for name in COLUMNS)
+    damaged = tally if tally is not None else Tally()
     for line in rows:
-        cells = line.rstrip("\n").split(",")
-        yield (
-            cells[at_time],
-            int(cells[at_fg] or 0),
-            int(cells[at_clean] or 0),
-            float(cells[at_bright] or 0),
-        )
+        cells = line.strip("\x00\n").split(",")
+        try:
+            time = cells[at_time]
+            fg, clean = int(cells[at_fg] or 0), int(cells[at_clean] or 0)
+            frame = (time, fg, clean, float(cells[at_bright]))
+        except (IndexError, ValueError):
+            damaged.skipped += 1
+            continue
+        if (
+            time[DATE_DASH : DATE_DASH + 1] == "-"
+            and time[CLOCK_T : CLOCK_T + 1] == "T"
+        ):
+            yield frame
+        else:
+            damaged.skipped += 1
 
 
 @dataclass(frozen=True)
@@ -150,10 +181,12 @@ class Condition:
 def window_of(row: TimelineRow) -> Window | None:
     if row.started_at is None or row.ended_at is None:
         return None
-    return Window(row.id, iso(row.started_at), iso(row.ended_at))
+    return Window(row.id, iso(row.started_at - WINDOW_LEAD), iso(row.ended_at))
 
 
-def conditions(visits: list[Visit], cats: tuple[str, ...]) -> list[Condition]:
+def conditions(
+    visits: list[Visit], cats: tuple[str, ...], boxes: tuple[int, ...]
+) -> list[Condition]:
     """The table of ROADMAP A.2, counted from these visits, oldest first."""
     return [
         Condition(
@@ -168,7 +201,7 @@ def conditions(visits: list[Visit], cats: tuple[str, ...]) -> list[Condition]:
             sum(visit.night for visit in visits) >= NIGHT_VISITS_NEEDED,
         ),
         per_cat(visits, cats),
-        every_box(visits),
+        every_box(visits, boxes),
         Condition("several days of varied weather, one overcast", "your call", None),
         weakest_settled(visits),
     ]
@@ -185,10 +218,11 @@ def per_cat(visits: list[Visit], cats: tuple[str, ...]) -> Condition:
     )
 
 
-def every_box(visits: list[Visit]) -> Condition:
+def every_box(visits: list[Visit], boxes: tuple[int, ...]) -> Condition:
+    """Each third of the frame that holds a box has a visit."""
     counts = Counter(visit.row.box for visit in visits)
-    now = ", ".join(f"box {box}: {counts[box]}" for box in BOXES)
-    return Condition("every box used", now, all(counts[box] for box in BOXES))
+    now = ", ".join(f"box {box}: {counts[box]}" for box in boxes)
+    return Condition("every box used", now, all(counts[box] for box in boxes))
 
 
 def weakest_settled(visits: list[Visit]) -> Condition:
@@ -288,23 +322,47 @@ def replay(
     dark_brightness: float,
     timeout: datetime.timedelta,
 ) -> ReplayResult:
-    """Run each rule over every lit frame, as the detector would have."""
+    """Run each rule over every lit frame, as the detector would have: not in
+    the dark, and not while it warms up after a restart."""
     replays = [Replay(rule, timeout) for rule in rules]
     lit = 0
+    warming = _Warmup()
     for frame in frames:
-        if frame[3] < dark_brightness:
+        if warming.skips(frame[0]) or frame[3] < dark_brightness:
             for each in replays:
                 each.streak = 0
             continue
         lit += 1
-        here = (
-            visits.holding(frame[0])
-            if any(r.rule.counts(frame) for r in replays)
-            else []
-        )
+        counted = any(each.rule.counts(frame) for each in replays)
+        here = visits.holding(frame[0]) if counted else []
         for each in replays:
             each.feed(frame, here)
     return ReplayResult(replays, lit)
+
+
+@dataclass
+class _Warmup:
+    """The frames after each restart the detector does not act on."""
+
+    last: str | None = None
+    left: int = 0
+
+    def skips(self, time: str) -> bool:
+        restarted = self.last is None or not _soon_after(self.last, time)
+        self.last = time
+        self.left = WARMUP_FRAMES if restarted else max(self.left - 1, 0)
+        return self.left > 0
+
+
+def _soon_after(earlier: str, later: str) -> bool:
+    """Whether `later` follows `earlier` within the restart gap. Rows of one
+    minute compare their seconds, which spares parsing millions of times."""
+    if earlier[:MINUTE] == later[:MINUTE]:
+        gap = float(later[MINUTE + 1 :]) - float(earlier[MINUTE + 1 :])
+    else:
+        then, now = (datetime.datetime.fromisoformat(t) for t in (earlier, later))
+        gap = (now - then).total_seconds()
+    return 0 <= gap <= RESTART_GAP_SECONDS
 
 
 # --- what needs a person's eye ----------------------------------------------
@@ -391,6 +449,7 @@ class Settings:
 
     cats: tuple[str, ...]
     cat_labels: tuple[str, ...]
+    boxes: tuple[int, ...]  # the thirds of the frame that hold a box
     dark_brightness: float
     motion_timeout: float
     gap_seconds: float
@@ -404,9 +463,12 @@ class Calibration:
     left_out: int  # events with a cat's label from before the run
     peeks: int
     uncovered: int  # visits the CSV has no lit frame of
+    blank: int  # visits whose frames show no blob at all
     conditions: list[Condition]
     doubts: list[Doubt]
+    skipped_rows: int = 0
     result: ReplayResult | None = None
+    open_questions: int = 0  # staged for review and not answered yet
 
     @property
     def done(self) -> bool:
@@ -424,30 +486,33 @@ def calibrate(
     condition holds, propose the settings and replay them. Reads the CSV once,
     or twice when done."""
     run = [row for row in rows if _start(row) >= since]
-    cat_rows = [row for row in rows if row.label in settings.cat_labels]
     in_run = [row for row in run if row.label in settings.cat_labels]
     candidates = sorted((row for row in in_run if not row.peek), key=_start)
     not_cats = [row for row in run if row.label == "not_cat"]
-    windows = [w for row in candidates + not_cats if (w := window_of(row))]
+    tally = Tally()
     peaks = scan_peaks(
-        read_frames(open_csv()), WindowIndex(windows), settings.dark_brightness
+        read_frames(open_csv(), tally),
+        WindowIndex(w for row in candidates + not_cats if (w := window_of(row))),
+        settings.dark_brightness,
     )
-    visits = [Visit(row, peaks[row.id]) for row in candidates if row.id in peaks]
+    seen = [Visit(row, peaks[row.id]) for row in candidates if row.id in peaks]
+    visits = [visit for visit in seen if visit.peaks.clean and visit.peaks.foreground]
     calibration = Calibration(
         since,
         visits,
-        left_out=len(cat_rows) - len(in_run),
+        left_out=sum(row.label in settings.cat_labels for row in rows) - len(in_run),
         peeks=len(in_run) - len(candidates),
-        uncovered=len(candidates) - len(visits),
-        conditions=conditions(visits, settings.cats),
-        doubts=_doubts(run, visits, peaks, not_cats, settings),
+        uncovered=len(candidates) - len(seen),
+        blank=len(seen) - len(visits),
+        conditions=conditions(visits, settings.cats, settings.boxes),
+        doubts=_doubts(run, seen, peaks, not_cats, settings),
+        skipped_rows=tally.skipped,
     )
     if calibration.done and visits:
-        visit_windows = WindowIndex(w for v in visits if (w := window_of(v.row)))
         calibration.result = replay(
             read_frames(open_csv()),
             (threshold_rule(settings.motion_threshold), *propose(visits)),
-            visit_windows,
+            WindowIndex(w for v in visits if (w := window_of(v.row))),
             settings.dark_brightness,
             datetime.timedelta(seconds=settings.motion_timeout),
         )
@@ -456,12 +521,22 @@ def calibrate(
 
 def _doubts(
     run: list[TimelineRow],
-    visits: list[Visit],
+    seen: list[Visit],
     peaks: dict[int, Peaks],
     not_cats: list[TimelineRow],
     settings: Settings,
 ) -> list[Doubt]:
     doubts = split_doubts(run, settings.cat_labels, settings.gap_seconds)
+    doubts += [
+        Doubt(
+            visit.row.id,
+            "blank",
+            "the metrics show no blob during this visit: is the label right?",
+        )
+        for visit in seen
+        if not (visit.peaks.clean and visit.peaks.foreground)
+    ]
+    visits = [visit for visit in seen if visit.peaks.clean and visit.peaks.foreground]
     if visits:
         others = {row.id: peaks[row.id] for row in not_cats if row.id in peaks}
         doubts += weakest_doubts(visits) + not_cat_doubts(others, visits)
@@ -475,10 +550,10 @@ def report(calibration: Calibration) -> list[str]:
     """What `main.py --calibrate` prints."""
     c = calibration
     lines = [
+        f"Data run since {c.since:%Y-%m-%d %H:%M}: {len(c.visits)} visits",
         (
-            f"Data run since {c.since:%Y-%m-%d %H:%M}: {len(c.visits)} visits"
-            f" ({c.left_out} earlier left out, {c.peeks} peeks,"
-            f" {c.uncovered} with no metrics rows)"
+            f"  left out: {c.left_out} from before the run, {c.peeks} peeks,"
+            f" {c.uncovered} with no metrics rows, {c.blank} with no blob in them"
         ),
         "",
     ]
@@ -486,15 +561,23 @@ def report(calibration: Calibration) -> list[str]:
         state = {True: "met", False: "not yet", None: ""}[condition.met]
         lines.append(f"  {condition.name:<48} {condition.now:<40} {state}")
     lines.append("")
+    if c.skipped_rows:
+        lines += [f"Skipped {c.skipped_rows} damaged rows of the CSV.", ""]
     if c.result is None:
         lines.append("Not done: the settings are proposed once every condition is met.")
-    else:
-        lines += _settings_lines(c.result, len(c.visits))
-    return lines
+        return lines
+    lines += _replay_lines(c.result, len(c.visits))
+    if c.open_questions:
+        return [
+            *lines,
+            "",
+            f"Provisional: {c.open_questions} question(s) wait in the review queue,",
+            "and the answers can move these numbers. Answer them, then run again.",
+        ]
+    return lines + _apply_lines(c.result)
 
 
-def _settings_lines(result: ReplayResult, visits: int) -> list[str]:
-    _, threshold, band = (each.rule for each in result.replays)
+def _replay_lines(result: ReplayResult, visits: int) -> list[str]:
     lines = [f"Replayed over {result.lit_hours:.0f} lit hours of the CSV:"]
     for each, role in zip(result.replays, ("now", "proposed", "proposed"), strict=True):
         missed = visits - len(each.caught)
@@ -503,7 +586,12 @@ def _settings_lines(result: ReplayResult, visits: int) -> list[str]:
             f"  {role:<9}{_describe(each.rule):<34} misses {missed} of {visits} visits,"
             f" {rate:.2f} false triggers an hour"
         )
-    lines += [
+    return lines
+
+
+def _apply_lines(result: ReplayResult) -> list[str]:
+    _, threshold, band = (each.rule for each in result.replays)
+    return [
         "",
         f"The band ({band.low}-{band.high} px) waits for A.3; today's detector",
         "takes the threshold. In the service's drop-in",
@@ -512,7 +600,6 @@ def _settings_lines(result: ReplayResult, visits: int) -> list[str]:
         f"  Environment=MOTION_THRESHOLD={threshold.low - 1}",
         "and drop METRICS_CSV there once the data run is over.",
     ]
-    return lines
 
 
 def _describe(rule: Rule) -> str:

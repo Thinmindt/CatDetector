@@ -207,9 +207,11 @@ Moved 2026-10-03: done.
       **Done means** the command prints the table, the settings and their replay, stages each
       doubt once, CI runs it on a small synthetic database and CSV whose answer is known, and the
       README section exists.
-      Done 2026-10-03: as specified. On the run that motivated it (47 million CSV rows, 4 min 49 s
-      on the Pi 5) it counted 126 visits, proposed `MOTION_THRESHOLD=2876` and a band of
-      1,384-111,502 px, both missing no visit, and staged 20 doubts.
+      Done 2026-10-03: as specified, plus `--boxes` for fewer than three boxes. On the run that
+      motivated it (47 million CSV rows, 6 min on the Pi 5) it counted 126 visits, replayed the
+      run's own 150 at 1.70 false triggers an hour (the detector really recorded 1.61), proposed
+      `MOTION_THRESHOLD=2876` (0.91 an hour) and a band of 1,384-111,502 px (0.82), all missing
+      no visit, and staged 20 doubts, so the result printed as provisional.
 
 ## A.3 Detect a cat-sized thing
 
