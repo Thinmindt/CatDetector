@@ -117,19 +117,6 @@ metrics CSV grows by roughly 150 MB a day). **Labelling is**: each day's events 
 with, or the backlog outlives the run. `main.py --calibrate` counts the conditions, stages what
 needs a second look and proposes the settings (archive, A.2).
 
-- [ ] **Measure boxes by where the cat stays, and visits by how much is recorded.** A visit's box
-      was the third holding its first clip's trigger, which is mostly the cat's head entering at
-      the frame's top edge: on one run (2026-10-03) that gave the right box 4 visits, while the
-      blob stayed 10 s or more in the right third in 38, and 66 of 126 visits stayed in more than
-      one box. `--calibrate` counts boxes by that dwell and reports each box's weakest visit. Its
-      replay also reports how much of each visit a rule records (each clip's span with the 5 s
-      pre-roll), since a threshold that starts and holds clips alike lets them close while a cat
-      squats: at 2876 the median visit was 84 % recorded, against 100 % at the run's 150. It
-      replays a sweep of thresholds up from the run's and proposes the highest that misses no visit
-      and keeps the median visit 98 % recorded, and replays A.3's start-and-hold pair beside it.
-      **Done means** the report shows boxes by dwell with each box's weakest visit, coverage per
-      rule, the sweep and the proposal by coverage, and tests cover a visit in two boxes, a dwell
-      too short to count, and a threshold whose coverage falls below the line.
 - [ ] **Finish the data run** against the table above.
       **Done means** `--calibrate` reports every condition met, and the service's drop-in takes
       the threshold it proposes, without `METRICS_CSV`, in the change that ticks this box.

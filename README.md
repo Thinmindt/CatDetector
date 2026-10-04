@@ -154,23 +154,26 @@ recording everything, labelled by hand.
    ```
 
    It reads the database and the CSV, and takes the run's settings (`MOTION_THRESHOLD`,
-   `METRICS_CSV`) from the service's drop-in, saying where they came from; `--metrics PATH`
-   names another CSV. A couple of weeks of CSV takes several minutes. With fewer than three
-   boxes, name the thirds of the frame, left to right, that hold one: `--boxes 1,3`. It prints what the run needs, with the counts so far: 50 visits (100
-   is better), 10 at night, 15 per cat, every box used, and the weakest visit no longer getting
-   weaker. Varied weather, with an overcast day, is yours to judge; it does not matter if the
-   boxes' own light swamps the daylight. It also puts the events that need a second look in the
-   review queue, each with its question and each only once: the same cat seconds apart (one visit
-   split in two?), the weakest visits (a peek?), and `not_cat` events that held a blob the size of
-   a visit (a cat after all?). Answer them, keep labelling, and run it again.
-4. **Apply the result.** Once every condition holds, it proposes a `MOTION_THRESHOLD`, half the
-   weakest visit's largest foreground count, and replays it and the current one over the CSV:
-   the proposal must miss no visit, and it says how many clips an hour each would start with no
-   cat in them. While any of its questions waits in the review queue the numbers are marked
-   provisional; once they are answered, put the proposal in the drop-in, remove `METRICS_CSV`,
-   and restart the service.
-   It also prints a size band for the planned blob-size trigger (roadmap A.3), which is not a
-   setting yet.
+   `METRICS_CSV`) from the service's drop-in, saying where they came from; `--metrics PATH` names
+   another CSV. A couple of weeks of CSV takes several minutes. With fewer than three boxes, name
+   the thirds of the frame, left to right, that hold one: `--boxes 1,3`. It prints what the run
+   needs, with the counts so far: 50 visits (100 is better), 10 at night, 15 per cat, every box
+   used (a cat staying 10 s in that box's third of the frame), and the weakest visit no
+   longer getting weaker. Varied weather, with an overcast day, is yours to judge; it does not
+   matter if the boxes' own light swamps the daylight. It also puts the events that need a second
+   look in the review queue, each with its question and each only once: the same cat seconds apart
+   (one visit split in two?), the weakest visits (a peek?), and `not_cat` events that held a blob
+   the size of a visit (a cat after all?). Answer them, keep labelling, and run it again.
+
+4. **Apply the result.** Once every condition holds, it replays a range of thresholds over the
+   CSV, from the run's upward, and shows for each the visits it would miss, the clips an hour it
+   would start with no cat in them, and how much of each visit it would record: a high
+   threshold also closes clips while a cat sits still. It proposes the highest that misses no
+   visit and still records 98 % of the median visit. While any of its questions waits in the
+   review queue the numbers are marked provisional; once they are answered, put the proposal in
+   the drop-in, remove `METRICS_CSV`, and restart the service. It also replays two planned
+   triggers (roadmap A.3) that are not settings yet: a high start threshold that keeps
+   recording above the run's, and a blob-size band.
 
 ## Test, lint, format, type-check
 

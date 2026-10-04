@@ -440,11 +440,28 @@ weakest visit's largest blob was 2,768 px: a grey coat on the litter, whose clea
 into pieces (18,419 px of foreground around it). A trigger that ignores a peek still fires when
 the whole cat steps in, so what decides recall is whether each visit ever reaches the trigger.
 
-**The proposal leaves a factor of two below the weakest visit**: `MOTION_THRESHOLD` at half its
-largest foreground count, the band's lower edge at half its largest cleaned blob. The band's upper
-edge sits a quarter above the strongest visit, which a cat leaping in or out reaches (about
-26,000 px there; peaks of 30,000 to 89,000 px came with an exposure shift as a cat moved), and
-never above half the frame, which only a lighting change fills.
+**A threshold is chosen by how much of each visit it records, not only by whether it starts a
+clip.** Today one threshold both starts a clip and keeps it going, so a high one closes clips while
+a cat sits still, which is the part of a visit worth seeing. Replayed on one run (2026-10-03), half
+the weakest visit's peak (2876) missed no visit but recorded a median 83 % of each and left 59 of
+129 visits under 80 %; 600 recorded 98 % and still cut false triggers by a third. So the command
+replays thresholds doubling from the run's up to half the weakest visit's largest foreground count
+and proposes the highest that misses none and records 98 % of the median visit. A clip's span in
+the replay is the detector's: from its first trigger, less the 5 s pre-roll but never before the
+end of the clip before it, to `MOTION_TIMEOUT` after its last. It also replays the two triggers A.3
+plans: that top threshold to start with the run's to hold (0.75 false triggers an hour, against
+0.90, with every visit 100 % recorded), and the band, its lower edge at half the weakest visit's
+cleaned blob and its upper a quarter above the strongest (about 26,000 px from a cat leaping; peaks
+of 30,000 to 89,000 px came with an exposure shift as a cat moved), never above half the frame.
+
+**A box is used where the cat stays, not where it comes in.** A visit's box used to be the third
+holding its first clip's trigger, mostly the cat's head appearing at the frame's top edge: on that
+run it gave the right box 4 visits, while by where the cleaned blob stayed for 10 s or more it had
+37, and two visits in three stayed in more than one box. The CSV carries the blob's position on
+every frame, so the command counts, per box, the visits whose blob of at least half the weakest
+visit's peak stayed 10 s in that third, and reports each box's weakest blob, since a far or thin
+box could read weaker. The review side still places events by their trigger until A.4 records
+where the cat stayed.
 
 **The replay runs the detector's rules over every frame it acted on**: lit frames, and not the
 30 frames after a restart (a gap of over two seconds in the CSV) while MOG2 warms up, since the

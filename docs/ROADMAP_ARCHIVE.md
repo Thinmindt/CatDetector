@@ -213,6 +213,24 @@ Moved 2026-10-03: done.
       `MOTION_THRESHOLD=2876` (0.91 an hour) and a band of 1,384-111,502 px (0.82), all missing
       no visit, and staged 20 doubts, so the result printed as provisional.
 
+- [x] **Measure boxes by where the cat stays, and visits by how much is recorded.** A visit's box
+      was the third holding its first clip's trigger, which is mostly the cat's head entering at
+      the frame's top edge: on one run (2026-10-03) that gave the right box 4 visits, while the
+      blob stayed 10 s or more in the right third in 38, and 66 of 126 visits stayed in more than
+      one box. `--calibrate` counts boxes by that dwell and reports each box's weakest visit. Its
+      replay also reports how much of each visit a rule records (each clip's span with the 5 s
+      pre-roll), since a threshold that starts and holds clips alike lets them close while a cat
+      squats: at 2876 the median visit was 84 % recorded, against 100 % at the run's 150. It
+      replays a sweep of thresholds up from the run's and proposes the highest that misses no visit
+      and keeps the median visit 98 % recorded, and replays A.3's start-and-hold pair beside it.
+      **Done means** the report shows boxes by dwell with each box's weakest visit, coverage per
+      rule, the sweep and the proposal by coverage, and tests cover a visit in two boxes, a dwell
+      too short to count, and a threshold whose coverage falls below the line.
+      Done 2026-10-04: as specified. On the same run, now 129 visits: boxes 1-3 used in 50, 37
+      and 37 visits (weakest 6,417, 4,192 and 4,854 px); thresholds 150 to 2876 all missed no
+      visit, at 1.69 to 0.90 false triggers an hour and 100 % to 83 % of the median visit
+      recorded; 600 proposed (1.17 an hour, 98 %); start 2876 held at 150 gave 0.75 and 100 %.
+
 ## A.3 Detect a cat-sized thing
 
 Moved 2026-09-26. The split landed as `src/capture/motion_detector.py` (5adcc87, 2026-09-20). The
