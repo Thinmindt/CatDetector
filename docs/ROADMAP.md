@@ -81,14 +81,15 @@ sees nothing in the dark; if the light fails, the dark gate stops black clips bu
 ## A.2 Measure before tuning
 
 **A data run** comes first: the detector runs as the service with a low `MOTION_THRESHOLD` and
-`METRICS_CSV` on, over-capturing rather than missing, so a visit below the threshold still leaves
-a trace in the CSV. The trigger is tuned to the weakest visit, not the average one, so the unit
-to collect is **visits, not hours**. A visit's strength is the **largest** cleaned blob it
-produces, not the blob that started its clip: a band that ignores a cat's head peeking in at the
-frame's edge still fires a second later when the whole cat steps in, so what decides recall is
-whether a visit ever reaches the band. A dark or low-contrast coat on the litter is the weak case,
-since its cleaned blob breaks into pieces. Only visits recorded once the setup has settled (lighting, framing, sensor
-mode) count; earlier ones are a different regime. The run stops when every condition below holds.
+`METRICS_CSV` on, over-capturing rather than missing, so a visit below the threshold still leaves a
+trace in the CSV. The trigger is tuned to the weakest visit, not the average one, so the unit to
+collect is **visits, not hours**. A visit's strength is the **largest** cleaned blob it produces,
+not the blob that started its clip: a band that ignores a cat's head peeking in at the frame's edge
+still fires a second later when the whole cat steps in, so what decides recall is whether a visit
+ever reaches the band. A dark or low-contrast coat on the litter is the weak case, since its
+cleaned blob breaks into pieces. Only visits recorded once the setup has settled (lighting,
+framing, sensor mode) count; earlier ones are a different regime. The run stops when every
+condition below holds.
 
 | condition | why |
 |---|---|
@@ -100,17 +101,16 @@ mode) count; earlier ones are a different regime. The run stops when every condi
 | **the weakest visit has stopped getting weaker over the last ~20 visits** | the band's lower edge follows the weakest visit |
 
 How each is counted, from `captures.db` and the metrics CSV: a visit is an event labelled with a
-cat's name, in which a cat steps into a box, whose first clip started on or after the run's start
-(a cat that only looks in is not a visit, and one visit split into two events, the same cat
-seconds apart, is joined before counting, or it counts twice and the second half starts on a
-sitting cat's twitch); night is an event starting between 20:00 and
-06:00; the box is the third of the 640-px lores width holding the trigger centroid of the event's
-**first** clip, until C.3 makes boxes configuration; the weather comes from whoever runs the
-installation or a weather record, because the metrics CSV's brightness cannot show it (the
-camera's auto-exposure holds it level through the day); a visit's strength is the largest
-`clean_area` in the CSV's rows from its first clip's start to its last clip's end; and the
-weakest visit has stopped getting weaker when none of the last 20 visits is weaker than the
-weakest of the visits before them. False positives are measurable from
+cat's name and not marked as a peek (B.3: a cat that looks in and uses no box), whose first clip
+started on or after the run's start, and one visit split into two events, the same cat seconds
+apart, is joined before counting, or it counts twice and the second half starts on a sitting cat's
+twitch; night is an event starting between 20:00 and 06:00; the box is the third of the 640-px
+lores width holding the trigger centroid of the event's **first** clip, until C.3 makes boxes
+configuration; the weather comes from whoever runs the installation or a weather record, because
+the metrics CSV's brightness cannot show it (the camera's auto-exposure holds it level through the
+day); a visit's strength is the largest `clean_area` in the CSV's rows from its first clip's start
+to its last clip's end; and the weakest visit has stopped getting weaker when none of the last 20
+visits is weaker than the weakest of the visits before them. False positives are measurable from
 hours rather than visits, and any candidate rule can be replayed against the metrics CSV without
 re-recording. Storage is not the constraint (the metrics CSV grows by roughly 150 MB a day).
 **Labelling is**: each day's events have to be kept up with, or the backlog outlives the run.
@@ -272,6 +272,16 @@ labeling must be a single action, or it will not happen and the classifier never
 
 Next:
 
+- [ ] **Mark a peek: a cat that looks in and uses no box.** A peek keeps the cat's name, since it
+      still shows which cat it is (B.5), but it is not a visit: A.2's counts and B.4's rule leave
+      it out. One key (`p`), or a button in the sheet, toggles the mark without moving on, so a
+      peek is two keys: `p`, then the cat's digit. The mark is stored on each of the event's
+      clips, which keep their ids through a regroup, and an event is a peek only while every one
+      of its clips carries it, so joining it to a visit makes the whole a visit.
+      **Done means** the mark survives a `regroup`, a join with an unmarked event clears it, a
+      split keeps it on both halves, the review page shows it beside the label and the timeline
+      in the row, tests cover each, and `check_page.py` screenshots at both sizes show the mark
+      and the button.
 - [ ] **Show the crop *and* the full frame** — a crop alone is often ambiguous. Needs A.3 and B.1.
       **Done means** the review page shows each event's crops beside a full frame from its clip,
       and `check_page.py` screenshots at both sizes show them without horizontal scroll.
@@ -281,8 +291,9 @@ Non-goals for v1: multi-user, accounts, editing bounding boxes by hand.
 ## B.4 Alerts
 
 Only a change in a cat's habits sends an alert: visits per day, or time in the box, moving out of
-that cat's usual range, including a cat that stops visiting. There is no push per visit. Visits are
-labelled in sittings, not as they happen, so a push per visit would be noise (archive, B.4).
+that cat's usual range, including a cat that stops visiting. A peek is not a visit (B.3). There is
+no push per visit. Visits are labelled in sittings, not as they happen, so a push per visit would
+be noise (archive, B.4).
 
 The rule runs on a schedule over `captures.db`, off the capture path. A gap in the record (the
 service down, the Pi off, the light out) looks exactly like a cat visiting less, so the rule must
