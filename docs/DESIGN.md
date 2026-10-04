@@ -465,6 +465,16 @@ first clip and read back across all of its clips, so a `regroup` keeps it with t
 about; keyed by event id it would have landed on whatever event took that id. If a merge brings two
 staged clips together, the event shows the earlier staging, and a label clears both.
 
+**A peek is a mark beside the label, not a label** (2026-10-03, ROADMAP B.3). A cat that looks
+in and uses no box is still that cat, which is what the classifier learns from, but it is not a
+visit, and visits are what the data run counts and what a habit alert compares. A label of its
+own would lose which cat it was, so the label keeps the cat and a `peek` row marks the event. The
+row is written on **every** clip of the event, not the first as staging is, and an event is a
+peek only while all its clips carry it: a join with a real visit, or a new clip grouped in at
+ingest, makes the whole a visit, while a split leaves both halves peeks. A merged event that
+might hold a visit is therefore counted as one, which is the error recall prefers. The `p` key
+toggles the mark and stays on the event, so a peek is `p` and then the cat's digit.
+
 **`--regroup` refuses while another process has the database** (2026-09-27). A regroup renumbers
 events, and the review page holds event ids: a label posted during a regroup, or after it by a page
 loaded before it, lands on whatever event now has that id. A transaction would stop the first and

@@ -266,22 +266,13 @@ The Review tab labels at event level with one keystroke or one tap: the cats by 
 each, from `CAT_NAMES`), `cat` when which one is not decided, `multiple`, `not_cat`, `unsure` and
 `clean`, with undo, live counts, `?filter=` walks for auditing, an address that holds the event
 and the walk, whole-clip tiles built before they are asked for, split and join, watch, a phone
-layout, and a review queue that labelled events can be staged back into with a reason. **The
+layout, a review queue that labelled events can be staged back into with a reason, and a peek
+mark for a cat that looks in and uses no box. **The
 only requirement that really matters is speed:** hundreds of events reviewed by one person means
 labeling must be a single action, or it will not happen and the classifier never gets its data.
 
 Next:
 
-- [ ] **Mark a peek: a cat that looks in and uses no box.** A peek keeps the cat's name, since it
-      still shows which cat it is (B.5), but it is not a visit: A.2's counts and B.4's rule leave
-      it out. One key (`p`), or a button in the sheet, toggles the mark without moving on, so a
-      peek is two keys: `p`, then the cat's digit. The mark is stored on each of the event's
-      clips, which keep their ids through a regroup, and an event is a peek only while every one
-      of its clips carries it, so joining it to a visit makes the whole a visit.
-      **Done means** the mark survives a `regroup`, a join with an unmarked event clears it, a
-      split keeps it on both halves, the review page shows it beside the label and the timeline
-      in the row, tests cover each, and `check_page.py` screenshots at both sizes show the mark
-      and the button.
 - [ ] **Show the crop *and* the full frame** — a crop alone is often ambiguous. Needs A.3 and B.1.
       **Done means** the review page shows each event's crops beside a full frame from its clip,
       and `check_page.py` screenshots at both sizes show them without horizontal scroll.

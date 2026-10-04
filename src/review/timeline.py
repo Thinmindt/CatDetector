@@ -28,6 +28,7 @@ class TimelineRow:
     labeled_at: datetime.datetime | None
     trigger_cx: int | None
     staged: bool
+    peek: bool = False
 
     @property
     def box(self) -> int | None:

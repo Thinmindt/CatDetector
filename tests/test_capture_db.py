@@ -546,6 +546,106 @@ def test_staging_by_label_and_time_takes_only_what_matches(
     assert db.counts()["staged"] == 1
 
 
+# --- peeks -----------------------------------------------------------------
+
+
+def test_a_peek_keeps_its_label_and_survives_a_regroup(db: Any, tmp_path: Path) -> None:
+    directory = tmp_path / "captures"
+    visit(directory, 0, 40)
+    visit(directory, 500)
+    db.ingest(directory)
+    peek, other = walk_queue(db)
+    db.set_label(peek.id, "cat")
+    db.set_label(other.id, "cat")
+    assert db.set_peek(peek.id, True)
+
+    db.gap_seconds = 1
+    db.regroup()
+
+    events = walk_labeled(db)
+    marked = [event for event in events if event.peek]
+    assert [clip.id for event in marked for clip in event.clips] == [
+        clip.id for clip in peek.clips
+    ]
+    assert [event.label for event in marked] == ["cat", "cat"]
+    assert len(events) == 3
+
+
+def test_a_split_keeps_the_peek_on_both_halves(db: Any, tmp_path: Path) -> None:
+    directory = tmp_path / "captures"
+    visit(directory, 0, 40)
+    db.ingest(directory)
+    event = db.next_to_review()
+    db.set_peek(event.id, True)
+
+    db.split(event.clips[1].id)
+
+    first, second = walk_queue(db)
+    assert first.peek and second.peek
+
+
+def test_joining_a_peek_to_a_visit_makes_the_whole_a_visit(
+    db: Any, tmp_path: Path
+) -> None:
+    directory = tmp_path / "captures"
+    visit(directory, 0)
+    visit(directory, 500)
+    db.ingest(directory)
+    peek, _ = walk_queue(db)
+    db.set_peek(peek.id, True)
+
+    merged = db.join(peek.id)
+
+    assert len(merged.clips) == 2
+    assert not merged.peek
+
+
+def test_a_clip_grouped_into_a_peek_at_ingest_makes_it_a_visit(
+    db: Any, tmp_path: Path
+) -> None:
+    directory = tmp_path / "captures"
+    visit(directory, 0)
+    db.ingest(directory)
+    peek = db.next_to_review()
+    db.set_peek(peek.id, True)
+
+    visit(directory, 40)
+    db.ingest(directory)
+
+    grown = db.get(peek.id)
+    assert len(grown.clips) == 2
+    assert not grown.peek
+
+
+def test_a_peek_can_be_cleared_and_shows_on_the_timeline(
+    db: Any, tmp_path: Path
+) -> None:
+    directory = tmp_path / "captures"
+    visit(directory, 0, 40)
+    visit(directory, 500)
+    db.ingest(directory)
+    peek, other = walk_queue(db)
+
+    db.set_peek(peek.id, True)
+    assert {row.id: row.peek for row in db.timeline_rows()} == {
+        peek.id: True,
+        other.id: False,
+    }
+    db.set_peek(peek.id, False)
+    assert not db.get(peek.id).peek
+    assert not any(row.peek for row in db.timeline_rows())
+    assert not db.set_peek(999, True)
+
+
+def walk_labeled(db: Any) -> list[Any]:
+    events: list[Any] = []
+    while (
+        event := db.next_labeled(events[-1].id if events else None, None)
+    ) is not None:
+        events.append(event)
+    return events
+
+
 def walk_queue(db: Any) -> list[Any]:
     events: list[Any] = []
     while (event := db.next_to_review(events[-1].id if events else None)) is not None:

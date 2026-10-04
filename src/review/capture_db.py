@@ -63,6 +63,10 @@ CREATE TABLE IF NOT EXISTS staged (
     staged_at TEXT NOT NULL,
     source    TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS peek (
+    clip_id  INTEGER PRIMARY KEY REFERENCES clip(id),
+    noted_at TEXT NOT NULL
+);
 """
 
 # Events oldest first; those with no dated clip last.
@@ -80,7 +84,9 @@ SELECT e.id, MIN(c.started_at) AS started_at, MAX(c.ended_at) AS ended_at,
        (SELECT f.trigger_cx FROM clip f WHERE f.event_id = e.id
         ORDER BY f.started_at IS NULL, f.started_at, f.id LIMIT 1) AS trigger_cx,
        EXISTS (SELECT 1 FROM staged s JOIN clip k ON k.id = s.clip_id
-               WHERE k.event_id = e.id) AS staged
+               WHERE k.event_id = e.id) AS staged,
+       NOT EXISTS (SELECT 1 FROM clip k LEFT JOIN peek p ON p.clip_id = k.id
+                   WHERE k.event_id = e.id AND p.clip_id IS NULL) AS peek
 FROM event e JOIN clip c ON c.event_id = e.id
 LEFT JOIN label l ON l.event_id = e.id
 GROUP BY e.id
@@ -146,6 +152,8 @@ class Event:
     # Poops found per box at a cleaning, from the reviewer's hand signal.
     poops: dict[int, int] = field(default_factory=dict)
     staged: Staging | None = None
+    # A cat looked in and used no box: not a visit, though it keeps its label.
+    peek: bool = False
 
     @property
     def started_at(self) -> datetime.datetime | None:
@@ -579,6 +587,7 @@ class CaptureDB:
             clips=clips,
             poops=self._poop_counts(clip_ids),
             staged=self._staging(clip_ids),
+            peek=self._is_peek(clip_ids),
         )
 
     @serialized
@@ -647,6 +656,7 @@ class CaptureDB:
                 labeled_at=_when(row["labeled_at"]),
                 trigger_cx=row["trigger_cx"],
                 staged=bool(row["staged"]),
+                peek=bool(row["peek"]),
             )
             for row in self._conn.execute(TIMELINE_ROWS)
         ]
@@ -689,6 +699,39 @@ class CaptureDB:
             clip_ids,
         ).fetchone()
         return None if row is None else Staging(*row)
+
+    @serialized
+    def set_peek(self, event_id: int, peek: bool) -> bool:
+        """Mark an event as a peek, or clear the mark. Returns False if there is
+        no such event.
+
+        Written on every clip, so the event is a peek only while all its clips are.
+        """
+        clip_ids = self._clip_ids(event_id)
+        if not clip_ids:
+            return False
+        self._conn.execute(
+            f"DELETE FROM peek WHERE clip_id IN ({self._marks(clip_ids)})",  # noqa: S608 -- placeholders, not values
+            clip_ids,
+        )
+        if peek:
+            noted_at = self._now()
+            self._conn.executemany(
+                "INSERT INTO peek (clip_id, noted_at) VALUES (?, ?)",
+                [(clip_id, noted_at) for clip_id in clip_ids],
+            )
+        self._conn.commit()
+        return True
+
+    def _is_peek(self, clip_ids: list[int]) -> bool:
+        if not clip_ids:
+            return False
+        marks = self._marks(clip_ids)
+        row = self._conn.execute(
+            f"SELECT COUNT(*) AS n FROM peek WHERE clip_id IN ({marks})",  # noqa: S608 -- placeholders, not values
+            clip_ids,
+        ).fetchone()
+        return int(row["n"]) == len(clip_ids)
 
     @staticmethod
     def _now() -> str:

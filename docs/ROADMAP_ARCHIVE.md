@@ -578,6 +578,21 @@ Moved 2026-09-27: done.
       3-clip event's strips then took 16 ms together, served by the app on the Pi from that
       cache.
 
+Moved 2026-10-03: done.
+
+- [x] **Mark a peek: a cat that looks in and uses no box.** A peek keeps the cat's name, since it
+      still shows which cat it is (B.5), but it is not a visit: A.2's counts and B.4's rule leave
+      it out. One key (`p`), or a button in the sheet, toggles the mark without moving on, so a
+      peek is two keys: `p`, then the cat's digit. The mark is stored on each of the event's
+      clips, which keep their ids through a regroup, and an event is a peek only while every one
+      of its clips carries it, so joining it to a visit makes the whole a visit.
+      **Done means** the mark survives a `regroup`, a join with an unmarked event clears it, a
+      split keeps it on both halves, the review page shows it beside the label and the timeline
+      in the row, tests cover each, and `check_page.py` screenshots at both sizes show the mark
+      and the button.
+      Done 2026-10-03: as specified, with `POST /api/review/<event>/peek` (`{"peek": true}`)
+      for agents. The timeline puts "peek" under the label, so a phone row is no wider.
+
 ## B.4 Notifications
 
 Moved 2026-09-28: not pursued. Visits are labelled in sittings, and a push per visit is not

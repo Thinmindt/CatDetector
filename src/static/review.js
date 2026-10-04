@@ -88,6 +88,7 @@ function show(data) {
     : '';
   const badge = current.label
     ? ` <span class="label">${escaped(current.label)}</span>${found}` : '';
+  const peek = current.peek ? ' <span class="label">peek, not a visit</span>' : '';
   const staged = current.staged
     ? ` <span class="warn">back for review (${escaped(current.staged.source)}):` +
       ` ${escaped(current.staged.reason)}</span>` : '';
@@ -96,10 +97,12 @@ function show(data) {
     ? ` <span class="warn">${n} clips grouped as one visit</span>` : '';
   document.getElementById('meta').innerHTML =
     `#${current.id} &mdash; ${timeTag(current.started_at)} &rarr; ` +
-    `${hms(current.ended_at)}${badge}${staged}${grouped}`;
+    `${hms(current.ended_at)}${badge}${peek}${staged}${grouped}`;
   document.getElementById('clips').innerHTML =
     current.clips.map((c, i) => clipBlock(c, i ? current.clips[i - 1] : null)).join('');
   document.getElementById('restage').hidden = !current.label;
+  document.getElementById('peektext').textContent = current.peek
+    ? 'a visit after all, not a peek' : 'a peek: looked in, used no box';
   restoreTiles();
   padForBar();
 }
@@ -335,6 +338,19 @@ async function restage() {
   }
 }
 
+// A peek keeps its label but is not a visit; the mark stays put while the
+// reviewer picks the cat.
+async function togglePeek() {
+  if (!current || busy) return;
+  closeSheet();
+  const id = current.id;
+  const data = await post(`/api/review/${id}/peek`, {peek: !current.peek});
+  if (!data.event || eventFromPath() !== id) return;
+  cancelStrips();
+  show(data);
+  snack(`#${id}: ${current.peek ? 'a peek' : 'a visit'}`);
+}
+
 function watch(index) {
   const video = document.getElementById(`v${index}`);
   if (!video.src) video.src = clipUrl(current.clips[index], 'video.mp4');
@@ -369,6 +385,7 @@ function onKey(e) {
   else if (e.key === 'm' && CONFIG.cats.length) label('multiple');
   else if (e.key === 'l') startClean();
   else if (e.key === 'n') label('not_cat');
+  else if (e.key === 'p') togglePeek();
   else if (e.key === 'u') label('unsure');
   else if (e.key === 'z') undo();
   else if (e.key === 'ArrowRight' && WALKING) load();
@@ -392,6 +409,7 @@ export function initReview() {
     undo,
     join,
     restage,
+    peek: togglePeek,
     next: load,
     rescan,
     more: openSheet,

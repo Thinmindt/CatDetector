@@ -158,6 +158,7 @@ def timeline_payload(timeline: Timeline) -> dict[str, Any]:
                 "label": row.label,
                 "box": row.box,
                 "staged": row.staged,
+                "peek": row.peek,
             }
             for row in timeline.rows[:TIMELINE_ROWS_SENT]
         ],
@@ -278,6 +279,15 @@ class ReviewPages:
         self.db.set_poop_counts(event_id, counts)
         return self._event_payload(self.db.get(event_id))
 
+    def set_peek(self, event_id: int) -> ResponseReturnValue:
+        """Mark the event as a peek, or clear the mark."""
+        peek = request_body().get("peek")
+        if not isinstance(peek, bool):
+            return error("peek must be true or false", 400)
+        if not self.db.set_peek(event_id, peek):
+            return no_such_event()
+        return self._event_payload(self.db.get(event_id))
+
     def split(self, event_id: int) -> ResponseReturnValue:
         """A new visit starts at the index-th clip; the rest stay in this event."""
         event = self.db.get(event_id)
@@ -346,6 +356,7 @@ class ReviewPages:
                 "label": event.label,
                 "poops": event.poops,
                 "staged": event.staged._asdict() if event.staged else None,
+                "peek": event.peek,
                 "clips": [
                     {
                         "id": clip.id,
@@ -371,6 +382,7 @@ def create_review_blueprint(review: Review) -> Blueprint:
         ("label", pages.set_label),
         ("stage", pages.stage),
         ("counts", pages.set_counts),
+        ("peek", pages.set_peek),
         ("split", pages.split),
         ("join", pages.join),
     ):
