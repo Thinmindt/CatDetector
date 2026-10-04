@@ -186,6 +186,31 @@ rule carries on in the roadmap.
       - No motion went unrecorded for want of a trigger. Every frame over its run's threshold
         either started a clip or was already in one.
 
+
+Moved 2026-10-03: done.
+
+- [x] **Calibrate with one command, `main.py --calibrate`.** Every new mounting needs its own
+      data run, so the method above is a command anyone reruns, not a script for one Pi. It reads
+      `captures.db` and the metrics CSV, from the run's start (`--since`), and prints the table
+      above with the counts so far (the weather is the reviewer's call) and how many events it
+      left out. Once every measured condition holds it prints the settings, each replayed over
+      the CSV with the visits it would miss (none, or it says so) and its false triggers per lit
+      hour: `MOTION_THRESHOLD` for today's global-count trigger, below every visit's largest
+      foreground count, and A.3's band (`min_cat_area`, `max_cat_area`), its lower edge below the
+      weakest visit's largest blob and its upper edge above the largest, which a cat leaping in
+      or out reaches. It stages the events that need a person's eye, each once and with the
+      question: the same cat seconds apart (one visit split in two?), the weakest visits (a
+      peek?), and `not_cat` events holding a visit-sized blob (a cat after all?), so calibrating
+      happens in the review queue like any labelling. The README's "Calibrating an installation"
+      walks a new installation through it: the data run, labelling, `--calibrate` until it
+      reports done, then the drop-in.
+      **Done means** the command prints the table, the settings and their replay, stages each
+      doubt once, CI runs it on a small synthetic database and CSV whose answer is known, and the
+      README section exists.
+      Done 2026-10-03: as specified. On the run that motivated it (47 million CSV rows, 4 min 49 s
+      on the Pi 5) it counted 126 visits, proposed `MOTION_THRESHOLD=2876` and a band of
+      1,384-111,502 px, both missing no visit, and staged 20 doubts.
+
 ## A.3 Detect a cat-sized thing
 
 Moved 2026-09-26. The split landed as `src/capture/motion_detector.py` (5adcc87, 2026-09-20). The

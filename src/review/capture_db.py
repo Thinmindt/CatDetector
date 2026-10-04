@@ -68,6 +68,12 @@ CREATE TABLE IF NOT EXISTS peek (
     clip_id  INTEGER PRIMARY KEY REFERENCES clip(id),
     noted_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS asked (
+    clip_id  INTEGER NOT NULL REFERENCES clip(id),
+    question TEXT NOT NULL,             -- a key such as 'split'
+    asked_at TEXT NOT NULL,
+    PRIMARY KEY (clip_id, question)
+);
 """
 
 # An event is a peek while every one of its clips carries the mark.
@@ -692,6 +698,31 @@ class CaptureDB:
         staged = sum(self._stage(event_id, staging) for event_id in sorted(wanted))
         self._conn.commit()
         return staged
+
+    @serialized
+    def ask(self, event_id: int, question: str, reason: str, source: str) -> bool:
+        """Stage a labelled event with this question, unless any of its clips was
+        asked it before. One staged already is left as it is, to ask another time.
+        Returns whether it was staged."""
+        clip_ids = self._clip_ids(event_id)
+        stageable = self._labeled_event_ids(None) - self._staged_event_ids()
+        if not clip_ids or event_id not in stageable:
+            return False
+        marks = self._marks(clip_ids)
+        asked = self._conn.execute(
+            f"SELECT 1 FROM asked WHERE question = ? AND clip_id IN ({marks})",  # noqa: S608 -- placeholders, not values
+            (question, *clip_ids),
+        ).fetchone()
+        if asked is not None:
+            return False
+        now = self._now()
+        self._conn.execute(
+            "INSERT INTO asked (clip_id, question, asked_at) VALUES (?, ?, ?)",
+            (clip_ids[0], question, now),
+        )
+        self._stage(event_id, Staging(reason, now, source))
+        self._conn.commit()
+        return True
 
     @serialized
     def timeline_rows(self) -> list[TimelineRow]:

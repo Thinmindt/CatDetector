@@ -96,6 +96,8 @@ uv run python main.py --regroup              # rebuild every event from the curr
                                              # (refused while the service has the database: stop it first)
 uv run python main.py --stage --label not_cat --labeled-before 2026-09-20 --reason "..."
                                              # put labelled events back in the review queue; runs beside the service
+uv run python main.py --calibrate --since 2026-09-16
+                                             # a data run's progress, doubts staged, proposed settings (A.2)
 ```
 
 The web UI is **one Flask app on one port** ([src/web_app.py](src/web_app.py)): a page with a
@@ -377,7 +379,7 @@ problem rather than a venv problem. Rebuild with the two-line recovery above.
 | package | holds | may import |
 |---|---|---|
 | `src/capture/` | everything that touches the camera: `camera_manager`, `motion_detector`, `motion_recorder`, `motion_metrics`, `clip_transfer`, `capture_heartbeat`, `web_streamer` | `picamera2`, `src.clips` |
-| `src/review/` | everything that reads the share and serves the labeler: `clip_scan`, `capture_db`, `event_grouping`, `clip_frames`, `strips_ahead`, `api` | `src.clips`, never `picamera2` |
+| `src/review/` | everything that reads the share and serves the labeler: `clip_scan`, `capture_db`, `event_grouping`, `clip_frames`, `strips_ahead`, `api`, `calibration` | `src.clips`, never `picamera2` |
 | `src/clips/` | what both sides agree a clip is: `format` (suffixes, `partial_name()`, `CAMERA_FPS`, `H264_BITRATE`, `ANALYSIS_SIZE`), `sidecar`, `blob`, `frame` | the standard library and numpy only |
 
 `src/web_app.py` assembles the one Flask app from both sides and `src/logging_setup.py` configures

@@ -114,29 +114,12 @@ visits is weaker than the weakest of the visits before them. False positives are
 hours rather than visits, and any candidate rule can be replayed against the metrics CSV without
 re-recording. Storage is not the constraint (the metrics CSV grows by roughly 150 MB a day).
 **Labelling is**: each day's events have to be kept up with, or the backlog outlives the run.
+`main.py --calibrate` counts the conditions, stages what needs a second look and proposes the
+settings (archive, A.2).
 
 - [ ] **Finish the data run** against the table above.
-      **Done means** every condition holds on one date, recounted from `captures.db` by the
-      method above, and the service's drop-in goes back to the default threshold, or to A.3's
-      band, in the change that ticks this box.
-- [ ] **Calibrate with one command, `main.py --calibrate`.** Every new mounting needs its own
-      data run, so the method above is a command anyone reruns, not a script for one Pi. It reads
-      `captures.db` and the metrics CSV, from the run's start (`--since`), and prints the table
-      above with the counts so far (the weather is the reviewer's call) and how many events it
-      left out. Once every measured condition holds it prints the settings, each replayed over
-      the CSV with the visits it would miss (none, or it says so) and its false triggers per lit
-      hour: `MOTION_THRESHOLD` for today's global-count trigger, below every visit's largest
-      foreground count, and A.3's band (`min_cat_area`, `max_cat_area`), its lower edge below the
-      weakest visit's largest blob and its upper edge above the largest, which a cat leaping in
-      or out reaches. It stages the events that need a person's eye, each once and with the
-      question: the same cat seconds apart (one visit split in two?), the weakest visits (a
-      peek?), and `not_cat` events holding a visit-sized blob (a cat after all?), so calibrating
-      happens in the review queue like any labelling. The README's "Calibrating an installation"
-      walks a new installation through it: the data run, labelling, `--calibrate` until it
-      reports done, then the drop-in.
-      **Done means** the command prints the table, the settings and their replay, stages each
-      doubt once, CI runs it on a small synthetic database and CSV whose answer is known, and the
-      README section exists.
+      **Done means** `--calibrate` reports every condition met, and the service's drop-in takes
+      the threshold it proposes, without `METRICS_CSV`, in the change that ticks this box.
 
 ## A.3 Detect a cat-sized thing, not "some pixels changed"
 

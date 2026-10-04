@@ -7,6 +7,7 @@ import signal
 import sys
 import threading
 import time
+from collections.abc import Iterator
 from types import FrameType
 
 from config import Config
@@ -18,7 +19,8 @@ from src.capture.motion_metrics import MetricsLog
 from src.capture.motion_recorder import MotionRecorder
 from src.capture.web_streamer import WebStreamer
 from src.logging_setup import configure_logging
-from src.review.api import STAGING_SOURCES, Review
+from src.review.api import STAGING_SOURCES, Review, cat_labels
+from src.review.calibration import Settings, calibrate, report
 from src.review.capture_db import CaptureDB, DatabaseInUseError
 from src.review.clip_frames import ClipFrames
 from src.review.strips_ahead import StripsAhead
@@ -245,6 +247,46 @@ def stage_events(args: argparse.Namespace) -> int:
         db.close()
 
 
+def calibrate_installation(args: argparse.Namespace) -> int:
+    """Report the data run, stage what needs a look, and propose the settings.
+    Safe beside the service. Returns the exit status."""
+    metrics = args.metrics or Config.METRICS_CSV
+    if not metrics or not pathlib.Path(metrics).is_file():
+        log.error("--calibrate needs the data run's metrics CSV: --metrics PATH")
+        return 1
+    db = open_db()
+    try:
+        rows = db.timeline_rows()
+    finally:
+        db.close()
+    settings = Settings(
+        cats=Config.CAT_NAMES,
+        cat_labels=cat_labels(Config.CAT_NAMES),
+        dark_brightness=Config.DARK_BRIGHTNESS,
+        motion_timeout=Config.MOTION_TIMEOUT,
+        gap_seconds=Config.EVENT_GAP_SECONDS,
+        motion_threshold=Config.MOTION_THRESHOLD,
+    )
+    result = calibrate(rows, args.since, lambda: lines_of(metrics), settings)
+    db = open_db()
+    try:
+        staged = sum(
+            db.ask(doubt.event_id, doubt.question, doubt.reason, "calibration")
+            for doubt in result.doubts
+        )
+    finally:
+        db.close()
+    lines = report(result)
+    lines.append(f"Staged {staged} event(s) for review; doubts are asked once each.")
+    sys.stdout.write("\n".join(lines) + "\n")
+    return 0
+
+
+def lines_of(path: str) -> Iterator[str]:
+    with pathlib.Path(path).open(encoding="utf-8") as handle:
+        yield from handle
+
+
 def parse_args(argv: list[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="The cat detector and its review page."
@@ -259,6 +301,21 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         "--stage",
         action="store_true",
         help="put labelled events back in the review queue, then exit",
+    )
+    command.add_argument(
+        "--calibrate",
+        action="store_true",
+        help="report the data run and propose the trigger settings, then exit",
+    )
+    calibration = parser.add_argument_group("calibration, with --calibrate")
+    calibration.add_argument(
+        "--since",
+        type=datetime.datetime.fromisoformat,
+        metavar="TIME",
+        help="when the data run started, as ISO time; required",
+    )
+    calibration.add_argument(
+        "--metrics", metavar="PATH", help="its metrics CSV; default METRICS_CSV"
     )
     staging = parser.add_argument_group("staging, with --stage")
     staging.add_argument("--label", help="only events with this label")
@@ -275,7 +332,17 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         _check_staging(parser, args)
     elif _any_staging_option(args):
         parser.error("--label, --labeled-before, --reason and --source need --stage")
+    _check_calibration(parser, args)
     return args
+
+
+def _check_calibration(
+    parser: argparse.ArgumentParser, args: argparse.Namespace
+) -> None:
+    if args.calibrate and args.since is None:
+        parser.error("--calibrate needs --since, the time the data run started")
+    if not args.calibrate and (args.since or args.metrics):
+        parser.error("--since and --metrics need --calibrate")
 
 
 def _any_staging_option(args: argparse.Namespace) -> bool:
@@ -291,7 +358,9 @@ def _check_staging(parser: argparse.ArgumentParser, args: argparse.Namespace) ->
 
 
 def run_command(args: argparse.Namespace) -> int:
-    """Run --regroup or --stage. Returns the exit status."""
+    """Run --regroup, --stage or --calibrate. Returns the exit status."""
+    if args.calibrate:
+        return calibrate_installation(args)
     try:
         if args.regroup:
             log.info("Regrouped: %s", regroup_events())
@@ -306,7 +375,7 @@ def run_command(args: argparse.Namespace) -> int:
 if __name__ == "__main__":
     configure_logging(__name__)
     arguments = parse_args(sys.argv[1:])
-    if arguments.regroup or arguments.stage:
+    if arguments.regroup or arguments.stage or arguments.calibrate:
         sys.exit(run_command(arguments))
     share = pathlib.Path(Config.NETWORK_SHARE_DIR)
     local_clips = pathlib.Path(Config.LOCAL_CLIP_DIR)

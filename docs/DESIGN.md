@@ -424,6 +424,45 @@ synthetic mask (2026-09-11), cleanup plus contours cost about 1.7 ms a frame and
 **A file with a different column layout is never appended to.** Mixing layouts would corrupt the
 CSV, so `MetricsLog` leaves the old file alone, writes to a timestamped sibling and logs a warning.
 
+## Calibration
+
+**A data run ends in one command, `main.py --calibrate`** (2026-10-03, ROADMAP A.2). Every mount
+needs its own numbers, so the counting, the derivation and the replay are code anyone reruns
+rather than an analysis done once by hand; `src/review/calibration.py` holds it, and reads the
+metrics CSV by its header, so it needs nothing from the capture side.
+
+**A visit's strength is the largest blob it reaches**, read from the CSV between its first clip's
+start and its last clip's end, over lit frames. The blob that started a clip is the wrong
+measure: it is set by the threshold the run used, by a head peeking in at the frame's edge, or,
+when a visit is split in two, by a sitting cat's twitch. In the run that motivated this
+(2026-10-03), the smallest starting blob was 29 px, the second half of a split visit, while the
+weakest visit's largest blob was 2,768 px: a grey coat on the litter, whose cleaned blob breaks
+into pieces (18,419 px of foreground around it). A trigger that ignores a peek still fires when
+the whole cat steps in, so what decides recall is whether each visit ever reaches the trigger.
+
+**The proposal leaves a factor of two below the weakest visit**: `MOTION_THRESHOLD` at half its
+largest foreground count, the band's lower edge at half its largest cleaned blob. The band's upper
+edge sits a quarter above the strongest visit, which a cat leaping in or out reaches (about
+26,000 px there; peaks of 30,000 to 89,000 px came with an exposure shift as a cat moved), and
+never above half the frame, which only a lighting change fills. Both are replayed over every lit
+frame of the CSV, as the detector would have run: today's single-frame test, and the band after
+two frames in a row, a clip held open while triggers come within `MOTION_TIMEOUT`. A visit is
+missed if no trigger falls inside it; a clip that starts outside every visit is a false trigger.
+The replay of the run's own threshold (150) gave 1.81 false triggers an hour over 423 lit hours,
+against 1.61 an hour of clips the detector really recorded with no cat in them, so it tracks the
+real detector closely enough to compare settings. The CSV is read twice, once for the peaks and
+once for the replay, rather than held in memory: 47 million rows took under five minutes on a
+Pi 5, about the cost of the two passes.
+
+**Doubts go to the review queue, each once.** The command stages what needs a person's eye, with
+the question, under the source `calibration`: the same cat seconds apart, the weakest visits,
+and `not_cat` events that held a blob the size of a visit (between the weakest visit's peak and
+the 95th percentile of peaks) for as long as nine visits in ten do. The last rule comes from the
+visits rather than a fixed size because people and lighting changes produce visit-sized blobs
+too: a fixed 0.5 s staged 72 events of one run, the visit-derived span 17. An `asked` row, on the
+event's first clip and keyed by the question, stops a rerun asking again once the reviewer has
+answered; an event already staged is left alone and asked another time.
+
 ## Events
 
 **Clips are grouped into events at ingest, by one rule, from the sidecars.** `event_grouping`
