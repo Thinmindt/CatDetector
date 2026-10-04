@@ -93,16 +93,17 @@ mode) count; earlier ones are a different regime. The run stops when every condi
 | **10+ at night under the light** | more sensor gain, more noise: a different regime |
 | **15+ per cat** | a dark cat on dark litter gives a weaker signal than a pale one |
 | **every box used** | a far box covers fewer pixels and may read weaker |
-| **several days of varied weather, one overcast** | lighting changes are a daytime false trigger (A.1) |
+| **several days of varied weather, one overcast**, unless the boxes' own light swamps daylight | lighting changes are a daytime false trigger (A.1) |
 | **the smallest entry blob has stopped dropping over the last ~20 visits** | tuning follows the weakest case |
 
 How each is counted, from `captures.db`: a visit is an event labelled with a cat's name whose
 first clip started on or after the run's start; night is an event starting between 20:00 and
 06:00; the box is the third of the 640-px lores width holding the trigger centroid of the event's
-**first** clip, until C.3 makes boxes configuration; an overcast day is one whose median daytime
-(09:00–17:00) brightness in the metrics CSV is among the run's lowest and whose clips look
-overcast; and the smallest entry blob has stopped dropping when the smallest trigger `clean_area`
-of the last 20 visits equals the smallest of the whole run. False positives are measurable from
+**first** clip, until C.3 makes boxes configuration; the weather comes from whoever runs the
+installation or a weather record, because the metrics CSV's brightness cannot show it (the
+camera's auto-exposure holds it level through the day); and the smallest entry blob has stopped
+dropping when none of the last 20 visits has a trigger `clean_area` below the smallest of the
+visits before them. False positives are measurable from
 hours rather than visits, and any candidate rule can be replayed against the metrics CSV without
 re-recording. Storage is not the constraint (the metrics CSV grows by roughly 150 MB a day).
 **Labelling is**: each day's events have to be kept up with, or the backlog outlives the run.
