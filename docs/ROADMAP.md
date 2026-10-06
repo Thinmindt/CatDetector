@@ -256,8 +256,8 @@ review side takes full frames from the clip itself. What is missing is the crops
 **Model the data as events, not frames.** One visit = one event = one or more clips (A.4) and
 many crops. This is the single most important structural decision in Part B, for two reasons:
 
-- **Labeling cost.** A human labels the *event* once ("that's Cat A"), and the label
-  propagates to every crop from it. Labeling frame-by-frame is 50x the work for the same
+- **Labelling cost.** A human labels the *event* once ("that's Cat A"), and the label
+  propagates to every crop from it. Labelling frame-by-frame is 50x the work for the same
   information.
 - **Honest evaluation.** Crops from one event are near-duplicates. Splitting train/val
   randomly *by crop* leaks the same cat-in-the-same-pose into both sides and inflates

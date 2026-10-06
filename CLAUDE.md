@@ -7,17 +7,24 @@ no prior context and are about to change something on real hardware.
 
 | file | what it holds |
 |---|---|
+| `README.md` | what the project is for, how it works in a minute, and how to install, run, label and calibrate it |
+| `docs/DESIGN.md` | how the system works and why: an overview with diagrams and the thread map, then a section per mechanism with the measurements behind each decision, and a glossary |
 | `docs/ROADMAP.md` | where the project is going, phase by phase, and the open questions — the plan as it stands today |
 | `docs/ROADMAP_ARCHIVE.md` | finished roadmap items and the history behind decisions, under the same section letters |
-| `docs/DESIGN.md` | why the code is shaped the way it is — rationale, measurements, rejected alternatives |
 | `docs/STYLE.md` | how to write code here; a general Python style guide, portable to other repos |
 
-Read `docs/STYLE.md` before writing code and `docs/DESIGN.md` before changing behaviour. This
-file overlaps them deliberately: CLAUDE.md carries the traps you must not fall into, and the
-design doc carries the full reasoning behind each one. The roadmap's section letters (A.2, A.4,
-B.5b, …) are cited by the design doc and the commit messages, and never change: when an item is
-finished, or a passage turns into history, it moves verbatim to the archive under the same letter,
-so the roadmap only ever describes the present plan.
+Each fact has one home, where a reader would look for it: how the system works and why is in
+DESIGN.md, the plan in the roadmap, installing and using it in the README. This file holds what
+is its own: how to work here, and the traps, each in a line or two with a pointer to the DESIGN.md
+section that holds its reasoning. Read the top of DESIGN.md (Goal, The system at a glance,
+Threads and locks) before changing anything, `docs/STYLE.md` before writing code, and the
+DESIGN.md section that owns a behaviour before changing it. Event, visit, sidecar, tile, peek and
+the project's other words mean what DESIGN.md's glossary says.
+
+The roadmap's section letters (A.2, A.4, B.5b, …) are cited by the design doc and the commit
+messages, and never change: when an item is finished, or a passage turns into history, it moves
+verbatim to the archive under the same letter, so the roadmap only ever describes the present
+plan.
 
 Anything else in `docs/` is **gitignored** (`docs/TODO.md`, if present, is a maintainer's own
 to-do list, open items only, and `docs/TODO_ARCHIVE.md` holds the finished ones), as is
@@ -60,11 +67,6 @@ The recordings directory, `NETWORK_SHARE_DIR` (default `/mnt/nas`), is typically
 network share. That matters more than it sounds: writes can fail with a plain `OSError`, the
 mount can be absent at boot, and SQLite must never live there (roadmap B.2).
 
-**Clips are not written to the share directly.** `MotionRecorder` writes to
-`LOCAL_CLIP_DIR` (`.clip_cache`) and `ClipTransfer` ships finished clips across on its own
-thread. So the capture and encoder threads never touch the network, recording keeps working
-through an outage of the share, and a clip only appears on the share once it is complete.
-
 **A CIFS share should be mounted `soft`**, which is the CIFS default and so often not written
 in fstab (the README's section on the share has the details). Since clips are staged locally, a
 `hard` mount stalls the transfer and review threads rather than the camera, but do not switch a
@@ -100,67 +102,13 @@ uv run python main.py --calibrate --since 2026-09-16
                                              # a data run's progress, doubts staged, proposed settings (A.2)
 ```
 
-The web UI is **one Flask app on one port** ([src/web_app.py](src/web_app.py)): a page with a
-Live tab, a Review tab and a Timeline tab, built from `src/templates/app.html`. Its script is
-ES modules loaded with no build step: `app.js` switches tabs, `live.js`, `review.js` and
-`timeline.js` are one per tab, and `common.js` is shared. The template passes its settings as a
-JSON block (`id="config"`), and buttons carry `data-action`, never `onclick`: modules expose no
-globals. d3, which draws the timeline's strips, is committed under `src/static/vendor/` from the
-exact version `package.json` pins; after a version bump run `npm run vendor`, and a gate fails if
-the copy drifts. `main.py` is the only entry
-point, so the Review tab is up whenever the detector is. The review half ingests
-`$NETWORK_SHARE_DIR/captures/*.h264` into a local SQLite DB (`DB_PATH`, default `captures.db` —
-local disk, never the share) and serves a keyboard-driven cat/not-cat labeler; frame extraction
-shells out to ffmpeg because cv2.VideoCapture cannot seek raw elementary streams.
+`uv run` targets the project venv directly, so activating it is unnecessary.
 
-Ingest reads each clip's sidecar and groups clips into **events** (one visit, one or more clips)
-with the rule in `src/review/event_grouping.py`, tuned by `EVENT_GAP_SECONDS` and
-`EVENT_BOX_DISTANCE_PX`. Event ids are stable across rescans. `uv run python main.py --regroup`
-rebuilds every event from the current thresholds: ids change, labels follow their clips. A
-`captures.db` from before grouping is refused at startup; move it aside and re-ingest.
+To put an event in front of the maintainer for a second look, stage it: `main.py --stage` from
+the command line, or `POST /api/review/<event id>/stage` with a `reason` and `"source": "agent"`.
+It keeps its label and waits in the review queue with the reason beside it.
 
-The review page shows every clip of an event and lets the reviewer split an event at a clip or
-join it with the next; those are stored as overrides on the clips (`boundary`, `joins`) and
-survive a `regroup`. `/review?filter=multi` walks the multi-clip events; `?filter=labeled` or
-`?filter=<label>` walks the events already labelled, for auditing and relabelling. The default
-walk is the **review queue**: every unlabelled event plus every **staged** one, a labelled event put
-back with a reason (`main.py --stage`, or `POST /api/review/<event>/stage` from an agent) that
-keeps its label until a label press confirms or replaces it. A staging row is stored against the
-event's first clip, like the poop counts, so it survives a `regroup`. The address
-carries the event and the walk (`/review/<event id>?filter=<walk>`), so a reload, Back or a pasted
-link lands on the same event, and one route, `/api/review/next?filter=&after=`, serves every
-walk. Each clip is shown as a grid of tiles spanning the whole file, cut client-side from its
-cached strip image: one per second up to `MAX_TILES`, sparser beyond that (`tile_seconds`), the
-offset drawn into each tile. The stride is derived from the clip's keyframe count, **not** from the sidecar: the
-file starts up to `buffer_seconds` before the sidecar's `started_at` (the ring-buffer pre-roll).
-Extraction decodes **keyframes only**, and the recorder pins one keyframe per second
-(`iperiod=CAMERA_FPS`): change either and the tiles land on the wrong seconds. One decode
-yields the strip and the full frames behind its tiles; the strip is published last, so its
-presence means the set is complete. `StripsAhead` builds the strips of the next 30 queued
-events on one reniced thread after every change to the queue and every ten minutes, so the page's
-request is normally a cache hit; a request for a strip being built waits for that build. "Watch" remuxes the clip to MP4 on demand into
-`.review_cache`; that cache is keyed by **clip** id (`clip<id>*`), never by event id, because
-event ids change on a regroup; the media URLs name the clip for the same reason
-(`/review/clip/<clip id>/...`). Labels include `clean`, which records a litter cleaning and the
-poop count per box (`poop_count` table, roadmap B.5b). A **peek**, a cat that looks in and uses
-no box, keeps its cat label and is marked beside it (`peek` table, a row per clip; the `p` key).
-It is not a visit: A.2's counts and B.4's habit rule leave it out, while the timeline and the
-progress line count events by label and show the mark.
-
-`METRICS_CSV` turns on the instrumentation for roadmap A.2. Point it at **local disk**, never at
-the share: one row per frame at 30 fps is the small-write pattern CIFS handles worst. Rows are
-written off the capture thread and dropped rather than queued without bound, so the count of
-dropped rows is reported at shutdown.
-
-`CaptureDB` is one SQLite connection shared by Flask's request threads, so its public methods run
-under an `RLock` (`@serialized`). Anything that touches the share must stay **outside** that
-lock: a stalled CIFS mount would otherwise freeze every review request behind it. The glob and
-the sidecar reads live in `src/review/clip_scan.py`, which has no lock to hold; `ingest` calls it
-unlocked and takes the lock only to insert what it found. Keep share I/O in that module. Every
-`CaptureDB` also holds a shared `flock` on `<database>.lock` while it is open, and `regroup` needs
-it exclusive, so `--regroup` refuses to run beside the service rather than renumber events under a
-page that holds their ids. Never open the database file itself for a lock: closing any descriptor
-of it drops SQLite's own POSIX locks.
+## Gates
 
 **Every gate must pass before every commit**: the privacy check, shellcheck, codespell, lint,
 format check, type check, the JavaScript lint, the vendored-d3 check, tests. `scripts/check.sh` runs them, and
@@ -191,8 +139,6 @@ other walks work too, `--event <id>` opens one event as a link would, and `--pat
 address, the timeline's included. Run it and read the
 images before calling a page change done. Flask caches templates once rendered, so a server
 started before an edit serves the old page: restart it.
-
-`uv run` targets the project venv directly, so activating it is unnecessary.
 
 ## Working on the Pi
 
@@ -372,153 +318,102 @@ packages just disappear from `sys.path`. System site packages still resolve, so 
 imports fine and only the PyPI deps like `cv2` go missing, which makes it look like a dependency
 problem rather than a venv problem. Rebuild with the two-line recovery above.
 
-## Architecture
-
-`src/` is three packages and the two modules that join them:
-
-| package | holds | may import |
-|---|---|---|
-| `src/capture/` | everything that touches the camera: `camera_manager`, `motion_detector`, `motion_recorder`, `motion_metrics`, `clip_transfer`, `capture_heartbeat`, `web_streamer` | `picamera2`, `src.clips` |
-| `src/review/` | everything that reads the share and serves the labeler: `clip_scan`, `capture_db`, `event_grouping`, `clip_frames`, `strips_ahead`, `api`, `calibration` | `src.clips`, never `picamera2` |
-| `src/clips/` | what both sides agree a clip is: `format` (suffixes, `partial_name()`, `CAMERA_FPS`, `H264_BITRATE`, `ANALYSIS_SIZE`), `sidecar`, `blob`, `frame` | the standard library and numpy only |
-
-`src/web_app.py` assembles the one Flask app from both sides and `src/logging_setup.py` configures
-logging for `main.py`. The two sides share no objects: the contract between them is a clip and its
-sidecar on the share. **`picamera2` is banned outside `src/capture/`** by ruff's `banned-api`
-rule (`TID251`), so the review side stays importable on a machine with no camera stack; do not
-add a per-file ignore to get round it. Nothing under `src/` reads `Config`: `main.py` reads it
-and passes settings down.
-
-One camera, several consumers. `picamera2` allows a single `Picamera2` instance per process, so
-[src/capture/camera_manager.py](src/capture/camera_manager.py) owns it and everything else
-borrows via `get_camera()`. It also defines the `FrameConsumer` alias.
-
-**Frame fan-out.** `CameraManager` configures two streams — `main` at 1280x720 for
-display/recording and `lores` at 640x480 for cheap analysis. Components call `add_consumer(fn)` to
-register a `fn(main_frame, lores_frame)` callback; a single background thread
-(`_distribute_frames`) takes **one** `capture_arrays(["main", "lores"])` under `_frame_lock`, then
-invokes every consumer **synchronously, in order** outside the lock. The lock covers capture only,
-and there is no sleep — `capture_arrays` blocks until the next frame, pacing the loop at ~30 fps.
-
-Use `capture_arrays`, never two `capture_array` calls: those consume two *separate* libcamera
-requests, so the frames would be different exposures ~33 ms apart and the loop would run at half
-rate (measured 15 fps vs 30 fps). It returns `(arrays, metadata)`, not a bare list.
-
-Consumers run on the capture thread, so a slow or blocking consumer throttles the loop and every
-other consumer. **Copy anything you retain, return fast, hand real work to your own thread.**
-Consumer exceptions are caught and logged per frame, so a broken consumer fails loudly without
-stopping the loop.
-
-**Two independent video paths.** The consumer fan-out is *not* how video gets recorded.
-[src/capture/motion_recorder.py](src/capture/motion_recorder.py) reaches through `camera_manager.get_camera()` and
-drives picamera2's own encoder pipeline: an `H264Encoder` writes continuously into a
-`CircularOutput`. Recording is diverted to a file when motion starts
-(`_ResilientCircularOutput.begin(<local .part path>)`: from the next frame on, the file starts
-at the ring's **oldest** keyframe and the ring drains one frame per frame) and back to buffering
-only when it stops (`.stop()`).
-
-So the recorder uses the consumer callback only for *detection*, which it delegates to
-[src/capture/motion_detector.py](src/capture/motion_detector.py) (MOG2 on the `lores` frame,
-thresholded on `countNonZero`, gated by warmup and brightness), while the bytes flow through
-picamera2's encoder. The detector holds the background model and the last blob and knows nothing
-about clips; the recorder takes one in its constructor and turns its answer into a clip
-lifecycle. Detection tests need only `StubSubtractor`; recorder tests need the camera fakes. Changing frame
-distribution does not change what is recorded, and vice versa.
-
-**Clips reach the share in two stages.** The recorder writes `<clip>.h264.part` to local disk
-and renames it to `<clip>.h264` when the file closes. [src/capture/clip_transfer.py](src/capture/clip_transfer.py)
-scans for those finished names every 60 s, copies each to `<clip>.h264.part` on the share, then
-renames *within* the share. Both renames are same-filesystem and therefore atomic, so no reader
-ever sees a final-named clip that is still growing — which is what keeps the review server from
-ingesting a half-written file. Do not replace either step with `shutil.move`: across filesystems
-it degrades to copy-then-delete and exposes the final name immediately. The scan is stateless,
-so finished clips stranded by a crash ship on the next pass. A clip cut off mid-write, by a crash
-or a power cut, is left as `<clip>.h264.part`. The recorder gives it its final name at startup so
-it ships too. It decodes up to the cut, and ffmpeg's error about its last, partial frame is
-expected.
-
-**Every finished clip has a sidecar**, `<clip>.h264.json`, holding what the raw stream cannot:
-start and end time, the blob that triggered it, the blob on its last motion frame, and why it
-closed. Event grouping (roadmap A.4) is computed from sidecars, so two orderings are load-bearing:
-the recorder writes the sidecar *before* the clip takes its final name, and `ClipTransfer` copies
-the sidecar *before* the clip. Do not reorder either. A clip with no sidecar means it was cut off
-by a crash; that is expected, not a bug.
-
-**Web stream.** [src/capture/web_streamer.py](src/capture/web_streamer.py) is another consumer: it keeps the
-newest `main` frame under a lock, optionally annotates it with recorder status via OpenCV, and
-serves it as MJPEG at `/video_feed` with JSON status at `/api/status`, as a blueprint on the one
-Flask app from [src/web_app.py](src/web_app.py). The page at `/` and `/review` is the same
-template with a different tab active; leaving the Live tab drops the `<img>` source so a hidden
-tab does not hold an MJPEG connection open. [main.py](main.py) runs the app in a daemon thread;
-`monitor()` on the main thread starts frame distribution and blocks until
-Ctrl-C or SIGTERM (which `systemctl stop` sends), or until no frame has arrived for 10 s,
-when it shuts down the same way and exits 1 so systemd restarts it (roadmap A.6); a timer
-forces that exit after 60 s, since picamera2's `atexit` close can wait on a wedged camera forever. If
-`CAPTURE_HEARTBEAT_URL` is set, `CaptureHeartbeat` GETs it once a minute from its own thread while
-frames arrive; the check that watches it lives outside this project, and nothing requires one.
-Never log that URL: it is a secret. `WebStreamer` takes `motion_recorder` as an optional dependency and degrades to a bare
-feed when it is `None`.
-
 ## Traps
 
-Each of these was a real bug. The reasoning is in `docs/DESIGN.md`.
+Each of these was a real bug or a near miss. The line here is the rule; the reasoning, the
+measurement and the failure are in the DESIGN.md section named after it.
 
-- **The camera is shared, so the recorder must not stop it.** `Picamera2.stop_recording()` calls
-  `stop()` on the camera itself, cutting off every other consumer. `MotionRecorder.cleanup()`
-  calls `stop_encoder(self.encoder)` — only the encoder is the recorder's to stop.
-- **Nothing may raise out of the thread that writes clip bytes.** Which thread that is depends
-  on the encoder picamera2 picks:
-  - **Pi 5** (`Platform.PISP`, the tested platform): there is no hardware H.264
-    encoder, so `H264Encoder` is `LibavH264Encoder`. Bytes are written on the **camera event-loop
-    thread** (`NullPreview.thread_func` → `process_requests` → `encoder.encode` → `_encode` →
-    `outputframe`); `handle_request` logs and re-raises, so an exception ends the event loop and
-    every `capture_arrays()` hangs. The encode and each write also run synchronously there, so
-    a slow write stalls capture directly. The final flush in `stop_encoder` runs on the caller.
-  - **Pi 4 and older** (`Platform.VC4`): `H264Encoder` is the V4L2 hardware encoder and bytes
-    are written on `V4L2Encoder.thread_poll`, the only thread that returns camera buffers and
-    refills `buf_available`; killing it makes `_encode` block forever on the event loop.
+**Capture** (DESIGN.md: Threads and locks, Capturing frames, Recording and shipping a clip,
+Running as a service):
 
-  Either way the result is a silent, total freeze. `_ResilientCircularOutput` contains both
-  known ways out: `OSError` from `_write`, and the `IndexError` from `outputframe` when `stop()`
-  drains the ring between a frame's append and its `popleft`. The Pi 5 chain is traced from the
-  picamera2 source; roadmap C.1 still wants it confirmed by a stack trace.
+- **The camera is shared, so the recorder must not stop it.** `MotionRecorder.cleanup()` calls
+  `stop_encoder(self.encoder)`; `Picamera2.stop_recording()` would stop the camera under every
+  other consumer.
+- **Nothing may raise out of the thread that writes clip bytes**: picamera2's camera event loop
+  on a Pi 5 (`LibavH264Encoder`), `V4L2Encoder.thread_poll` on a Pi 4. Either way an exception
+  freezes capture silently and for good. `_ResilientCircularOutput` contains the two known ways
+  out, `OSError` from `_write` and the `IndexError` from `outputframe` racing `stop()`; anything
+  new that writes clip bytes needs the same care. Roadmap C.1 still wants the Pi 5 path
+  confirmed by a stack trace.
+- **One `capture_arrays(["main", "lores"])` per frame, never two `capture_array` calls**: two
+  calls take two libcamera requests, frames ~33 ms apart, and halve the rate to 15 fps. It returns
+  `(arrays, metadata)`, not a bare list. There is no sleep in the loop; the capture paces it.
+- **Consumers run on the capture thread.** Copy anything you keep, return fast, hand real work to
+  a thread of your own. A slow consumer throttles every other one, and one that blocks for 10 s
+  restarts the process.
 - **Never yield while holding a lock the capture thread needs.** A suspended generator keeps its
-  context manager, so one slow MJPEG viewer used to block frame distribution — and therefore
-  motion detection — indefinitely.
-- **`stop()` empties the ring buffer**, so pre-motion footage is bounded by the gap since the last
-  clip ended, not by `buffer_seconds`. Draining also writes the whole buffer to disk, which is why
-  it runs on its own thread; it holds the output's lock while it does, and on a Pi 5 the event
-  loop needs that lock for the next frame, so the drain must go to local disk.
-- **Durations use `time.monotonic()`.** A Pi without an RTC battery boots with a
-  stale clock; an NTP step on a wall
-  clock would hold a clip open by the size of the jump.
-- **Shut down the producer first.** `stop_frame_distribution()` before `recorder.cleanup()`;
-  the other order races the capture thread.
-- **MOG2 calls the whole first frame foreground**, which triggered a clip on every startup.
-  `warmup_frames` suppresses detection while the model trains.
-- Clips are raw `.h264` elementary streams, not MP4. They decode fine but have no duration and
-  cannot seek. Remux with `ffmpeg -i clip.h264 -c copy clip.mp4` if that matters.
+  context manager: one slow MJPEG viewer used to stop motion detection.
+- **The ring's drain goes to local disk.** `stop()` writes out the whole ring, on its own thread
+  but holding the output's lock, which a Pi 5's event loop needs for the next frame. It also
+  empties the ring, so pre-roll is bounded by the gap since the last clip, not `buffer_seconds`.
+- **Shut down the producer first**: `stop_frame_distribution()` before `recorder.cleanup()`; the
+  other order races the capture thread.
+- **A self-exit needs its own deadline.** The stall exit arms an `os._exit` after 60 s, because
+  picamera2's `atexit` close can wait on a wedged camera forever, and systemd only kills a
+  process it is stopping.
+- **The heartbeat URL is a secret.** Never log it, and never log an exception's text where it
+  could appear: describe a failure by its status or its type.
+- **Durations use `time.monotonic()`.** A Pi with no RTC battery steps its clock after boot.
+- **MOG2 calls the whole first frame foreground**; `warmup_frames` is what stops a clip at every
+  start.
+
+**Clips and the share** (DESIGN.md: Recording and shipping a clip):
+
+- **Nothing on the capture side writes to the share.** Clips, the ring's drain and the metrics
+  CSV go to local disk; `ClipTransfer` ships clips from its own thread. One row per frame at
+  30 fps is the small-write pattern CIFS handles worst.
+- **A clip reaches the share by two renames**: `.part` to its final name on local disk, then a
+  copy to `.part` on the share and a rename there. Never `shutil.move` across filesystems: it
+  degrades to copy-then-delete and shows the final name before the bytes are all there.
+- **The sidecar goes first**: written before the clip takes its final name, copied before the
+  clip. Do not reorder either. A clip with no sidecar was cut off by a crash; that is expected.
+- Clips are raw `.h264` elementary streams, not MP4: no duration, no seeking. Remux with
+  `ffmpeg -i clip.h264 -c copy clip.mp4` if that matters.
+
+**The review side** (DESIGN.md: Threads and locks, From clips to events, Showing a clip, The
+review page):
+
+- **Share I/O stays outside `CaptureDB`'s lock**, in `src/review/clip_scan.py`, which holds no
+  lock. Under the lock, a stalled CIFS mount would freeze every review request.
+- **Never open the database file itself for a lock**: closing any descriptor of it drops
+  SQLite's own POSIX locks. The cross-process lock is a `flock` on `<database>.lock`, shared by
+  every open `CaptureDB`, which is why `--regroup` refuses to run beside the service.
+- **Event ids change on a regroup; clip ids never do.** Anything that must survive a regroup is
+  keyed by clip: the cache files (`clip<id>*`), the media URLs (`/review/clip/<clip id>/...`),
+  staging rows, poop counts and peeks.
+- **The tiles assume one keyframe a second.** The recorder pins `iperiod=CAMERA_FPS`, extraction
+  decodes keyframes only, and the stride comes from the keyframe count, not the sidecar (the file
+  starts up to `buffer_seconds` before the sidecar's `started_at`). Change any of these and the
+  tiles land on the wrong seconds.
+- **A strip's presence means its frames are complete**: the frames are published first and the
+  strip last, each by rename.
+- **The page's modules expose no globals.** Settings arrive in the JSON block (`id="config"`),
+  and buttons carry `data-action`, never `onclick`. d3 is committed under `src/static/vendor/`
+  from the version `package.json` pins: after a bump, run `npm run vendor`.
+
+**The code's shape** (DESIGN.md: The system at a glance):
+
+- **`picamera2` is banned outside `src/capture/`** by ruff's `banned-api` rule (`TID251`), so the
+  review side imports on a machine with no camera stack. Do not add a per-file ignore to get
+  round it.
+- **Nothing under `src/` reads `Config`**: `main.py` reads it and passes settings down.
 
 ## Known weaknesses
 
-Not bugs, but do not mistake them for correct:
+Not bugs, but do not mistake them for correct (DESIGN.md: Detecting motion):
 
-- Detection is a **global pixel count**. Excluding shadows (DESIGN.md, Detecting motion) does not make
-  it good — only honest.
-- No spatial coherence: scattered noise and one solid cat-sized blob are indistinguishable.
-  The largest blob is logged, both raw and after cleanup, but nothing yet *triggers* on it —
-  that is A.3.
-- A cat that settles is absorbed into the background in roughly `history` frames (~17 s at the
-  default), so recording can stop mid-visit. That is acceptable because clips are linked into one
-  event (roadmap A.4), though the grouping thresholds are still starting guesses.
-- **The camera needs light.** The supported camera is the IR-filtered Camera Module 3
-  (libcamera reports `imx708`, not `imx708_noir`; roadmap C.1), so an unlit room is black to it,
-  and the boxes must be lit around the clock; lit, nights record like days. Motion is still ignored while the analysis frame's
-  mean grey level is below `DARK_BRIGHTNESS` (default 10), because in a dark room sensor speckle
-  alone records black video nonstop. If the light fails, that gate is what stops the waste, and the
-  gap it leaves is fixed by restoring the light, not by tuning the threshold.
-- The web stream has **no authentication** and runs on Flask's dev server. LAN-only by design;
-  see the README's Security section.
+- **Detection is a global pixel count**, with no spatial coherence: scattered noise and one solid
+  cat-sized blob look the same. Excluding shadows makes it honest, not good. The cleaned blob is
+  measured and logged on every frame, but nothing triggers on it yet; that is A.3.
+- **A cat that settles fades into the background** in roughly `MOG2_HISTORY` frames (~17 s at
+  the default), so recording can stop mid-visit. That is acceptable because clips are grouped
+  into one event (A.4), though the grouping thresholds are still starting guesses.
+- **The camera needs light.** The supported camera is the IR-filtered Camera Module 3 (libcamera
+  reports `imx708`, not `imx708_noir`; roadmap C.1), so the boxes must be lit around the clock.
+  The dark gate (`DARK_BRIGHTNESS`) stops black clips when the light fails; restoring the light,
+  not tuning the threshold, is what closes the gap.
+- The web page has **no authentication** and runs on Flask's dev server. LAN-only by design; see
+  the README's Security section.
 
 Fixing these is roadmap part A, and it starts with instrumentation rather than tuning: A.2
-measures what a cat is worth in pixels for one mounting before any threshold moves.
+measures what a cat is worth in pixels for one installation before any threshold moves.

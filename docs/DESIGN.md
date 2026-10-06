@@ -72,6 +72,15 @@ and `ClipTransfer` ships them on its own thread, so the camera never waits on th
 recording survives an outage of the share. Each half keeps its own state on local disk, the clip
 cache on one side and the database and frame cache on the other; the share holds only the clips.
 
+The code follows the same split. `src/web_app.py` assembles the one Flask app from both halves,
+`src/logging_setup.py` configures logging, and `main.py` is the only entry point.
+
+| package | holds | may import |
+|---|---|---|
+| `src/capture/` | everything that touches the camera: `camera_manager`, `motion_detector`, `motion_recorder`, `motion_metrics`, `clip_transfer`, `capture_heartbeat`, `web_streamer` | `picamera2`, `src.clips` |
+| `src/review/` | everything that reads the share and serves the labeler: `clip_scan`, `capture_db`, `event_grouping`, `clip_frames`, `strips_ahead`, `timeline`, `api`, `calibration` | `src.clips`, never `picamera2` |
+| `src/clips/` | what both sides agree a clip is: `format` (suffixes, `partial_name()`, `CAMERA_FPS`, `H264_BITRATE`, `ANALYSIS_SIZE`), `sidecar`, `blob`, `frame` | the standard library and numpy only |
+
 **The local clip cache is sized for a long outage of the share.** Clips accumulate on local
 disk while the share is away and ship when it returns, where an in-memory buffer would fill
 and drop footage. Clip data arrives at `H264_BITRATE / 8` bytes a second, 1.25 MB/s at the
@@ -135,7 +144,7 @@ each rule there.
 | metrics writer (`MetricsLog`) | rows off a bounded queue into the CSV | — | block the capture thread: a full queue drops the row |
 | `ClipTransfer` | every 60 s, copy finished clips to the share, sidecar first | — | nothing; it is the one capture-side thread that may block on the share |
 | `CaptureHeartbeat` | one GET a minute, 10 s timeout, while the last frame is under 10 s old | — | log the URL |
-| Flask request threads (`threaded=True`) | the pages, the review API, and one `generate_frames` generator per live viewer | `CaptureDB._lock`, through `@serialized`; a per-clip build lock in `ClipFrames` | hold `CaptureDB._lock` while reading the share; hold `WebStreamer.frame_lock` across a `yield` |
+| Flask request threads (`threaded=True`) | the pages, the review API, and one `generate_frames` generator per live viewer | `CaptureDB._lock`, an `RLock` around its one SQLite connection, through `@serialized`; a per-clip build lock in `ClipFrames` | hold `CaptureDB._lock` while reading the share; hold `WebStreamer.frame_lock` across a `yield` |
 | `startup-ingest` | one scan of the share when the process starts | `CaptureDB._lock` only to insert what the scan found | — |
 | `strips-ahead`, reniced to 10 | the strips of the next 30 queued events, one clip at a time | `CaptureDB._lock` to read the queue; the clip's build lock | hold the database lock while ffmpeg runs |
 | stall deadline (`threading.Timer`) | `os._exit(1)` 60 s after a stall, if the cleanup has not finished | — | — |
@@ -221,7 +230,8 @@ seconds before the scan lands; `rescan` covers a reviewer who beats it.
 `CameraManager` configures two streams from the one sensor: `main` at 1280x720 for the recording
 and the live view, `lores` at 640x480 (`ANALYSIS_SIZE`) for detection, from the full array binned
 2x2. One blocking `capture_arrays` call a frame returns both, which paces the loop at the sensor's
-~30 fps, and the consumers run one after another on that thread.
+~30 fps, and the consumers, registered with `add_consumer`, run one after another on that
+thread.
 
 **One `Picamera2` per process.** picamera2 allows only one instance, so `CameraManager` owns it
 and everything else borrows via `get_camera()`.
@@ -353,6 +363,11 @@ within one filesystem, and only a final name means complete: that holds on local
 recorder writes, and again on the share, where `ClipTransfer` copies to. The facts the raw stream
 cannot carry, when the clip started and ended, where the cat was and why the clip closed, travel in
 a sidecar that is written before the clip takes its final name and copied before it.
+`MotionRecorder` diverts the ring with `_ResilientCircularOutput.begin(<.part path>)`: from the
+next frame on, the file starts at the ring's oldest keyframe and the ring drains a frame for
+every frame that arrives, until `stop()` writes out what remains. `ClipTransfer`'s scan is
+stateless: each pass ships whatever finished clips it finds, so one stranded by a crash ships on
+the next.
 
 ```mermaid
 stateDiagram-v2
@@ -870,14 +885,15 @@ advertised either way.
 
 ## The review page
 
-One Flask app on one port serves one template with three tabs: Live, the MJPEG feed and the
-recorder's status; Review, the labeler; and Timeline, brushable strips of counts by day and hour.
+One Flask app on one port serves one template (`src/templates/app.html`) with three tabs: Live,
+the MJPEG feed (`/video_feed`) and the recorder's status (`/api/status`); Review, the labeler;
+and Timeline, brushable strips of counts by day and hour.
 The script is ES modules with no build step, one per tab plus `common.js`. The server owns every
 rule that would otherwise exist twice, such as the timeline's filter; the browser owns position,
 which lives in the address, and the undo history. A change to the page is checked by looking at
 it: `tests/manual/check_page.py` screenshots it at a phone's size and a laptop's.
 
-**Single-page UI.** Labeling navigates no pages — next event and images are fetched and swapped
+**Single-page UI.** Labelling navigates no pages — next event and images are fetched and swapped
 in place — so the undo history can live in a JS array rather than sessionStorage, and labelling
 is one keypress with no page load between events.
 
