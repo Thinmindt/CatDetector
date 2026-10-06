@@ -285,7 +285,7 @@ key is the event, so an event holds one label: model predictions (B.6) need a ke
 - [ ] The DB is the only thing that is hard to recreate, so it is the thing to back up.
       **Done means** the service writes a consistent copy of `captures.db` (SQLite's backup API,
       not a file copy) to a configurable destination on a schedule, a test restores one and reads
-      back its labels, and the README's Configuration section says where the copy goes and how to
+      back its labels, and the README's Settings section says where the copy goes and how to
       restore it. A finished copy on the share is fine; the live database never is.
 - [ ] Watch SD-card wear: many small writes. Batch inserts per event rather than per frame.
       **Done means** the bytes written to the SD card in 24 h of normal running are measured
@@ -379,16 +379,7 @@ cleaning gives the bowel signal statistically — a cat whose visits hold steady
 fall is the case worth flagging. Counts cannot be reconstructed from old footage, so every
 cleaning should carry one.
 
-The convention, so the record stays readable:
-
-- One signal **per box**, held **over that box**, palm toward the camera.
-- **A closed fist means zero.** Absence of a signal must mean "forgot", not "none", or the data
-  silently gains zeros.
-- Hold for **about three seconds**. The review strip samples one frame a second, so a brief flash
-  can fall between samples; three seconds guarantees a frame and lets the reviewer pick a clear one.
-- Signal **while the scooping clip is still recording** (during or right after the scoop of that
-  box), so it is inside a clip rather than in the gap after the motion timeout.
-- More than five: hold up a hand twice, or use both hands.
+The convention, with the reason for each rule, is in the README (Labelling visits, Cleanings).
 
 - [ ] A view over time of counts per box, beside visit frequency per cat (B.6).
       **Done means** B.6's timeline filtered to `clean` shows each cleaning's counts per box, a

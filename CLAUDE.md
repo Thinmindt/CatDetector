@@ -66,7 +66,7 @@ thread. So the capture and encoder threads never touch the network, recording ke
 through an outage of the share, and a clip only appears on the share once it is complete.
 
 **A CIFS share should be mounted `soft`**, which is the CIFS default and so often not written
-in fstab (the README's Configuration section has the details). Since clips are staged locally, a
+in fstab (the README's section on the share has the details). Since clips are staged locally, a
 `hard` mount stalls the transfer and review threads rather than the camera, but do not switch a
 share to `hard`: it reads like a robustness improvement and is the exact opposite.
 

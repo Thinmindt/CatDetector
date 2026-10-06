@@ -1,141 +1,203 @@
 # Cat Detector
 
-Raspberry Pi camera monitor: motion-triggered recording plus a live MJPEG web stream.
+Cats hide being unwell. Often the first sign of a bowel or urinary problem is a change in how a
+cat uses the litter box: how often it goes, and how long it stays.
+
+Cat Detector is a Raspberry Pi camera mounted over the litter boxes. It records every visit, and
+a review page lets you name the cat that made each one with a single key or tap. Each cat's
+habits end up on record, so a change can be seen rather than guessed at.
+
+## How it works
+
+```mermaid
+flowchart LR
+  cam["Camera over<br>the boxes"] --> pi["Pi records<br>each visit"]
+  pi --> share[("Share")]
+  share --> review["Review page:<br>you name the cat"]
+  review --> record["Each cat's<br>record"]
+  record -.-> later["Planned: alerts,<br>and a model that<br>names the cat"]
+```
+
+1. **The Pi watches** the boxes through a fixed overhead camera and keeps the last few seconds in
+   memory. When something moves, it starts a clip that begins a few seconds before the motion.
+2. **Clips go to local disk first**, then to a share on their own schedule. Recording never waits
+   on the network, and carries on while the share is away.
+3. **Clips are grouped into visits.** A cat that sits still stops looking like motion, so one
+   visit can arrive as several clips. The review side reads the clips on the share, groups them by
+   time and place, and shows each visit as a grid of stills you can label at a glance.
+4. **You name the cat**, mark a peek or a litter cleaning, and the timeline shows each cat's
+   visits by day and by hour.
+
+It would rather record a sunbeam than miss a visit. A missed visit is a gap in a cat's record, and
+a gap looks like the very change this project exists to catch; an extra clip costs a keypress.
+
+**What it does not do yet:** it does not recognise the cats by itself (you name each visit), it
+does not alert you when a cat's habits change, and its trigger counts changed pixels rather than
+looking for something cat-sized. Each is a step in [the roadmap](docs/ROADMAP.md).
+
+### Where to read next
+
+| you want to | read |
+|---|---|
+| set it up | [What you need](#what-you-need) and [Install](#install), below |
+| label visits | [Labelling visits](#labelling-visits) |
+| tune it for your camera and cats | [Calibrating a new mount](#calibrating-a-new-mount) |
+| understand how it works, and why | [docs/DESIGN.md](docs/DESIGN.md): five minutes for the shape, then section by section |
+| change the code | [docs/DESIGN.md](docs/DESIGN.md), then [docs/STYLE.md](docs/STYLE.md) and the traps in [CLAUDE.md](CLAUDE.md) |
+| see what is planned | [docs/ROADMAP.md](docs/ROADMAP.md) |
 
 ## What you need
 
-- **A camera fixed overhead**, pointing straight down at the litter boxes.
+- **A camera fixed overhead**, pointing straight down at the litter boxes. Because it never
+  moves, a cat is always about the same size in the picture.
 - **The boxes lit around the clock.** The camera cannot see in the dark, and a visit it cannot see
-  is not recorded. Keep it constant: a light that switches on with motion leaves the moments
-  before it dark, and switching on changes the whole frame at once.
-- **Hardware the camera code supports.** Today that is one implementation: a Raspberry Pi 5 with
-  the IR-filtered Camera Module 3. Other Pis and cameras are planned as further implementations
-  (roadmap C.1).
-- **Somewhere for the clips**: a mounted filesystem, such as a NAS, another computer's share or a
-  USB disk (see Configuration).
+  is not recorded. Keep the light constant: a light that switches on with motion leaves the
+  moments before it dark, and switching on changes the whole picture at once.
+- **Supported hardware.** Today that is one combination: a Raspberry Pi 5 with the IR-filtered
+  Camera Module 3, on Raspberry Pi OS trixie. Other Pis and cameras are planned (roadmap C.1).
+- **Somewhere for the clips**: a mounted share, such as a NAS, another computer's share or a USB
+  disk (see [The share](#the-share)).
 
-Recommended: [pi-tools](https://github.com/Thinmindt/pi-tools), a Claude Code plugin that makes the
-journal persistent, logs the Pi's supply voltage and temperature, brings a Pi 5 back on its own
-after an unexpected power-off, and pings a dead man's switch so you hear when the Pi goes quiet.
-A power-off is a gap in the cats' record, and this project cannot notice its own absence. What it
-can report is its camera: see the capture heartbeat under Configuration.
+Recommended: [pi-tools](https://github.com/Thinmindt/pi-tools), a Claude Code plugin that keeps
+the Pi's logs across reboots, logs its supply voltage and temperature, powers a Pi 5 back on after
+an unexpected power-off, and tells you when the Pi goes quiet. A Pi that is off records nothing,
+and this project cannot notice its own absence.
 
-## System dependencies
+## Install
 
-Runs on Raspberry Pi OS trixie (Debian 13), which ships Python 3.13. The Python version is set by
-the OS rather than by this project, because the `libcamera` bindings are ABI-tagged apt packages —
-hence the `requires-python = "==3.13.*"` pin.
+1. **System packages.** `picamera2` and its `libcamera` bindings come from apt, not PyPI. They are
+   built for the system's Python, so the OS sets the Python version: 3.13 on trixie.
 
-`picamera2` and its `libcamera` bindings are **not installable from PyPI** — they ship as
-compiled apt packages built against the system libcamera and the system Python:
+   ```
+   sudo apt update
+   sudo apt install libcap-dev python3-dev python3-picamera2 ffmpeg
+   ```
+
+   `ffmpeg` builds the review page's stills and videos; the tests use it too.
+
+2. **The code.**
+
+   ```
+   git clone https://github.com/Thinmindt/CatDetector
+   cd CatDetector
+   ```
+
+3. **The Python environment**, with [uv](https://docs.astral.sh/uv/). The venv must see the
+   apt-installed packages, so `--system-site-packages` is required:
+
+   ```
+   curl -LsSf https://astral.sh/uv/install.sh | sh
+   uv venv --system-site-packages
+   uv sync
+   ```
+
+   > **Never delete `.venv` and run a bare `uv sync`.** uv recreates it *without* system site
+   > packages, and `import picamera2` fails. Re-run both lines above to recover. Do the same
+   > after an OS upgrade: the old venv's own packages vanish from `sys.path` without an error.
+
+4. **Settings.** Create `.env` in the checkout (it is gitignored). Most installations need two
+   lines:
+
+   ```
+   NETWORK_SHARE_DIR=/mnt/nas
+   CAT_NAMES=Ada,Bea
+   ```
+
+   [Settings](#settings) lists the rest.
+
+5. **Try it.**
+
+   ```
+   uv run python tests/manual/check_camera.py   # the camera works: writes test_images/test_image.jpg
+   uv run python main.py                        # the detector; open http://<the Pi's address>:5000
+   ```
+
+   The page has three tabs: **Live** (the camera, and whether it is recording), **Review** and
+   **Timeline**.
+
+6. **Run it as a service**, so it starts at boot and comes back after a crash:
+
+   ```
+   sudo bash deploy/install-service.sh
+   journalctl -u catdetector -f         # its logs
+   sudo systemctl stop catdetector      # free the camera, which takes one process at a time
+   ```
+
+   The script builds the unit for this checkout, run as the checkout's owner and started after
+   the share's mount, and stops a copy started by hand. The service also restarts itself when the
+   camera stops delivering frames for 10 s. Settings for one run, such as a data run's threshold, go in a
+   drop-in so that re-running the script keeps them:
+
+   ```
+   sudo systemctl edit catdetector      # add Environment= lines under [Service]
+   ```
+
+## Labelling visits
+
+The **Review** tab shows one visit at a time: every clip of it, each as a grid of stills one
+second apart (sparser for long clips), with the offset into the clip on each still. Press a key,
+or tap a button on a phone, and the next visit appears. The page and the commands call each one
+an **event**: the clips of one visit, or of whatever else moved.
+
+| key | button | records |
+|---|---|---|
+| `1`–`9` | the cat's name | that cat made the visit; the keys follow the order of `CAT_NAMES` |
+| `m` | multiple | more than one cat |
+| `c` | cat, which one not decided | a cat whose coat the stills do not show (under "more" once names are set) |
+| `n` | not a cat | a person, a lighting change, anything else |
+| `u` | unsure | the stills cannot tell |
+| `p`, then a digit | a peek | that cat looked in and used no box; it is not counted as a visit |
+| `l` | cleaning | a litter cleaning: type the poops found in each box, `Enter` saves |
+| `z` | undo | undoes the last label |
+| `→` | next | skips, while walking a filter |
+
+New clips appear after a **rescan clip directory**, under "more", or a restart: the share is
+read when the detector starts and when you ask. Click a still for the full frame, or **watch** to
+play the clip. Between two clips, **a new visit
+starts here** splits a visit; **same visit as the next event**, under "more", joins two. Both
+survive a regroup.
+
+**What it shows.** By default the Review tab walks the **review queue**: every visit not yet
+labelled, and every labelled one sent back for a second look, with the reason beside it. A
+filter in the address walks another set: `/review?filter=multi` for the visits made of several
+clips, `?filter=labeled` for everything labelled, `?filter=<label>` for one label. The address
+names the visit, so a reload, Back or a shared link returns to it.
+
+**Cleanings.** When you scoop the boxes, put the number of poops you found into the footage with
+a hand signal, so it is recorded at the moment it was true. For each box just cleaned:
+
+- hold a hand over that box, palm to the camera, a finger per poop;
+- a closed fist means none, so a missing signal can only mean "forgot";
+- hold it about three seconds, while the scooping is still being recorded (the stills are a
+  second apart);
+- for more than five, use both hands, or signal twice.
+
+The reviewer labels that event a cleaning (`l`) and types the counts in.
+
+The **Timeline** tab lists every visit, newest first, with its time, label, box, length and clip
+count. Label chips choose which labels show, so one cat's rows are that cat's visit log. Drag
+across the day strip or the hour strip to take a slice of time ("outside the range" turns
+06:00–22:00 into the night), and "labelled before" picks out old labels. Any row, or everything
+shown, can be sent back to the review queue with a reason. The filter is kept in the address.
+
+From the command line, beside the running service:
 
 ```
-sudo apt update
-sudo apt install libcap-dev python3-dev python3-picamera2 ffmpeg
-```
-
-`ffmpeg` builds the review page's tiles and videos, and the tests use it too.
-
-## Get the code
-
-```
-git clone https://github.com/Thinmindt/CatDetector
-cd CatDetector
-```
-
-## Python environment (uv)
-
-Install [uv](https://docs.astral.sh/uv/):
-
-```
-curl -LsSf https://astral.sh/uv/install.sh | sh
-```
-
-Create the virtualenv. The `--system-site-packages` flag is **required** so the venv can
-see the apt-installed `picamera2`/`libcamera`:
-
-```
-uv venv --system-site-packages
-uv sync
-```
-
-> **Do not delete `.venv` and run a bare `uv sync`.** uv will recreate it *without*
-> system site packages and `import picamera2` will fail with `ModuleNotFoundError`.
-> If that happens, re-run the `uv venv --system-site-packages` line above, then `uv sync`.
->
-> The same rebuild is required after an **OS upgrade**. A venv built against the old interpreter
-> keeps pointing at a `lib/python3.X/site-packages` that the new one never looks in, so its packages
-> silently vanish from `sys.path` without any error.
-
-## Run
-
-```
-uv run python main.py                        # camera, live feed and review on :5000
-uv run python tests/manual/check_camera.py    # camera smoke test (needs the camera)
-```
-
-`uv run` uses the project environment directly, so there is no need to activate the venv.
-
-### As a service
-
-`deploy/install-service.sh` installs a systemd unit that runs the detector at boot and restarts
-it after a crash, or when the camera has delivered no frame for 10 s (to be alerted when that
-happens, see `CAPTURE_HEARTBEAT_URL` under Configuration). It builds the unit from `deploy/catdetector.service.in` for this checkout — the
-directory's owner runs the service, and the share named by `NETWORK_SHARE_DIR` in `.env` is the
-mount it waits for — and stops a copy started by hand, since the camera takes one process at a
-time:
-
-```
-sudo bash deploy/install-service.sh
-journalctl -u catdetector -f         # logs
-sudo systemctl stop catdetector      # free the camera, e.g. for the smoke test
-```
-
-Settings for a particular run (`MOTION_THRESHOLD`, `METRICS_CSV`, ...) go in a drop-in rather
-than in the tracked unit, so re-running the script never loses them:
-
-```
-sudo systemctl edit catdetector      # opens an override; add Environment= lines under [Service]
-```
-
-## Reviewing captures
-
-```
-uv run python main.py --regroup      # rebuild events from the current thresholds, then exit
 uv run python main.py --stage --label not_cat --labeled-before 2026-09-20 --reason "recheck"
 ```
 
-`--regroup` renumbers events, so it refuses to run while the detector has the database open: stop
-the service first. `--stage` puts labelled events back in the review queue with a reason, keeping
-their labels, and runs beside the service; `--label` and `--labeled-before` choose the events.
+`--regroup` rebuilds every event from the current [grouping settings](#settings). It renumbers
+the events, so stop the service first; labels follow their clips.
 
-The Review tab of the web UI (`http://<pi-ip>:5000/review`) scans the captures directory into a
-local database and serves a keyboard-driven labeler — `c` cat, `n` not a cat, `u` unsure, `z` undo,
-`l` a litter cleaning (enter the poops found per box, `Enter` saves), click a tile to see the full
-frame, "watch" to play the clip. With `CAT_NAMES` set, each cat gets a digit key in the configured
-order and `m` marks an event with more than one cat; `c` then means "a cat, which one not decided",
-and `/review?filter=cat` walks those to name them; `→` moves on while walking a filter. `p` marks a
-**peek**, a cat that looks in and uses no box: press it, then the cat's digit. A peek keeps the
-cat's name but does not count as a visit. The address names the event and the walk
-(`/review/<event>?filter=multi`), so a reload, Back or a shared link returns to the same event.
-`main.py` serves it beside the live feed, so it is available whenever the detector is running.
+## Calibrating a new mount
 
-The Timeline tab (`/timeline`) lists every event newest first, with its time, label, box, length
-and clip count. Label chips choose which labels show, so one cat's rows are that cat's visit log;
-drag across the day strip or the hour-of-day strip to take a slice of time ("outside the range"
-turns 06:00 to 22:00 into the night); and "labelled before" picks out old labels to recheck. The
-filter is kept in the address. Each row can be sent back for review, or everything shown at once,
-with a reason.
-
-## Calibrating an installation
-
-The default thresholds come from one camera mount. A new mount, with another height, lens,
-framing or set of cats, needs its own, and they come from a **data run**: a week or two of
-recording everything, labelled by hand.
+The default thresholds come from one camera mount. Another height, lens, framing or set of cats
+needs its own numbers, and they come from a **data run**: a week or two of recording everything,
+labelled by hand.
 
 1. **Start the data run.** Settle the framing, the lighting and the camera mode first: changing
-   one afterwards starts the run again. Then set a low threshold, so nothing is missed, and turn
-   on the per-frame metrics, in the service's drop-in (`sudo systemctl edit catdetector`):
+   one afterwards means starting the run again. Then, in the service's drop-in (`sudo systemctl edit
+   catdetector`), set a low threshold so nothing is missed, and turn on the per-frame metrics:
 
    ```
    [Service]
@@ -144,156 +206,116 @@ recording everything, labelled by hand.
    ```
 
    Keep the CSV on local disk; it grows by about 150 MB a day. Note when the run starts.
-2. **Label every day** in the Review tab: name the cat on each visit, press `p` before the digit
-   for a peek, and join a visit that was split in two ("same visit as the next event" under
-   "more").
+
+2. **Label every day.** Name the cat on each visit, mark peeks, and join a visit that was split in
+   two. Labelling is what limits a data run: fall behind, and the backlog outlives the run.
+
 3. **Check progress** now and then, beside the running service:
 
    ```
    uv run python main.py --calibrate --since 2026-09-16
    ```
 
-   It reads the database and the CSV, and takes the run's settings (`MOTION_THRESHOLD`,
-   `METRICS_CSV`) from the service's drop-in, saying where they came from; `--metrics PATH` names
-   another CSV. A couple of weeks of CSV takes several minutes. With fewer than three boxes, name
-   the thirds of the frame, left to right, that hold one: `--boxes 1,3`. It prints what the run
-   needs, with the counts so far: 50 visits (100 is better), 10 at night, 15 per cat, every box
-   used (a cat staying 10 s in that box's third of the frame), and the weakest visit no
-   longer getting weaker. Varied weather, with an overcast day, is yours to judge; it does not
-   matter if the boxes' own light swamps the daylight. It also puts the events that need a second
-   look in the review queue, each with its question and each only once: the same cat seconds apart
-   (one visit split in two?), the weakest visits (a peek?), and `not_cat` events that held a blob
-   the size of a visit (a cat after all?). Answer them, keep labelling, and run it again.
+   It reads the run's settings from the service's drop-in and says where they came from
+   (`--metrics PATH` names another CSV). A couple of weeks of CSV takes several minutes. It
+   reports what the run still needs:
+
+   - 50 visits (100 is better), 10 of them at night, and 15 per cat;
+   - every box used: a cat staying 10 s in that box's third of the picture (with fewer than
+     three boxes, name the thirds that hold one: `--boxes 1,3`);
+   - the weakest visit no longer getting weaker.
+
+   Varied weather, including an overcast day, is yours to judge; it matters less when the boxes'
+   own light swamps the daylight. It also sends events that need a second look to the review
+   queue, each with its question, and asks each question only once:
+
+   - the same cat seconds apart: one visit split in two?
+   - the weakest visits: a peek?
+   - `not_cat` events that held something visit-sized: a cat after all?
 
 4. **Apply the result.** Once every condition holds, it replays a range of thresholds over the
-   CSV, from the run's upward, and shows for each the visits it would miss, the clips an hour it
-   would start with no cat in them, and how much of each visit it would record: a high
-   threshold also closes clips while a cat sits still. It proposes the highest that misses no
-   visit and still records 98 % of the median visit. While any of its questions waits in the
-   review queue the numbers are marked provisional; once they are answered, put the proposal in
-   the drop-in, remove `METRICS_CSV`, and restart the service. It also replays two planned
-   triggers (roadmap A.3) that are not settings yet: a high start threshold that keeps
-   recording above the run's, and a blob-size band.
+   CSV. For each it shows the visits missed, the clips an hour started with no cat in them, and
+   how much of each visit was recorded. It proposes the highest threshold that misses no visit and
+   still records 98 % of the median visit, marked provisional while any of its questions waits in
+   the queue. Put it in the drop-in, remove `METRICS_CSV`, and restart the service.
 
-## Test, lint, format, type-check
+## Settings
 
-```
-npm install                  # once per checkout, for the JavaScript lint (needs node)
-npm run vendor               # after changing d3's version in package.json
-bash scripts/check.sh        # every gate, stopping at the first failure
-uv run pytest                # unit tests (no camera or picamera2 needed; ffmpeg is)
-uv run ruff check --fix .    # lint + autofix
-uv run ruff format .         # format
-```
-
-`check.sh` runs, in order: the privacy check (`scripts/check_private.sh`; see CLAUDE.md),
-shellcheck, codespell, ruff, the format check, mypy, eslint, a check that the committed d3 in
-`src/static/vendor/` is the version `package.json` pins, and pytest.
-
-GitHub Actions runs the same script on every push (`.github/workflows/check.yml`).
-
-## Contributing
-
-`docs/ROADMAP.md` is the plan and the open questions, `docs/DESIGN.md` records why the code is
-shaped the way it is, with the measurements behind each decision, and `docs/STYLE.md` is the
-style guide; `CLAUDE.md` lists the traps. Before a commit, `scripts/check.sh` must pass.
-
-## Security
-
-**The web UI has no authentication.** The live feed, every recorded clip and the review tools
-are served to anyone who can reach port 5000, over plain HTTP, by Flask's development server.
-Anyone on the same network can watch the camera and relabel events.
-
-Run this only on a network you trust, and **do not forward port 5000 through your router** or
-let UPnP open it. If you ever need it reachable from outside, put authentication and a real
-WSGI server (waitress, gunicorn) in front of it first — and note that the development server
-prints its own warning about this on every start.
-
-## Configuration
-
-Copy the settings you need into a `.env` file at the repo root (gitignored):
-
-```
-NETWORK_SHARE_DIR=/mnt/nas
-LOCAL_CLIP_DIR=.clip_cache
-```
-
-Clips are recorded to `LOCAL_CLIP_DIR` on local disk, then moved to
-`$NETWORK_SHARE_DIR/captures/` once each clip is complete. Recording therefore does not depend
-on the share being reachable: if it goes away, clips queue locally and are shipped when it comes
-back. A clip only appears on the share under its final `.h264` name once every byte has arrived,
-so the review UI never samples a half-written file.
-
-`NETWORK_SHARE_DIR` must be a real mountpoint, so a missing mount cannot fill the SD card, and
-renames within it must be atomic. A NAS, another computer's SMB or NFS share, a USB disk and cloud
-storage mounted with rclone all qualify; a cloud mount makes the review page's tiles slow to
-build, since each is decoded from the whole clip. A plain directory on local disk is refused for
-now (roadmap C.5).
-
-If the share is mounted from `/etc/fstab`, pin the `soft` option explicitly. It is the CIFS
-default, so it is easy to lose by accident; NFS mounts `hard` unless told otherwise. On a `hard`
-mount an unreachable server blocks writes indefinitely instead of failing with an error.
-
-The cats, for labelling which one made a visit. Any number, comma-separated, in the order the
-review page's digit keys should take:
-
-```
-CAT_NAMES=Ada,Bea
-```
-
-Optional, for tuning detection:
-
-```
-METRICS_CSV=/home/you/metrics.csv
-```
-
-When set, every frame appends a row of detection metrics to that file: the foreground pixel
-count, the largest blob before and after cleanup (area, bounding box, centroid), whether a clip
-is recording, and the frame's brightness; the header names each column. Use a local path, not
-the network share.
-
-Optional, to be told when the camera stops:
-
-```
-CAPTURE_HEARTBEAT_URL=https://hc-ping.com/your-check-uuid
-```
-
-When set, the detector sends an HTTP GET to that URL once a minute, **only while the camera is
-delivering frames**. A dead man's switch watching the URL then alerts you when the pings stop: a
-camera that has stalled, a detector that keeps restarting because its camera is dead, or a
-detector that is not running. Without it the detector still restarts itself after a stall (see
-Run), but nobody is told.
-
-This project only sends the pings. The check that receives them, and the alert it sends, are
-yours to set up outside it: for example a free check at [Healthchecks.io](https://healthchecks.io)
-(or a self-hosted Healthchecks, or an Uptime Kuma push monitor; any service that alerts when a
-URL stops being fetched will do). Give it a period of one minute and a grace time of at least
-three, so a routine restart does not alert. If you use
-[pi-tools](https://github.com/Thinmindt/pi-tools), its `pi-heartbeat` pings a check of its own
-for the Pi; it does not create or share this one. Make a second check for the camera, since the
-Pi can be up while the camera is not.
-
-The URL is a secret: anyone who has it can keep your check quiet. Keep it in `.env`, which is
-gitignored, and never in a tracked file; `scripts/check_private.sh` refuses a commit that
-contains it. A URL that is not `http://` or `https://`, has no host, or contains a space turns
-the heartbeat off with a warning, and so does a recorder that failed to start, since the camera
-may then be delivering frames while nothing is recorded.
-
-The other settings, with their defaults (`config.py` describes each):
+Settings come from `.env` in the checkout, or from the service's drop-in; the drop-in wins.
+`config.py` describes each one.
 
 | setting | default | what it sets |
 |---|---|---|
-| `MOTION_THRESHOLD` | 300 | foreground pixels in the 640x480 analysis frame that start a clip; from one installation, and `--calibrate` proposes yours |
-| `DARK_BRIGHTNESS` | 10 | mean grey level below which motion is ignored |
+| `NETWORK_SHARE_DIR` | `/mnt/nas` | the share; clips land in its `captures/` |
+| `CAT_NAMES` | none | the cats, comma-separated, in the order of their digit keys |
+| `LOCAL_CLIP_DIR` | `.clip_cache` | where clips are written before they ship |
+| `DB_PATH` | `captures.db` | the review database: local disk, never the share |
+| `REVIEW_CACHE_DIR` | `.review_cache` | the review page's stills and videos |
+| `MOTION_THRESHOLD` | 300 | changed pixels, of the 640x480 analysis picture, that start a clip; from one mount, and `--calibrate` proposes yours |
 | `MOTION_TIMEOUT` | 10 | seconds without motion before a clip closes |
-| `MOG2_HISTORY` | 500 | frames over which a still subject fades into the background |
+| `MOG2_HISTORY` | 500 | frames over which something still fades into the background |
+| `DARK_BRIGHTNESS` | 10 | mean grey level, 0–255, below which motion is ignored |
 | `EVENT_GAP_SECONDS` | 180 | how soon a clip must follow the last to join its visit |
-| `EVENT_BOX_DISTANCE_PX` | 120 | how close two clips' centroids must be to count as one box |
-| `DB_PATH` | `captures.db` | the review database; local disk, never the share |
-| `REVIEW_CACHE_DIR` | `.review_cache` | cached tiles and videos |
+| `EVENT_BOX_DISTANCE_PX` | 120 | how close two clips' positions must be to count as one box |
+| `METRICS_CSV` | off | a local file for a row of detection metrics per frame, for a data run |
+| `CAPTURE_HEARTBEAT_URL` | off | a URL pinged once a minute while the camera delivers frames |
 
-The pixel thresholds depend on how far the camera is from the boxes; roadmap A.2 is how to
-measure them for a mounting.
+### The share
+
+`NETWORK_SHARE_DIR` must be a real mountpoint, so that a missing mount cannot fill the SD card,
+and a rename within it must be atomic, so that no one sees a half-copied clip. A NAS, another
+computer's SMB or NFS share, a USB disk and cloud storage mounted with rclone all qualify; on a
+cloud mount the review page's stills are slow to build. A plain local directory is refused for
+now (roadmap C.5).
+
+Mount a share from `/etc/fstab` with the `soft` option written out. On a `hard` mount an
+unreachable server blocks writes forever instead of failing. `soft` is the CIFS default, so it is
+easy to lose without noticing, and NFS mounts `hard` unless told otherwise.
+
+### The capture heartbeat
+
+Set `CAPTURE_HEARTBEAT_URL` to be told when the camera stops. The detector then sends an HTTP GET
+to it once a minute, but only while the camera is delivering frames. A dead man's switch watching
+that URL alerts you when the pings stop: a stalled camera, a detector restarting in a loop, or one
+that is not running at all.
+
+The check that receives the pings is yours to set up: a free one at
+[Healthchecks.io](https://healthchecks.io), a self-hosted Healthchecks, an Uptime Kuma push
+monitor, or any service that alerts when a URL stops being fetched. Give it a period of one minute
+and a grace time of at least three, so a routine restart does not alert. If pi-tools pings a check
+for the Pi, make a second one for the camera: the Pi can be up while the camera is not.
+
+The URL is a secret, since anyone who has it can keep your check quiet. Keep it in `.env` and out
+of every tracked file; `scripts/check_private.sh` refuses a commit that contains it. A URL that is
+not `http://` or `https://`, has no host, or contains a space turns the heartbeat off with a
+warning. So does a recorder that failed to start, since frames would then arrive with nothing
+recorded.
+
+## Security
+
+**The web page has no login.** The live camera, every recorded clip and the labels are open to
+anyone who can reach port 5000, over plain HTTP, from Flask's development server. Run it only on a
+network you trust, and **do not forward port 5000 through your router** or let UPnP open it. To
+reach it from outside, put authentication and a real WSGI server (waitress, gunicorn) in front of
+it first.
+
+## Developing
+
+```
+npm install                  # once per checkout, for the JavaScript lint (needs node)
+bash scripts/check.sh        # every gate, stopping at the first failure
+uv run pytest                # the tests alone: no camera or picamera2 needed, ffmpeg is
+uv run ruff check --fix .    # lint, fixing what it can
+uv run ruff format .         # format
+npm run vendor               # after changing d3's version in package.json
+```
+
+`check.sh` runs the privacy check, shellcheck, codespell, ruff, the format check, mypy, eslint, a
+check that the committed d3 matches the version `package.json` pins, and pytest. GitHub Actions
+runs the same script on every push, and every commit must pass it. Read
+[docs/DESIGN.md](docs/DESIGN.md) before changing behaviour, [docs/STYLE.md](docs/STYLE.md) before
+writing code, and the traps in [CLAUDE.md](CLAUDE.md), which is written for coding agents and
+useful to anyone.
 
 ## License
 
