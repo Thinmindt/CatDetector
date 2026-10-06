@@ -410,7 +410,7 @@ Moved 2026-09-26: folded into B.1's crops, with the box per crop added.
 
 - [ ] A `crop` table for B.1: event, path on the share, when it was captured.
 
-## B.3 Labeling UI
+## B.3 Labelling UI
 
 Moved 2026-09-26: everything built up to then.
 

@@ -2,7 +2,8 @@
 
 Why the code is shaped the way it is. Kept here so the source can stay terse.
 
-Entries cite `ROADMAP.md` by section (A.2, A.4, B.5b, …).
+Entries cite `ROADMAP.md` by section (A.2, A.4, B.5b, …). Words with a meaning of their own
+here (visit, event, sidecar, tile, …) are defined in the [Glossary](#glossary) at the end.
 
 Each section is one thing the system does. It opens with how that works today, with a picture
 where there is a flow, a state machine or more than one thread, and the entries under it are the
@@ -671,7 +672,7 @@ of a rescan.
 **Labels follow clips, not events.** Before either placement pass, every clip remembers its
 event's label. Afterwards an event keeps a label its clips agree on and drops one they contest,
 returning to the review queue with a warning in the log. That is what lets `regroup` change the
-gap threshold without discarding a day of labeling, and what stops a bridge merge from silently
+gap threshold without discarding a day of labelling, and what stops a bridge merge from silently
 attributing a not-cat clip to a cat.
 
 **The label table is separate from event** (per the roadmap): model predictions and human labels
@@ -877,7 +878,7 @@ which lives in the address, and the undo history. A change to the page is checke
 it: `tests/manual/check_page.py` screenshots it at a phone's size and a laptop's.
 
 **Single-page UI.** Labeling navigates no pages — next event and images are fetched and swapped
-in place — so the undo history can live in a JS array rather than sessionStorage, and labeling
+in place — so the undo history can live in a JS array rather than sessionStorage, and labelling
 is one keypress with no page load between events.
 
 **The address is the position** (2026-09-26, ROADMAP B.3). The review page's address is
@@ -903,7 +904,7 @@ plus staged).
 **The page never hides the grouping** (2026-09-12). Every clip of an event
 is rendered with its own strip, times, close reason and the gap since the previous clip; a
 multi-clip event says so in the header; the counter reports `multi_clip`; and `?filter=multi`
-walks every multi-clip event, labeled or not, so the grouping rule's output can be audited as a
+walks every multi-clip event, labelled or not, so the grouping rule's output can be audited as a
 whole rather than noticed one event at a time.
 
 **The multi-clip audit walks time order, not the multi-clip list** (2026-09-16). `next_multi`
@@ -1023,7 +1024,7 @@ A data run ends in `main.py --calibrate`, which reads the run's metrics CSV and 
 database, proposes the trigger settings and stages for review what it cannot decide. The entries
 below are the rules it applies and the measurements behind them.
 
-**A data run ends in one command, `main.py --calibrate`** (2026-10-03, ROADMAP A.2). Every mount
+**A data run ends in one command, `main.py --calibrate`** (2026-10-03, ROADMAP A.2). Every installation
 needs its own numbers, so the counting, the derivation and the replay are code anyone reruns
 rather than an analysis done once by hand; `src/review/calibration.py` holds it, and reads the
 metrics CSV by its header, so it needs nothing from the capture side.
@@ -1102,3 +1103,65 @@ provisional, without the drop-in lines, since the answers decide which visit is 
 
 **Boxes are the thirds of the frame until C.3**, and the command asks for a visit in each third
 named by `--boxes` (all three by default), so an installation with fewer boxes can finish a run.
+
+## Glossary
+
+The words this project uses with a meaning of their own. Prose spells them the British way
+(labelled, colour); identifiers keep their own spelling (`?filter=labeled`, `labeled_at`).
+
+**Visits and events**
+
+| term | meaning |
+|---|---|
+| visit | One cat's use of the boxes, from coming in to leaving: what the project counts. A peek is not one. |
+| event | The clips grouped as one visit, or as whatever else moved: the unit that is labelled. Its id can change on a regroup. |
+| clip | One recording, a raw H.264 file (`.h264`), from just before motion started until `MOTION_TIMEOUT` after it stopped, at most 300 s. |
+| sidecar | `<clip>.h264.json`, beside each clip: its start and end, its trigger and last blobs, and its close reason. |
+| close reason | Why a clip ended: `timeout`, `max_length`, `shutdown`, `abandoned` (writes failed partway) or `recovered` (no sidecar: a crash cut it off). |
+| pre-roll | The footage a clip holds from before its trigger: up to 5 s from the ring buffer, less if the previous clip ended more recently. |
+| grouping | The rule that adds a clip to the visit that ended within `EVENT_GAP_SECONDS` of its start, in the same place (`EVENT_BOX_DISTANCE_PX`). |
+| regroup | `main.py --regroup`: rebuild every event from the current settings. Event ids change; labels and marks follow their clips. |
+| split, join | A reviewer's override of the grouping, stored on the clips: a new visit starts at this clip, or this clip continues that one. Both survive a regroup. |
+| box | A litter box. In the data, a position: a third of the analysis frame, numbered 1 to 3 from the left (until roadmap C.3). |
+
+**Labels and review**
+
+| term | meaning |
+|---|---|
+| label | The verdict on an event: a cat's name, `cat` (which one not decided), `multiple`, `not_cat`, `unsure` or `clean`. |
+| peek | A mark beside a cat's label: the cat looked in and used no box. The event keeps the cat, and is not counted as a visit. |
+| cleaning | An event labelled `clean`: a litter scoop, with the poops found in each box, read from the hand signal. |
+| review queue | Every unlabelled event and every staged one, oldest first: the Review tab's default walk. |
+| staged | Sent back to the review queue with a reason and a source (a person, an agent, a model, or the grouping or calibration code). A staged event keeps its label until a label press confirms or replaces it. |
+| walk | The run of events the Review tab steps through: the review queue, or a filter (`multi`, `labeled`, or one label). |
+| tile | One still of a clip on the review page: a keyframe, one per second of the file (fewer past 48), with its offset drawn in. |
+| strip | One image per clip holding all its tiles side by side; the page cuts the tiles from it. |
+| strips ahead | Building the strips of the next 30 queued events in the background, so the page rarely waits for one. |
+
+**Detection**
+
+| term | meaning |
+|---|---|
+| analysis frame | The 640x480 `lores` stream that detection runs on. Recording and the live view use the 1280x720 `main` stream. |
+| background model | MOG2's picture of the empty scene, learned over `MOG2_HISTORY` frames. A cat that sits still fades into it. |
+| foreground | The pixels that differ from the background model, shadows excluded. Their number, the foreground count (`foreground_px`), is what triggers a clip today. |
+| blob | The largest connected region of foreground in a frame. The cleaned blob (`clean_blob`) is the same after removing speckle and joining nearby pieces. |
+| trigger | A frame whose foreground count is over `MOTION_THRESHOLD`. The first one starts a clip; each one keeps it open. |
+| warmup | The first 30 frames after a start, ignored while MOG2 learns the scene. |
+| dark gate | Motion is ignored while the analysis frame's mean grey level is below `DARK_BRIGHTNESS`. |
+| visit strength | The largest cleaned blob a visit reaches. The weakest visit sets how low a trigger has to reach. |
+
+**Running and calibrating**
+
+| term | meaning |
+|---|---|
+| installation | One setup: a Pi, its camera and how it is mounted, the boxes, the lighting and the cats. Thresholds belong to an installation. |
+| data run | A week or two of recording at a low threshold with `METRICS_CSV` on, labelled by hand, to calibrate an installation. |
+| metrics CSV | A row of detection measurements per frame, written while `METRICS_CSV` is set. |
+| calibrate | `main.py --calibrate`: a data run's progress, its doubts staged for review, and the settings it proposes. |
+| share | The mounted filesystem finished clips go to (`NETWORK_SHARE_DIR`): a NAS, another computer's share or a USB disk. |
+| ring buffer | The encoder's last 5 s of video, held in memory until motion diverts it into a clip. |
+| ingest | Reading new clips and their sidecars from the share into `captures.db`, and grouping them. |
+| capture stall | No frame from the camera for 10 s. The detector exits and systemd restarts it. |
+| capture heartbeat | A URL pinged once a minute while frames arrive, for a check outside the project that alerts when the pings stop. |
+| drop-in | A systemd override file (`systemctl edit catdetector`) holding one installation's run settings. |

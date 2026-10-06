@@ -14,7 +14,7 @@ Two workstreams, in dependency order, and a third that runs alongside both:
 - **Part A — trigger reliably.** A cat entering the frame always starts a recording.
   Recall is the priority: a missed visit is a failure, an extra clip is an annoyance.
 - **Part B — identify the cat.** Collect and label enough images to train a per-cat
-  classifier, which needs a labeling workflow before it needs a model.
+  classifier, which needs a labelling workflow before it needs a model.
 - **Part C — any installation.** Someone else's cats, boxes, camera, Pi and storage should work
   as well as the ones this was built on, with the hardware behind interfaces and nothing about
   one home written into the code.
@@ -292,7 +292,7 @@ key is the event, so an event holds one label: model predictions (B.6) need a ke
       (`/sys/block/mmcblk0/stat`), the main writers are named in DESIGN.md, and anything over a
       stated daily budget has an item of its own.
 
-## B.3 Labeling UI
+## B.3 Labelling UI
 
 The Review tab labels at event level with one keystroke or one tap: the cats by name (a digit key
 each, from `CAT_NAMES`), `cat` when which one is not decided, `multiple`, `not_cat`, `unsure` and
@@ -301,7 +301,7 @@ and the walk, whole-clip tiles built before they are asked for, split and join, 
 layout, a review queue that labelled events can be staged back into with a reason, and a peek
 mark for a cat that looks in and uses no box. **The
 only requirement that really matters is speed:** hundreds of events reviewed by one person means
-labeling must be a single action, or it will not happen and the classifier never gets its data.
+labelling must be a single action, or it will not happen and the classifier never gets its data.
 
 Next:
 
@@ -367,7 +367,7 @@ visits is 5 examples. Split by event or day, never by crop (B.1). Expect **heavy
 the majority cat dominate. "Not a cat" negatives come free from false triggers; keep them, they
 are real data.
 
-- [ ] **Baseline first:** before any neural net, check whether mean coat color inside the mask
+- [ ] **Baseline first:** before any neural net, check whether mean coat colour inside the mask
       separates the cats. A top-down view preserves a coat's pattern and colour best; if colour
       alone separates the cats, that is a few lines of OpenCV and no training loop.
       **Done means** a script reports, for the labelled single-cat events, how well mean coat
@@ -499,7 +499,7 @@ Nothing open; finished items are in the archive.
 
 ## C.4 Calibration per installation
 
-- [ ] **The pixel numbers are one mount's.** `MOTION_THRESHOLD`, `EVENT_BOX_DISTANCE_PX`, the
+- [ ] **The pixel numbers are one installation's.** `MOTION_THRESHOLD`, `EVENT_BOX_DISTANCE_PX`, the
       blob kernels and A.3's future size band all depend on mounting height, resolution and the
       size of the cats. Label every default as "from one installation". `--calibrate` (A.2)
       proposes the threshold and the band; `EVENT_BOX_DISTANCE_PX`, `EVENT_GAP_SECONDS` and the
@@ -586,7 +586,7 @@ that, so the space a month takes is about 75 MB times the minutes recorded in it
 `clip.size_bytes` in `captures.db` gives what an installation has used so far.
 
 - [ ] Set a retention policy before space runs short. Full clips are the bulk and are the least
-      valuable once an event is labeled and cropped.
+      valuable once an event is labelled and cropped.
       **Done means** a stated policy (which clips go, and when) is enforced by the service and
       configurable, never deletes a clip of an unlabelled event, a test over a seeded share shows
       only eligible clips removed, and the README says what it deletes. Until B.1's crops exist it

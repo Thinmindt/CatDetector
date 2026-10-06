@@ -24,7 +24,8 @@ flowchart LR
    on the network, and carries on while the share is away.
 3. **Clips are grouped into visits.** A cat that sits still stops looking like motion, so one
    visit can arrive as several clips. The review side reads the clips on the share, groups them by
-   time and place, and shows each visit as a grid of stills you can label at a glance.
+   time and place, and shows each visit as a grid of tiles, stills one second apart, that you can
+   label at a glance.
 4. **You name the cat**, mark a peek or a litter cleaning, and the timeline shows each cat's
    visits by day and by hour.
 
@@ -41,10 +42,11 @@ looking for something cat-sized. Each is a step in [the roadmap](docs/ROADMAP.md
 |---|---|
 | set it up | [What you need](#what-you-need) and [Install](#install), below |
 | label visits | [Labelling visits](#labelling-visits) |
-| tune it for your camera and cats | [Calibrating a new mount](#calibrating-a-new-mount) |
+| tune it for your camera and cats | [Calibrating an installation](#calibrating-an-installation) |
 | understand how it works, and why | [docs/DESIGN.md](docs/DESIGN.md): five minutes for the shape, then section by section |
 | change the code | [docs/DESIGN.md](docs/DESIGN.md), then [docs/STYLE.md](docs/STYLE.md) and the traps in [CLAUDE.md](CLAUDE.md) |
 | see what is planned | [docs/ROADMAP.md](docs/ROADMAP.md) |
+| look up a word (event, peek, tile, …) | [the glossary](docs/DESIGN.md#glossary) |
 
 ## What you need
 
@@ -73,7 +75,7 @@ and this project cannot notice its own absence.
    sudo apt install libcap-dev python3-dev python3-picamera2 ffmpeg
    ```
 
-   `ffmpeg` builds the review page's stills and videos; the tests use it too.
+   `ffmpeg` builds the review page's tiles and videos; the tests use it too.
 
 2. **The code.**
 
@@ -134,8 +136,8 @@ and this project cannot notice its own absence.
 
 ## Labelling visits
 
-The **Review** tab shows one visit at a time: every clip of it, each as a grid of stills one
-second apart (sparser for long clips), with the offset into the clip on each still. Press a key,
+The **Review** tab shows one visit at a time: every clip of it, each as a grid of tiles one
+second apart (sparser for long clips), with the offset into the clip on each tile. Press a key,
 or tap a button on a phone, and the next visit appears. The page and the commands call each one
 an **event**: the clips of one visit, or of whatever else moved.
 
@@ -143,16 +145,16 @@ an **event**: the clips of one visit, or of whatever else moved.
 |---|---|---|
 | `1`–`9` | the cat's name | that cat made the visit; the keys follow the order of `CAT_NAMES` |
 | `m` | multiple | more than one cat |
-| `c` | cat, which one not decided | a cat whose coat the stills do not show (under "more" once names are set) |
+| `c` | cat, which one not decided | a cat whose coat the tiles do not show (under "more" once names are set) |
 | `n` | not a cat | a person, a lighting change, anything else |
-| `u` | unsure | the stills cannot tell |
+| `u` | unsure | the tiles cannot tell |
 | `p`, then a digit | a peek | that cat looked in and used no box; it is not counted as a visit |
 | `l` | cleaning | a litter cleaning: type the poops found in each box, `Enter` saves |
 | `z` | undo | undoes the last label |
 | `→` | next | skips, while walking a filter |
 
 New clips appear after a **rescan clip directory**, under "more", or a restart: the share is
-read when the detector starts and when you ask. Click a still for the full frame, or **watch** to
+read when the detector starts and when you ask. Click a tile for the full frame, or **watch** to
 play the clip. Between two clips, **a new visit
 starts here** splits a visit; **same visit as the next event**, under "more", joins two. Both
 survive a regroup.
@@ -168,7 +170,7 @@ a hand signal, so it is recorded at the moment it was true. For each box just cl
 
 - hold a hand over that box, palm to the camera, a finger per poop;
 - a closed fist means none, so a missing signal can only mean "forgot";
-- hold it about three seconds, while the scooping is still being recorded (the stills are a
+- hold it about three seconds, while the scooping is still being recorded (the tiles are a
   second apart);
 - for more than five, use both hands, or signal twice.
 
@@ -189,11 +191,11 @@ uv run python main.py --stage --label not_cat --labeled-before 2026-09-20 --reas
 `--regroup` rebuilds every event from the current [grouping settings](#settings). It renumbers
 the events, so stop the service first; labels follow their clips.
 
-## Calibrating a new mount
+## Calibrating an installation
 
-The default thresholds come from one camera mount. Another height, lens, framing or set of cats
-needs its own numbers, and they come from a **data run**: a week or two of recording everything,
-labelled by hand.
+The default thresholds come from one installation. Another camera height, lens, framing or set
+of cats needs its own numbers, and they come from a **data run**: a week or two of recording
+everything, labelled by hand.
 
 1. **Start the data run.** Settle the framing, the lighting and the camera mode first: changing
    one afterwards means starting the run again. Then, in the service's drop-in (`sudo systemctl edit
@@ -250,8 +252,8 @@ Settings come from `.env` in the checkout, or from the service's drop-in; the dr
 | `CAT_NAMES` | none | the cats, comma-separated, in the order of their digit keys |
 | `LOCAL_CLIP_DIR` | `.clip_cache` | where clips are written before they ship |
 | `DB_PATH` | `captures.db` | the review database: local disk, never the share |
-| `REVIEW_CACHE_DIR` | `.review_cache` | the review page's stills and videos |
-| `MOTION_THRESHOLD` | 300 | changed pixels, of the 640x480 analysis picture, that start a clip; from one mount, and `--calibrate` proposes yours |
+| `REVIEW_CACHE_DIR` | `.review_cache` | the review page's tiles and videos |
+| `MOTION_THRESHOLD` | 300 | changed pixels, of the 640x480 analysis frame, that start a clip; from one installation, and `--calibrate` proposes yours |
 | `MOTION_TIMEOUT` | 10 | seconds without motion before a clip closes |
 | `MOG2_HISTORY` | 500 | frames over which something still fades into the background |
 | `DARK_BRIGHTNESS` | 10 | mean grey level, 0–255, below which motion is ignored |
@@ -265,7 +267,7 @@ Settings come from `.env` in the checkout, or from the service's drop-in; the dr
 `NETWORK_SHARE_DIR` must be a real mountpoint, so that a missing mount cannot fill the SD card,
 and a rename within it must be atomic, so that no one sees a half-copied clip. A NAS, another
 computer's SMB or NFS share, a USB disk and cloud storage mounted with rclone all qualify; on a
-cloud mount the review page's stills are slow to build. A plain local directory is refused for
+cloud mount the review page's tiles are slow to build. A plain local directory is refused for
 now (roadmap C.5).
 
 Mount a share from `/etc/fstab` with the `soft` option written out. On a `hard` mount an
