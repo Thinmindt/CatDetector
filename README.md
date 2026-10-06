@@ -18,10 +18,13 @@ flowchart LR
   record -.-> later["Planned: alerts,<br>and a model that<br>names the cat"]
 ```
 
-1. **The Pi watches** the boxes through a fixed overhead camera and keeps the last few seconds in
-   memory. When something moves, it starts a clip that begins a few seconds before the motion.
-2. **Clips go to local disk first**, then to a share on their own schedule. Recording never waits
-   on the network, and carries on while the share is away.
+1. **The Pi watches** the boxes through a fixed overhead camera and keeps the last five seconds in
+   memory. When something moves, it starts a clip that begins up to five seconds before the
+   motion, less if the previous clip has only just ended. A clip closes after 10 s without
+   motion, or at five minutes, when a new one starts if the motion goes on.
+2. **Clips go to local disk first**, then, within a minute, to a share: a NAS or another disk
+   (see [What you need](#what-you-need)). Recording never waits on the network, and carries on
+   while the share is away.
 3. **Clips are grouped into visits.** A cat that sits still stops looking like motion, so one
    visit can arrive as several clips. The review side reads the clips on the share, groups them by
    time and place, and shows each visit as a grid of tiles, stills one second apart, that you can
@@ -50,15 +53,22 @@ looking for something cat-sized. Each is a step in [the roadmap](docs/ROADMAP.md
 
 ## What you need
 
-- **A camera fixed overhead**, pointing straight down at the litter boxes. Because it never
-  moves, a cat is always about the same size in the picture.
+- **A camera fixed overhead**, pointing straight down at the litter boxes, high enough that every
+  box is in the picture. Because it never moves, a cat is always about the same size in it.
+- **Up to three boxes, side by side across the picture.** Until boxes become a setting (roadmap
+  C.3), the review page numbers them by the third of the picture they sit in, 1 to 3 from the
+  left.
 - **The boxes lit around the clock.** The camera cannot see in the dark, and a visit it cannot see
   is not recorded. Keep the light constant: a light that switches on with motion leaves the
   moments before it dark, and switching on changes the whole picture at once.
 - **Supported hardware.** Today that is one combination: a Raspberry Pi 5 with the IR-filtered
   Camera Module 3, on Raspberry Pi OS trixie. Other Pis and cameras are planned (roadmap C.1).
-- **Somewhere for the clips**: a mounted share, such as a NAS, another computer's share or a USB
-  disk (see [The share](#the-share)).
+- **Somewhere for the clips** other than the SD card: a mounted share, such as a NAS, another
+  computer's share or a USB disk (see [The share](#the-share)). The `captures/` folder in it is
+  created for you. A local-only mode is planned (roadmap C.5).
+- **Room and time.** Footage is about 75 MB a minute (10 Mbit/s), and clips have averaged about
+  18 MB; [DESIGN.md](docs/DESIGN.md) has the sizing. Every event, cat or not, waits for one key
+  press in the review queue.
 
 Recommended: [pi-tools](https://github.com/Thinmindt/pi-tools), a Claude Code plugin that keeps
 the Pi's logs across reboots, logs its supply voltage and temperature, powers a Pi 5 back on after
@@ -127,8 +137,9 @@ and this project cannot notice its own absence.
 
    The script builds the unit for this checkout, run as the checkout's owner and started after
    the share's mount, and stops a copy started by hand. The service also restarts itself when the
-   camera stops delivering frames for 10 s. Settings for one run, such as a data run's threshold, go in a
-   drop-in so that re-running the script keeps them:
+   camera stops delivering frames for 10 s. Settings for one run, such as a data run's threshold,
+   go in a drop-in, systemd's file of local additions to a unit, so that re-running the script
+   keeps them:
 
    ```
    sudo systemctl edit catdetector      # add Environment= lines under [Service]
@@ -154,10 +165,11 @@ an **event**: the clips of one visit, or of whatever else moved.
 | `→` | next | skips, while walking a filter |
 
 New clips appear after a **rescan clip directory**, under "more", or a restart: the share is
-read when the detector starts and when you ask. Click a tile for the full frame, or **watch** to
+read when the detector starts and when you ask, so a page left open shows nothing new until you
+rescan (roadmap B.3 makes this automatic). Click a tile for the full frame, or **watch** to
 play the clip. Between two clips, **a new visit
 starts here** splits a visit; **same visit as the next event**, under "more", joins two. Both
-survive a regroup.
+survive `--regroup`, which rebuilds the events (below).
 
 **What it shows.** By default the Review tab walks the **review queue**: every visit not yet
 labelled, and every labelled one sent back for a second look, with the reason beside it. A
@@ -176,13 +188,15 @@ a hand signal, so it is recorded at the moment it was true. For each box just cl
 
 The reviewer labels that event a cleaning (`l`) and types the counts in.
 
-The **Timeline** tab lists every visit, newest first, with its time, label, box, length and clip
+The **Timeline** tab lists every event, newest first, with its time, label, box, length and clip
 count. Label chips choose which labels show, so one cat's rows are that cat's visit log. Drag
 across the day strip or the hour strip to take a slice of time ("outside the range" turns
 06:00–22:00 into the night), and "labelled before" picks out old labels. Any row, or everything
 shown, can be sent back to the review queue with a reason. The filter is kept in the address.
 
-From the command line, beside the running service:
+From the command line, beside the running service, `--stage` sends labelled events back to the
+review queue with a reason, keeping their labels; here, every `not_cat` labelled before 20
+September:
 
 ```
 uv run python main.py --stage --label not_cat --labeled-before 2026-09-20 --reason "recheck"
@@ -195,7 +209,8 @@ the events, so stop the service first; labels follow their clips.
 
 The default thresholds come from one installation. Another camera height, lens, framing or set
 of cats needs its own numbers, and they come from a **data run**: a week or two of recording
-everything, labelled by hand.
+everything, labelled by hand. Until then the default of 300 is a starting point, not a promise:
+a cat that reads weaker than the one it came from may not reach it.
 
 1. **Start the data run.** Settle the framing, the lighting and the camera mode first: changing
    one afterwards means starting the run again. Then, in the service's drop-in (`sudo systemctl edit
@@ -225,7 +240,8 @@ everything, labelled by hand.
    - 50 visits (100 is better), 10 of them at night, and 15 per cat;
    - every box used: a cat staying 10 s in that box's third of the picture (with fewer than
      three boxes, name the thirds that hold one: `--boxes 1,3`);
-   - the weakest visit no longer getting weaker.
+   - the weakest visit settled: none of the last 20 weaker than the weakest before them (a
+     visit's strength is the largest blob it made; see the [glossary](docs/DESIGN.md#glossary)).
 
    Varied weather, including an overcast day, is yours to judge; it matters less when the boxes'
    own light swamps the daylight. It also sends events that need a second look to the review
@@ -235,11 +251,12 @@ everything, labelled by hand.
    - the weakest visits: a peek?
    - `not_cat` events that held something visit-sized: a cat after all?
 
-4. **Apply the result.** Once every condition holds, it replays a range of thresholds over the
-   CSV. For each it shows the visits missed, the clips an hour started with no cat in them, and
-   how much of each visit was recorded. It proposes the highest threshold that misses no visit and
-   still records 98 % of the median visit, marked provisional while any of its questions waits in
-   the queue. Put it in the drop-in, remove `METRICS_CSV`, and restart the service.
+4. **Apply the result.** Once every condition holds, it replays a range of thresholds over the CSV.
+   For each it shows the visits it would miss, how many clips an hour it would start with no cat in
+   them, and how much of each visit it would record. It can judge only the visits the run recorded,
+   which is why the run's threshold is low. It proposes the highest threshold that misses no visit
+   and still records 98 % of the median visit, marked provisional while any of its questions waits
+   in the queue. Put it in the drop-in, remove `METRICS_CSV`, and restart the service.
 
 ## Settings
 
@@ -255,7 +272,7 @@ Settings come from `.env` in the checkout, or from the service's drop-in; the dr
 | `REVIEW_CACHE_DIR` | `.review_cache` | the review page's tiles and videos |
 | `MOTION_THRESHOLD` | 300 | changed pixels, of the 640x480 analysis frame, that start a clip; from one installation, and `--calibrate` proposes yours |
 | `MOTION_TIMEOUT` | 10 | seconds without motion before a clip closes |
-| `MOG2_HISTORY` | 500 | frames over which something still fades into the background |
+| `MOG2_HISTORY` | 500 | frames the background model (MOG2) learns over; something still fades into it in about that many |
 | `DARK_BRIGHTNESS` | 10 | mean grey level, 0–255, below which motion is ignored |
 | `EVENT_GAP_SECONDS` | 180 | how soon a clip must follow the last to join its visit |
 | `EVENT_BOX_DISTANCE_PX` | 120 | how close two clips' positions must be to count as one box |

@@ -6,8 +6,10 @@ Entries cite `ROADMAP.md` by section (A.2, A.4, B.5b, …). Words with a meaning
 here (visit, event, sidecar, tile, …) are defined in the [Glossary](#glossary) at the end.
 
 Each section is one thing the system does. It opens with how that works today, with a picture
-where there is a flow, a state machine or more than one thread, and the entries under it are the
-decisions that gave it that shape: what was decided, why, and when it was measured. The pictures
+where there is a flow, a state machine or more than one thread; under its **Decisions** heading
+are the choices that gave it that shape: what was decided, why, and when it was measured. For
+the whole shape in a few minutes, read the Goal and each section's opening, and skip the
+decisions; read a section's decisions before changing that part. The pictures
 are Mermaid, which GitHub renders in place; a box or an arrow in one is a claim about the code and
 is held to the same standard as a sentence.
 
@@ -31,16 +33,19 @@ made a visit is the way there, not the goal itself. Three things follow from it:
 One process on the Pi does everything, in two halves that share no objects. The capture half owns
 the camera, decides when something is moving and writes clips to local disk; the review half reads
 those clips back from the share, groups them into visits and serves the page a person labels them
-on. The whole contract between the halves is a clip and its sidecar on the share, so either half
-can change without the other noticing, and the review half imports without the camera stack, which
-is how it runs on a machine with no camera and what the lint gate (`TID251`) keeps true.
+on. The whole contract between the halves is a clip and its sidecar (a small JSON file of what the
+video cannot say: when, where in the frame, why it ended) on the share, so either half can change
+without the other noticing. The review half imports without the camera stack, which is how the
+tests and `check_page.py` run it on a machine with no camera, and a lint rule (`TID251`, which
+bans `picamera2` outside `src/capture/`) keeps that true. The service itself needs a camera:
+`main.py`, its only entry point, opens one first.
 
 ```mermaid
 flowchart TB
   subgraph capture["src/capture, on the Pi with the camera"]
     cam(["Picamera2, one per process"])
-    cam -- "capture_arrays(main, lores), ~30 fps" --> fan["CameraManager: one capture thread, consumers in order"]
-    fan --> det["MotionDetector: MOG2 on the lores frame"]
+    cam -- "capture_arrays(main, lores), ~30 fps" --> fan["CameraManager: one capture thread calls each consumer in turn"]
+    fan --> det["MotionDetector: background subtraction (MOG2) on the 640x480 frame"]
     fan --> web["WebStreamer: the newest main frame"]
     det --> rec["MotionRecorder"]
     det -. "FrameMetrics, every frame" .-> csv[("METRICS_CSV")]
@@ -81,6 +86,8 @@ The code follows the same split. `src/web_app.py` assembles the one Flask app fr
 | `src/review/` | everything that reads the share and serves the labeler: `clip_scan`, `capture_db`, `event_grouping`, `clip_frames`, `strips_ahead`, `timeline`, `api`, `calibration` | `src.clips`, never `picamera2` |
 | `src/clips/` | what both sides agree a clip is: `format` (suffixes, `partial_name()`, `CAMERA_FPS`, `H264_BITRATE`, `ANALYSIS_SIZE`), `sidecar`, `blob`, `frame` | the standard library and numpy only |
 
+### Decisions
+
 **The local clip cache is sized for a long outage of the share.** Clips accumulate on local
 disk while the share is away and ship when it returns, where an in-memory buffer would fill
 and drop footage. Clip data arrives at `H264_BITRATE / 8` bytes a second, 1.25 MB/s at the
@@ -106,8 +113,8 @@ recorder leaving the stream up. `main.py` is the only entry point (2026-09-20): 
 running as a service around the clock the Review tab is always up, so a second, camera-less
 script serving the labeler on the same port would be one more thing to explain and could never
 run beside it. `main.py --regroup` covers regrouping without the web app. The cost is that a
-machine with no camera cannot run the labeler; the review package imports without the camera
-stack (`TID251`), so a camera-less entry point needs no change to it. The page is a Jinja template
+machine with no camera cannot run the labeler as a service; the review package imports without
+the camera stack (`TID251`), so a camera-less entry point would need no change to it. The page is a Jinja template
 rather than a string in a Python module: ruff's line limit applies inside strings, and JavaScript
 wrapped to satisfy it is unreadable.
 
@@ -156,6 +163,8 @@ The rule the table enforces: the two threads the camera depends on, the capture 
 picamera2's output thread, wait on nothing that can stall: not a network share, not another
 thread, not a lock held across I/O. Everything that can block, the share, ffmpeg, HTTP, the CSV,
 has a thread of its own, and the review side does its share I/O with no database lock held.
+
+### Decisions
 
 **Consumers run outside `_frame_lock`.** The lock covers capture only. Consumers run
 synchronously on the capture thread, so a slow one throttles everything; a lock held across them
@@ -233,6 +242,8 @@ and the live view, `lores` at 640x480 (`ANALYSIS_SIZE`) for detection, from the 
 ~30 fps, and the consumers, registered with `add_consumer`, run one after another on that
 thread.
 
+### Decisions
+
 **One `Picamera2` per process.** picamera2 allows only one instance, so `CameraManager` owns it
 and everything else borrows via `get_camera()`.
 
@@ -296,6 +307,8 @@ timestamp,foreground_px,blob_area,x,y,w,h,cx,cy,recording,clean_area,clean_x,cle
 2026-09-12T08:04:12.988,0,0,,,,,,,0,0,,,,,118.4
 2026-09-12T08:04:13.021,1653,1102,304,0,52,31,330,15,0,1416,301,0,59,36,118.2
 ```
+
+### Decisions
 
 **MOG2 warmup.** MOG2 has no background model on its first frame and reports the whole frame as
 foreground, which triggered a clip on every startup. Measured on the imx708 (2026-08-24, in the
@@ -434,6 +447,8 @@ coordinates are in the 640x480 analysis frame, and `cx`, `cy` is the box's centr
 }
 ```
 
+### Decisions
+
 **Two names, and only one means "done".** The recorder writes `<clip>.h264.part` and renames to
 `<clip>.h264` once the file is closed; `ClipTransfer` copies to `<clip>.h264.part` on the share
 and renames within the share. Both renames are same-filesystem, so they are atomic. A reader
@@ -539,6 +554,8 @@ flowchart TB
   exit1 & exitn --> restart["Restart=on-failure after RestartSec=20<br>(the camera stays busy 10–15 s)"]
   restart --> systemd
 ```
+
+### Decisions
 
 **`main.py` degrades rather than dying.** If the recorder cannot be constructed, the web stream
 still comes up — it is often how you find out something is wrong — and a review database that
@@ -703,6 +720,8 @@ erDiagram
 
 Timestamp columns are left out of the picture.
 
+### Decisions
+
 **Clips are grouped into events at ingest, by one rule, from the sidecars.** `event_grouping`
 holds the rule as a pure function over `ClipRow`s so it can be tested against synthetic timelines
 with no database. `CaptureDB` calls it from two places: `ingest`, for every rescan, and `regroup`,
@@ -831,6 +850,8 @@ flowchart TB
   req["a page request for an unbuilt strip"] -. "waits on that clip's build lock" .-> ff
 ```
 
+### Decisions
+
 **ffmpeg, not cv2.VideoCapture.** VideoCapture cannot handle the raw elementary streams the
 recorder writes: on a real clip it reported a garbage frame count, failed its first read, and
 could not seek. ffmpeg decodes the same files cleanly (~0.4 s for one full frame on a Pi 5,
@@ -931,6 +952,8 @@ The script is ES modules with no build step, one per tab plus `common.js`. The s
 rule that would otherwise exist twice, such as the timeline's filter; the browser owns position,
 which lives in the address, and the undo history. A change to the page is checked by looking at
 it: `tests/manual/check_page.py` screenshots it at a phone's size and a laptop's.
+
+### Decisions
 
 **Single-page UI.** Labelling navigates no pages — next event and images are fetched and swapped
 in place — so the undo history can live in a JS array rather than sessionStorage, and labelling
@@ -1079,6 +1102,8 @@ A data run ends in `main.py --calibrate`, which reads the run's metrics CSV and 
 database, proposes the trigger settings and stages for review what it cannot decide. The entries
 below are the rules it applies and the measurements behind them.
 
+### Decisions
+
 **A data run ends in one command, `main.py --calibrate`** (2026-10-03, ROADMAP A.2). Every installation
 needs its own numbers, so the counting, the derivation and the replay are code anyone reruns
 rather than an analysis done once by hand; `src/review/calibration.py` holds it, and reads the
@@ -1209,6 +1234,7 @@ The words this project uses with a meaning of their own. Prose spells them the B
 | term | meaning |
 |---|---|
 | analysis frame | The 640x480 `lores` stream that detection runs on. Recording and the live view use the 1280x720 `main` stream. |
+| consumer | A function the capture thread calls with every frame (`add_consumer`): the detector's and the live view's. |
 | background model | MOG2's picture of the empty scene, learned over `MOG2_HISTORY` frames. A cat that sits still fades into it. |
 | foreground | The pixels that differ from the background model, shadows excluded. Their number, the foreground count (`foreground_px`), is what triggers a clip today. |
 | blob | The largest connected region of foreground in a frame. The cleaned blob (`clean_blob`) is the same after removing speckle and joining nearby pieces. |
