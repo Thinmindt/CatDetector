@@ -308,6 +308,21 @@ Next:
 - [ ] **Show the crop *and* the full frame** — a crop alone is often ambiguous. Needs A.3 and B.1.
       **Done means** the review page shows each event's crops beside a full frame from its clip,
       and `check_page.py` screenshots at both sizes show them without horizontal scroll.
+- [ ] **New clips reach the review queue on their own.** The share is read only at startup and
+      when someone presses "rescan clip directory", so a visit recorded while the page is open
+      never appears and its strips are not built ahead. B.4's daily rule reads `captures.db`, so
+      it needs the same. Ingest on a schedule from one thread of its own, every minute by default
+      (`INGEST_INTERVAL_SECONDS`): `ClipTransfer` ships a finished clip within a minute, and
+      globbing and statting 1,013 clips over CIFS took 0.22–0.29 s (three runs, 2026-10-05; it
+      grows with the archive, and a new clip's sidecar is the only other read). A scan stalled
+      on the share holds no lock today (`clip_scan` runs unlocked), and must not let a second
+      scan start behind it.
+      **Done means** a clip that lands on the share reaches the review queue within one interval,
+      with no rescan and no restart, and has its strip built ahead; a test with a short interval
+      shows that, and shows a stalled scan neither blocking review requests nor letting a second
+      scan start; a Review tab showing an empty queue picks up the new event without a reload;
+      and the interval is in the README's settings table, whose "New clips appear after a
+      rescan" says instead when they appear.
 
 Non-goals for v1: multi-user, accounts, editing bounding boxes by hand.
 
@@ -537,6 +552,21 @@ Each works for the setup it was built on and would bite someone else:
       **Done means** digits match `e.code` (`Digit1`…, `Numpad1`…), a tenth cat has a key or a
       picker, the help text says so, eslint passes, and the keys were pressed by hand with an
       AZERTY layout selected.
+- [ ] **`tests/manual/check_page.py` needs one installation's data.** It serves a copy of the
+      live review database and the live frame cache, so it runs only where a `captures.db` has
+      been filled, and every screenshot it takes shows real footage and the real cats' names.
+      That keeps any picture of the page out of the README. Give it a synthetic installation: a
+      script that builds a few clips with ffmpeg (a drawn floor, three boxes and a cat-sized dark
+      shape that walks in, sits and leaves), their sidecars, and a database holding an event of
+      each kind (cats named Ada and Bea, `multiple`, a peek, a cleaning with counts, `not_cat`, a
+      visit split over two clips, a staged event), and a `--fixture` option that serves it from a
+      scratch directory.
+      **Done means** `check_page.py --fixture` runs in a fresh clone with only ffmpeg and
+      chromium installed; one command takes the Review tab at phone size and the Timeline at
+      laptop size from it, and those screenshots are committed and shown in the README (outside
+      `docs/`, which ignores everything but its four documents); and a pytest test builds the
+      fixture and ingests it, so a schema change that breaks it fails the gate rather than the
+      next screenshot.
 - [ ] `tests/manual/check_page.py` looks for `chromium` by that name; accept the other names
       Chromium and Chrome install under.
       **Done means** the script tries `chromium`, `chromium-browser`, `google-chrome` and
