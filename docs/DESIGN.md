@@ -1054,6 +1054,17 @@ weakest visit's largest blob was 2,768 px: a grey coat on the litter, whose clea
 into pieces (18,419 px of foreground around it). A trigger that ignores a peek still fires when
 the whole cat steps in, so what decides recall is whether each visit ever reaches the trigger.
 
+**What a data run counts** (2026-10-03, ROADMAP A.2). A visit is an event labelled with a cat
+(`cat`, a cat's name or `multiple`), not a peek, that started at or after `--since` and that the
+metrics CSV covers with a cleaned blob. Per-cat counts go by the label, so a visit labelled `cat`
+or `multiple` counts toward the total and toward no cat's. A visit split into two events counts
+twice until the reviewer joins them; the command does not join them, since only the footage
+says whether it was one visit, but stages the pair with that question. Night is a visit starting
+from 20:00 to 06:00. The weakest visit has settled when, with more than 20 visits, none of the
+last 20 is weaker than the weakest of those before them. The weather is the reviewer's call:
+the camera's auto-exposure holds the CSV's brightness level through the day, so an overcast day
+does not show in it.
+
 **A threshold is chosen by how much of each visit it records, not only by whether it starts a
 clip.** Today one threshold both starts a clip and keeps it going, so a high one closes clips while
 a cat sits still, which is the part of a visit worth seeing. Replayed on one run (2026-10-04), half
