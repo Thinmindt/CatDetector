@@ -287,6 +287,16 @@ The settings an installation tunes, `MOTION_THRESHOLD`, `MOTION_TIMEOUT`, `MOG2_
 `DARK_BRIGHTNESS`, come from the environment and reach the detector as constructor arguments.
 Calibration, at the end of this document, is how a data run turns into their values.
 
+With `METRICS_CSV` set, each frame becomes a row: here an empty scene, then the frame where the
+cat's head came in. `blob_*` and `x`…`h` are the raw blob, `clean_*` the cleaned one, `cx`, `cy`
+the raw blob's centre, and an empty cell means no blob:
+
+```csv
+timestamp,foreground_px,blob_area,x,y,w,h,cx,cy,recording,clean_area,clean_x,clean_y,clean_w,clean_h,brightness
+2026-09-12T08:04:12.988,0,0,,,,,,,0,0,,,,,118.4
+2026-09-12T08:04:13.021,1653,1102,304,0,52,31,330,15,0,1416,301,0,59,36,118.2
+```
+
 **MOG2 warmup.** MOG2 has no background model on its first frame and reports the whole frame as
 foreground, which triggered a clip on every startup. Measured on the imx708 (2026-08-24, in the
 cropped sensor mode): frame 0 is 100% foreground, frame 1 ~3.8% (still far over any threshold),
@@ -393,6 +403,35 @@ stateDiagram-v2
     Clip --> Event: grouped by gap and place
   }
   Shipped --> Clip: ingest reads the sidecar once
+```
+
+A sidecar, as written for a clip that a cat's head started at the top edge of the frame. Blob
+coordinates are in the 640x480 analysis frame, and `cx`, `cy` is the box's centre:
+
+```json
+{
+ "started_at": "2026-09-12T08:04:13.120",
+ "ended_at": "2026-09-12T08:05:02.480",
+ "close_reason": "timeout",
+ "trigger_blob": {
+  "area": 1416,
+  "x": 301,
+  "y": 0,
+  "w": 59,
+  "h": 36,
+  "cx": 330,
+  "cy": 18
+ },
+ "last_blob": {
+  "area": 2930,
+  "x": 286,
+  "y": 208,
+  "w": 71,
+  "h": 58,
+  "cx": 321,
+  "cy": 237
+ }
+}
 ```
 
 **Two names, and only one means "done".** The recorder writes `<clip>.h264.part` and renames to
