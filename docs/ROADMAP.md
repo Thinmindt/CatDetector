@@ -553,13 +553,63 @@ Each works for the setup it was built on and would bite someone else:
       **Done means** `check_page.py --fixture` runs in a fresh clone with only ffmpeg and
       chromium installed; one command takes the Review tab at phone size and the Timeline at
       laptop size from it, and those screenshots are committed and shown in the README (outside
-      `docs/`, which ignores everything but its four documents); and a pytest test builds the
+      `docs/`, which tracks only its documents); and a pytest test builds the
       fixture and ingests it, so a schema change that breaks it fails the gate rather than the
       next screenshot.
 - [ ] `tests/manual/check_page.py` looks for `chromium` by that name; accept the other names
       Chromium and Chrome install under.
       **Done means** the script tries `chromium`, `chromium-browser`, `google-chrome` and
       `google-chrome-stable`, and names what it tried when none is found.
+
+## C.8 Documentation a stranger can follow
+
+The documents come in tiers: the README, DESIGN.md's map, and the decisions under `docs/design/`.
+What they promise is checked wherever a check can see it, and the rest is read by someone who
+was not there. No second installation or contributor exists yet, so stand-ins play the stranger:
+a clean Debian container installs from the README, and an agent started with no memory of the
+project reads the documents cold.
+
+- [ ] **The documents' promises are gates.** Every relative link and anchor resolves; every
+      setting `config.py` reads, every option `main.py` takes and every key the Review tab
+      answers to is in the README; prose spells words the glossary's way; and the summary tiers
+      (README, DESIGN.md, CLAUDE.md) stay within python-style's readability budgets, the roadmap
+      no worse than today until it is tiered (below). The measuring script is the conventions
+      plugin's `readability.py`, copied unchanged like `check_private.sh`.
+      **Done means** pytest checks each, so `check.sh` and CI run them, and each check was seen
+      to fail once against a broken document.
+- [ ] **A pull request asks about its documents.**
+      **Done means** `.github/pull_request_template.md` lists, a line each, what a change's
+      documents may need: its summary, a dated decision, the glossary, an example with a test,
+      the README's tables, a looked-at page, the roadmap box, and nothing private.
+- [ ] **The README's install runs on a clean machine.** CI's own setup is not the README's: it
+      installs `libgl1` and never runs the README's commands, so a missing package or a missing
+      step passes unnoticed (whether `libcap-dev` is needed has been open since 2026-09-26).
+      **Done means** a CI job on a clean Debian trixie, as an ordinary user with `sudo`, runs the
+      README's install commands as written, less only what needs a Pi (the camera package) and
+      the clone CI has already made, then runs the tests; a script extracts the commands from
+      the README, with a test, so a README change is what the job runs; and the job has passed
+      on GitHub.
+- [ ] **A first week, as a tutorial.**
+      **Done means** a tracked page walks a stranger from a working install to the first
+      labelled visit and a look at the timeline, linked from the README's reading map, with
+      screenshots from C.7's synthetic installation, and a cold read finds no step it could not
+      follow.
+- [ ] **The people and systems around it, in one picture.**
+      **Done means** the README shows a context diagram, the top zoom level of the C4 model: the
+      cats, the person labelling on a phone or a laptop, the Pi and its camera, the share, and
+      the dead man's switch, rendered at page width and read.
+- [ ] **The roadmap in tiers.**
+      **Done means** the roadmap opens with where things stand and one line per open item; an
+      item's spec past the summary budget lives on a page of its own linked from that line; and
+      the readability gate holds the roadmap to the summary budgets.
+- [ ] **Cold reads before hand-off.**
+      **Done means** CLAUDE.md's "check a branch before handing it over" includes a cold read for
+      any branch that changes a summary tier: an agent with no memory of the project reads it
+      and lists what it could not answer, and the hand-off says what was answered.
+- [ ] **Releases, for a make-believe second installation.**
+      **Done means** a set of changes merged to `main` gets a version tag and a `CHANGELOG.md`
+      entry saying what an installation must do after pulling (re-run `install-service.sh`,
+      `--regroup`, a new setting), written for an installation that is not this one.
 
 ---
 
