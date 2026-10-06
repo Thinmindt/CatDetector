@@ -130,7 +130,7 @@ condition below holds.
 | **several days of varied weather, one overcast**, unless the boxes' own light swamps daylight | lighting changes are a daytime false trigger (A.1) |
 | **the weakest visit has stopped getting weaker over the last ~20 visits** | the band's lower edge follows the weakest visit |
 
-How each condition is counted is `--calibrate`'s, in DESIGN.md (Calibration).
+How each condition is counted is `--calibrate`'s, in `docs/design/calibration.md`.
 False positives are measurable from hours rather than visits, and any candidate
 rule can be replayed against the metrics CSV without re-recording. Storage is not the constraint
 (the metrics CSV grows by roughly 150 MB a day). **Labelling is**: each day's events have to be
@@ -196,7 +196,7 @@ as agreed is in the archive.
       centroid distance, replace it with a fixed rectangle per box in lores coordinates.
       **Done means** both are set from measured distributions (gaps between clips inside
       single-cat events against gaps between consecutive events; centroid distances within and
-      between boxes), the numbers are in DESIGN.md, From clips to events, `--regroup` has run, a walk
+      between boxes), the numbers are in `docs/design/events.md`, `--regroup` has run, a walk
       of `?filter=multi` finds no event merging two visits, and a walk of one day's events in
       order finds no visit split in two. The first data (2026-10-03): the twelve joins reviewers
       made had gaps of 0 to 141 s, mostly 17 s or less, and centroid distances of 185 to 295 px,
@@ -308,7 +308,7 @@ key is the event, so an event holds one label: model predictions (B.6) need a ke
       restore it. A finished copy on the share is fine; the live database never is.
 - [ ] Watch SD-card wear: many small writes. Batch inserts per event rather than per frame.
       **Done means** the bytes written to the SD card in 24 h of normal running are measured
-      (`/sys/block/mmcblk0/stat`), the main writers are named in DESIGN.md, and anything over a
+      (`/sys/block/mmcblk0/stat`), the main writers are named in the design documents, and anything over a
       stated daily budget has an item of its own.
 
 ## B.3 Labelling UI
@@ -391,7 +391,7 @@ are real data.
       alone separates the cats, that is a few lines of OpenCV and no training loop.
       **Done means** a script reports, for the labelled single-cat events, how well mean coat
       colour inside the mask separates the cats (a confusion matrix on events held out by day),
-      and the result, with the decision it drives, is in DESIGN.md.
+      and the result, with the decision it drives, is in the design documents.
 - [ ] **Otherwise, a model:** transfer learning on a small backbone (MobileNetV3 /
       EfficientNet-lite) over the crops, trained off the Pi. Decide where inference runs once
       there is a model to measure: on the training machine for accuracy headroom, or exported
@@ -399,7 +399,7 @@ are real data.
       A small classifier on one crop per event is cheap either way.
       **Done means** a model trained in the separate project, from the crops and labels on the
       share, classifies events held out by day at a stated per-cat accuracy, and where inference
-      runs is decided from a measurement of it, recorded in DESIGN.md.
+      runs is decided from a measurement of it, recorded in the design documents.
 
 ## B.5b Ground truth at cleaning time: the hand signal
 

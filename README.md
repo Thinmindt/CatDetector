@@ -46,8 +46,8 @@ looking for something cat-sized. Each is a step in [the roadmap](docs/ROADMAP.md
 | set it up | [What you need](#what-you-need) and [Install](#install), below |
 | label visits | [Labelling visits](#labelling-visits) |
 | tune it for your camera and cats | [Calibrating an installation](#calibrating-an-installation) |
-| understand how it works, and why | [docs/DESIGN.md](docs/DESIGN.md): five minutes for the shape, then section by section |
-| change the code | [docs/DESIGN.md](docs/DESIGN.md), then [docs/STYLE.md](docs/STYLE.md) and the traps in [CLAUDE.md](CLAUDE.md) |
+| understand how it works, and why | [docs/DESIGN.md](docs/DESIGN.md), a few minutes for the whole; each part links to the decisions behind it |
+| change the code | [docs/DESIGN.md](docs/DESIGN.md) and the decisions for the part you change, then [docs/STYLE.md](docs/STYLE.md) and the traps in [CLAUDE.md](CLAUDE.md) |
 | see what is planned | [docs/ROADMAP.md](docs/ROADMAP.md) |
 | look up a word (event, peek, tile, …) | [the glossary](docs/DESIGN.md#glossary) |
 
@@ -67,7 +67,7 @@ looking for something cat-sized. Each is a step in [the roadmap](docs/ROADMAP.md
   computer's share or a USB disk (see [The share](#the-share)). The `captures/` folder in it is
   created for you. A local-only mode is planned (roadmap C.5).
 - **Room and time.** Footage is about 75 MB a minute (10 Mbit/s), and clips have averaged about
-  18 MB; [DESIGN.md](docs/DESIGN.md) has the sizing. Every event, cat or not, waits for one key
+  18 MB; [the design notes](docs/design/system.md#the-local-clip-cache-is-sized-for-a-long-outage-of-the-share) have the sizing. Every event, cat or not, waits for one key
   press in the review queue.
 
 Recommended: [pi-tools](https://github.com/Thinmindt/pi-tools), a Claude Code plugin that keeps
@@ -332,7 +332,7 @@ npm run vendor               # after changing d3's version in package.json
 `check.sh` runs the privacy check, shellcheck, codespell, ruff, the format check, mypy, eslint, a
 check that the committed d3 matches the version `package.json` pins, and pytest. GitHub Actions
 runs the same script on every push, and every commit must pass it. Read
-[docs/DESIGN.md](docs/DESIGN.md) before changing behaviour, [docs/STYLE.md](docs/STYLE.md) before
+[docs/DESIGN.md](docs/DESIGN.md) and the decisions behind the part you change before changing behaviour, [docs/STYLE.md](docs/STYLE.md) before
 writing code, and the traps in [CLAUDE.md](CLAUDE.md), which is written for coding agents and
 useful to anyone.
 

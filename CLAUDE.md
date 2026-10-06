@@ -8,17 +8,18 @@ no prior context and are about to change something on real hardware.
 | file | what it holds |
 |---|---|
 | `README.md` | what the project is for, how it works in a minute, and how to install, run, label and calibrate it |
-| `docs/DESIGN.md` | how the system works and why: an overview with diagrams and the thread map, then a section per mechanism with the measurements behind each decision, and a glossary |
+| `docs/DESIGN.md` | how the system works: the goal, an overview with diagrams and the thread map, a summary of each mechanism, and a glossary; read in a few minutes |
+| `docs/design/*.md` | the decisions behind each domain, linked from its summary in DESIGN.md: what was decided, why, when, and the measurements and failures that settled it |
 | `docs/ROADMAP.md` | where the project is going, phase by phase, and the open questions — the plan as it stands today |
 | `docs/ROADMAP_ARCHIVE.md` | finished roadmap items and the history behind decisions, under the same section letters |
 | `docs/STYLE.md` | how to write code here; a general Python style guide, portable to other repos |
 
 Each fact has one home, where a reader would look for it: how the system works and why is in
-DESIGN.md, the plan in the roadmap, installing and using it in the README. This file holds what
-is its own: how to work here, and the traps, each in a line or two with a pointer to the DESIGN.md
-section that holds its reasoning. Read the top of DESIGN.md (Goal, The system at a glance,
-Threads and locks) before changing anything, `docs/STYLE.md` before writing code, and the
-DESIGN.md section that owns a behaviour before changing it. Event, visit, sidecar, tile, peek and
+DESIGN.md and the decisions under `docs/design/`, the plan in the roadmap, installing and using it
+in the README. This file holds what is its own: how to work here, and the traps, each in a line
+or two with a pointer to the document under `docs/design/` that holds its reasoning. Read
+DESIGN.md before changing anything, `docs/STYLE.md` before writing code, and the decisions for
+the part you are changing before changing its behaviour. Event, visit, sidecar, tile, peek and
 the project's other words mean what DESIGN.md's glossary says.
 
 The roadmap's section letters (A.2, A.4, B.5b, …) are cited by the design doc and the commit
@@ -26,7 +27,7 @@ messages, and never change: when an item is finished, or a passage turns into hi
 verbatim to the archive under the same letter, so the roadmap only ever describes the present
 plan.
 
-Anything else in `docs/` is **gitignored** (`docs/TODO.md`, if present, is a maintainer's own
+Anything else in `docs/`, outside `docs/design/`, is **gitignored** (`docs/TODO.md`, if present, is a maintainer's own
 to-do list, open items only, and `docs/TODO_ARCHIVE.md` holds the finished ones), as is
 `CLAUDE.local.md`, which holds facts about the one Pi a checkout runs on and the person who runs
 it — its account, its mounts, what needs that person's own terminal. A fresh clone has none of
@@ -196,7 +197,7 @@ everything else.
 ## Conventions
 
 Source comments are **spartan and describe current behaviour**. No rationale, no measurements, no
-rejected alternatives, no history — those go in `docs/DESIGN.md`. If you are about to write a
+rejected alternatives, no history — those go in the design documents (`docs/DESIGN.md`, `docs/design/`). If you are about to write a
 comment beginning "deliberately", "we used to", or "this would otherwise", write it there
 instead. Docstrings: one line if one line does it.
 
@@ -321,10 +322,9 @@ problem rather than a venv problem. Rebuild with the two-line recovery above.
 ## Traps
 
 Each of these was a real bug or a near miss. The line here is the rule; the reasoning, the
-measurement and the failure are in the DESIGN.md section named after it.
+measurement and the failure are in the document under `docs/design/` named after it.
 
-**Capture** (DESIGN.md: Threads and locks, Capturing frames, Recording and shipping a clip,
-Running as a service):
+**Capture** (`docs/design/`: `system.md`, `capture.md`, `service.md`):
 
 - **The camera is shared, so the recorder must not stop it.** `MotionRecorder.cleanup()` calls
   `stop_encoder(self.encoder)`; `Picamera2.stop_recording()` would stop the camera under every
@@ -357,7 +357,7 @@ Running as a service):
 - **MOG2 calls the whole first frame foreground**; `warmup_frames` is what stops a clip at every
   start.
 
-**Clips and the share** (DESIGN.md: Recording and shipping a clip):
+**Clips and the share** (`docs/design/capture.md`):
 
 - **Nothing on the capture side writes to the share.** Clips, the ring's drain and the metrics
   CSV go to local disk; `ClipTransfer` ships clips from its own thread. One row per frame at
@@ -370,8 +370,7 @@ Running as a service):
 - Clips are raw `.h264` elementary streams, not MP4: no duration, no seeking. Remux with
   `ffmpeg -i clip.h264 -c copy clip.mp4` if that matters.
 
-**The review side** (DESIGN.md: Threads and locks, From clips to events, Showing a clip, The
-review page):
+**The review side** (`docs/design/`: `system.md`, `events.md`, `review.md`):
 
 - **Share I/O stays outside `CaptureDB`'s lock**, in `src/review/clip_scan.py`, which holds no
   lock. Under the lock, a stalled CIFS mount would freeze every review request.
@@ -391,7 +390,7 @@ review page):
   and buttons carry `data-action`, never `onclick`. d3 is committed under `src/static/vendor/`
   from the version `package.json` pins: after a bump, run `npm run vendor`.
 
-**The code's shape** (DESIGN.md: The system at a glance):
+**The code's shape** (`docs/design/system.md`):
 
 - **`picamera2` is banned outside `src/capture/`** by ruff's `banned-api` rule (`TID251`), so the
   review side imports on a machine with no camera stack. Do not add a per-file ignore to get
@@ -400,7 +399,7 @@ review page):
 
 ## Known weaknesses
 
-Not bugs, but do not mistake them for correct (DESIGN.md: Detecting motion):
+Not bugs, but do not mistake them for correct (`docs/design/capture.md`):
 
 - **Detection is a global pixel count**, with no spatial coherence: scattered noise and one solid
   cat-sized blob look the same. Excluding shadows makes it honest, not good. The cleaned blob is

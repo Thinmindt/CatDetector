@@ -1,4 +1,4 @@
-"""The examples in DESIGN.md are what the code writes and reads."""
+"""The examples in the design documents are what the code writes and reads."""
 
 from __future__ import annotations
 
@@ -18,14 +18,14 @@ from src.clips.sidecar import (
     write_sidecar,
 )
 
-DESIGN = Path(__file__).resolve().parents[1] / "docs" / "DESIGN.md"
+CAPTURE = Path(__file__).resolve().parents[1] / "docs" / "design" / "capture.md"
 
 
 def example(language: str) -> str:
-    """The one fenced block of this language in DESIGN.md."""
+    """The one fenced block of this language in docs/design/capture.md."""
     fence = rf"^```{language}\n(.*?)^```"
-    blocks = re.findall(fence, DESIGN.read_text(), re.MULTILINE | re.DOTALL)
-    assert len(blocks) == 1, f"DESIGN.md should hold one ```{language} example"
+    blocks = re.findall(fence, CAPTURE.read_text(), re.MULTILINE | re.DOTALL)
+    assert len(blocks) == 1, f"capture.md should hold one ```{language} example"
     return str(blocks[0])
 
 
