@@ -112,7 +112,11 @@ It keeps its label and waits in the review queue with the reason beside it.
 ## Gates
 
 **Every gate must pass before every commit**: the privacy check, shellcheck, codespell, lint,
-format check, type check, the JavaScript lint, the vendored-d3 check, tests. `scripts/check.sh` runs them, and
+format check, type check, the JavaScript lint, the vendored-d3 check, tests. The tests include the
+documents' own promises (`tests/test_docs.py`): links and anchors resolve, every setting, option
+and key is in the README, prose spells the British way, and the summary tiers stay within their
+readability budgets, measured by `scripts/readability.py`, the conventions plugin's script copied
+unchanged like `check_private.sh`. `scripts/check.sh` runs them, and
 `.github/workflows/check.yml` runs the same script on every push. Run it and report the result.
 shellcheck and codespell are pinned dev dependencies, so `uv sync` installs them. The JavaScript
 gate is eslint, pinned by `package.json` and `package-lock.json` and configured in

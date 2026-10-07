@@ -163,6 +163,7 @@ an **event**: the clips of one visit, or of whatever else moved.
 | `l` | cleaning | a litter cleaning: type the poops found in each box, `Enter` saves |
 | `z` | undo | undoes the last label |
 | `→` | next | skips, while walking a filter |
+| `Esc` | close | closes the "more" sheet |
 
 New clips appear after a **rescan clip directory**, under "more", or a restart: the share is
 read when the detector starts and when you ask, so a page left open shows nothing new until you
@@ -196,7 +197,7 @@ shown, can be sent back to the review queue with a reason. The filter is kept in
 
 From the command line, beside the running service, `--stage` sends labelled events back to the
 review queue with a reason, keeping their labels; here, every `not_cat` labelled before 20
-September:
+September. `--source` says who asked: `human` by default, or `agent` or `model`.
 
 ```
 uv run python main.py --stage --label not_cat --labeled-before 2026-09-20 --reason "recheck"
@@ -330,7 +331,8 @@ npm run vendor               # after changing d3's version in package.json
 ```
 
 `check.sh` runs the privacy check, shellcheck, codespell, ruff, the format check, mypy, eslint, a
-check that the committed d3 matches the version `package.json` pins, and pytest. GitHub Actions
+check that the committed d3 matches the version `package.json` pins, and pytest, whose tests
+include the documents' own: links, settings, options, keys, spelling and readability. GitHub Actions
 runs the same script on every push, and every commit must pass it. Read
 [docs/DESIGN.md](docs/DESIGN.md) and the decisions behind the part you change before changing behaviour, [docs/STYLE.md](docs/STYLE.md) before
 writing code, and the traps in [CLAUDE.md](CLAUDE.md), which is written for coding agents and

@@ -569,7 +569,7 @@ was not there. No second installation or contributor exists yet, so stand-ins pl
 a clean Debian container installs from the README, and an agent started with no memory of the
 project reads the documents cold.
 
-- [ ] **The documents' promises are gates.** Every relative link and anchor resolves; every
+- [x] **The documents' promises are gates.** Every relative link and anchor resolves; every
       setting `config.py` reads, every option `main.py` takes and every key the Review tab
       answers to is in the README; prose spells words the glossary's way; and the summary tiers
       (README, DESIGN.md, CLAUDE.md) stay within python-style's readability budgets, the roadmap
