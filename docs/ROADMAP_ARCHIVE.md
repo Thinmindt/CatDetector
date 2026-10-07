@@ -106,13 +106,13 @@ rule carries on in the roadmap.
       passes 150 on 0.017% of frames and never passed 228) and `METRICS_CSV` set, so a visit
       below the threshold still leaves a trace.
       **The camera is blind at night (measured 2026-09-14).** It is the standard IR-filtered
-      Camera Module 3: libcamera reports `imx708`, not `imx708_noir`, and daylight colour is
+      Camera Module 3: libcamera reports `imx708`, not `imx708_noir`, and daylight color is
       neutral. A light was switched off at 20:15 (brightness 45.6 to 3.5 in one frame); after that
       mean brightness sat at ~1.2/255 and sensor speckle alone gave 200–295 foreground px on every
       frame. From 21:24, at a threshold of 150, it recorded continuously as back-to-back 300 s black
       clips, about 2 GB/h. No threshold recovers a
       cat that the camera cannot see: night recall needs light, either a constant dim visible
-      light (keeps colour for the coat-colour baseline in B.5) or a NoIR module plus an IR
+      light (keeps color for the coat-color baseline in B.5) or a NoIR module plus an IR
       illuminator (monochrome at night). A light that switches on with motion would be worse,
       since the pre-roll stays dark and the switch-on changes the whole frame. Motion is ignored
       while mean brightness is below `DARK_BRIGHTNESS` (default 10; see DESIGN.md), which stops the
@@ -151,7 +151,7 @@ rule carries on in the roadmap.
       cases, and both are rare events, so the unit to collect is **visits, not hours**. At the
       5–10 visits a day expected then, that is roughly a week of the lit setup.
       Stop when all of these hold:
-      - **50+ labelled visits, 100 preferred.** Zero misses in 50 only bounds the true miss rate at
+      - **50+ labeled visits, 100 preferred.** Zero misses in 50 only bounds the true miss rate at
         ~6% (95%); at 100 it is ~3%. Recall is the whole point, so prefer 100.
       - **10+ of them at night under the LED.** More sensor gain, more noise, less contrast: a
         different regime, not a sample of the same one.
@@ -167,7 +167,7 @@ rule carries on in the roadmap.
       Two things are not the bottleneck. False positives are measurable from hours rather than
       visits, and any candidate rule can be replayed against the metrics CSV without re-recording
       anything. Storage is ~130 MB/day of metrics plus clips, small against the free disk. The
-      bottleneck is **labelling**, which is one person's keystrokes: ~10 clips a day has to be kept
+      bottleneck is **labeling**, which is one person's keystrokes: ~10 clips a day has to be kept
       up with, or the backlog outlives the run.
 
       First look (2026-09-11). This is one cat visit, so it's a sanity check, not a threshold:
@@ -201,8 +201,8 @@ Moved 2026-10-03: done.
       or out reaches. It stages the events that need a person's eye, each once and with the
       question: the same cat seconds apart (one visit split in two?), the weakest visits (a
       peek?), and `not_cat` events holding a visit-sized blob (a cat after all?), so calibrating
-      happens in the review queue like any labelling. The README's "Calibrating an installation"
-      walks a new installation through it: the data run, labelling, `--calibrate` until it
+      happens in the review queue like any labeling. The README's "Calibrating an installation"
+      walks a new installation through it: the data run, labeling, `--calibrate` until it
       reports done, then the drop-in.
       **Done means** the command prints the table, the settings and their replay, stages each
       doubt once, CI runs it on a small synthetic database and CSV whose answer is known, and the
@@ -233,7 +233,7 @@ Moved 2026-10-03: done.
 Moved 2026-10-05: how each condition was to be counted, as the plan stated it before
 `--calibrate` was built. DESIGN.md (Calibration) states what the command counts.
 
-How each is counted, from `captures.db` and the metrics CSV: a visit is an event labelled with a
+How each is counted, from `captures.db` and the metrics CSV: a visit is an event labeled with a
 cat's name and not marked as a peek (B.3: a cat that looks in and uses no box), whose first clip
 started on or after the run's start, and one visit split into two events, the same cat seconds
 apart, is joined before counting, or it counts twice and the second half starts on a sitting cat's
@@ -428,7 +428,7 @@ Moved 2026-09-26: folded into B.1's crops, with the box per crop added.
 
 - [ ] A `crop` table for B.1: event, path on the share, when it was captured.
 
-## B.3 Labelling UI
+## B.3 Labeling UI
 
 Moved 2026-09-26: everything built up to then.
 
@@ -471,18 +471,18 @@ at the moment of labeling and never hidden:
 
 **Next: label which cat** (asked for 2026-09-20, ahead of everything else on this page). Every
 `cat` label so far says only that a cat was there. Part B needs the name, A.2's stop rule wants
-15+ visits per cat and cannot be checked without it, and every visit labelled `cat` in the
+15+ visits per cat and cannot be checked without it, and every visit labeled `cat` in the
 meantime has to be revisited, so this goes before the usability items.
 
 - [x] **The label values are the cats' names** (done 2026-09-21), read from config (`CAT_NAMES`, a comma-separated
       list of any length; the names and their number are the installation's, never the code's).
       The review page gives each cat a **digit key** in the configured order, shown beside the
-      name, so labelling stays one keystroke; the counts line and the `?filter=` walks grow one
+      name, so labeling stays one keystroke; the counts line and the `?filter=` walks grow one
       entry per cat, which is the per-cat count A.2 asks for. The `label.value` column already
       takes any text, so the schema does not change; the page and the API validate against the
       configured list, and an empty list leaves the page as it is today.
 - [x] **`cat` stays, meaning "a cat, which one not decided".** It is the value of every visit
-      labelled before this lands, and it remains the honest answer when the tiles do not show
+      labeled before this lands, and it remains the honest answer when the tiles do not show
       the coat. `/review?filter=cat` is then the per-cat backlog: walk it
       and press a digit, and the visit leaves the filter. Nothing is migrated.
 - [x] **`multiple`** (`m`) for two cats in one event, the B.1 edge case: excluded from
@@ -497,7 +497,7 @@ labels, in the order listed:
       412 x 915 CSS px in portrait. The page has no `viewport` meta tag, so the phone renders it
       at desktop width and shrinks it; that alone is most of "too small", and adding the tag is
       the first step, after which every size below means what it says. The layout, agreed
-      2026-09-22 after comparing the labelling apps that solve the same problem (Zooniverse's
+      2026-09-22 after comparing the labeling apps that solve the same problem (Zooniverse's
       mobile classifier, which puts the subject on top and the answers in a fixed bar at the
       bottom; iNaturalist's Identify; Material 3's docked toolbar and snackbar):
       - **The label buttons live in a bar fixed to the bottom of the screen**, in the thumb zone,
@@ -559,7 +559,7 @@ Moved 2026-09-26: done.
 Moved 2026-09-27: done.
 
 - [x] **An explicit review queue, with staging.** Today the queue is
-      implicit: the unlabelled events, in review order, and labelling one removes it. There is
+      implicit: the unlabeled events, in review order, and labeling one removes it. There is
       no way to put an event back without erasing its label, and no record of why it came back.
       The need is real now: the `not_cat` labels made before 2026-09-20 (`label.labeled_at`)
       include those made from the first eight seconds of each clip, before the whole-clip tiles
@@ -567,7 +567,7 @@ Moved 2026-09-27: done.
       table** fixes that: one row
       per staged event with a reason, when it was staged and by whom (`human`, `agent`, later
       `model`), stored against the event's first clip as poop counts are, so a `regroup` keeps
-      it with its clips. The default walk becomes the unlabelled events **plus** the staged ones, in the
+      it with its clips. The default walk becomes the unlabeled events **plus** the staged ones, in the
       same order, so a re-review is worked in the same sitting as fresh events. The event keeps
       its label and the page shows it with the reason, so confirming is one keystroke; any label
       press clears the staging row. Staging is done from the timeline (B.6, selection and a
@@ -578,9 +578,9 @@ Moved 2026-09-27: done.
       with `source=model`: the same queue serves re-audits, agent findings and low-confidence
       predictions. Time of day is a **query** over `started_at` on the timeline, never stored
       state. Staging from the timeline lands with B.6; this item is done without it.
-      **Done means** the default walk serves the unlabelled events and the staged ones in one
+      **Done means** the default walk serves the unlabeled events and the staged ones in one
       order, a staged event shows its label and reason, one label press clears its staging row,
-      the API and `main.py --stage` both stage, a test stages a labelled event, walks to it and
+      the API and `main.py --stage` both stage, a test stages a labeled event, walks to it and
       confirms it without losing the label, and the early `not_cat` labels can be staged in
       one command.
       Done 2026-09-27: a `staged` table keyed by clip, as specified; `main.py --stage --label
@@ -619,15 +619,15 @@ Moved 2026-09-27: done.
       is built on its first request: ffmpeg reads the whole clip off the share and decodes every
       keyframe, and an event with several clips fires several of those at once. Build them
       ahead instead: after every ingest (startup and `rescan`) and every label, a background
-      thread walks the default walk's events (unlabelled and staged) in review order and builds the strip for each clip that has none, so the
+      thread walks the default walk's events (unlabeled and staged) in review order and builds the strip for each clip that has none, so the
       page's request is a cache hit. One build at a time, so it does not starve a request or,
       under `main.py`, the encoder; the reviewer's own request for a strip still builds it on
       demand and only wastes work if the two collide (the staging names are unique and the
       publish atomic, so a collision is safe, just slow). Bound the walk to the next few dozen
       events, not the backlog, and never hold the `CaptureDB` lock while ffmpeg reads the
       share. The `?filter=` walks get no pre-caching: their events were already built when
-      they were labelled.
-      **Done means** after an ingest the next few dozen unlabelled events have their strips before
+      they were labeled.
+      **Done means** after an ingest the next few dozen unlabeled events have their strips before
       they are asked for, a test shows the builder skipping built clips and never holding the
       `CaptureDB` lock while it runs, and on the Pi the first tile of a fresh multi-clip event
       appears in under a second.
@@ -656,7 +656,7 @@ Moved 2026-10-03: done.
 
 ## B.4 Notifications
 
-Moved 2026-09-28: not pursued. Visits are labelled in sittings, and a push per visit is not
+Moved 2026-09-28: not pursued. Visits are labeled in sittings, and a push per visit is not
 wanted; B.4 is now alerts on a change in a cat's habits, and the alert rule moved there
 from B.6.
 
@@ -724,18 +724,18 @@ the roadmap until its last condition, a brush dragged by touch on a phone, is me
       (the same set the review walk uses, the cats' names included), so one cat's rows read as
       that cat's visit log and the `clean` rows as the cleaning log. Dates readable, relative
       time on hover (C.6). It is also the **selection surface for the review queue** (B.3):
-      filters by label value, date range, time of day and labelled-before-a-timestamp, each row
+      filters by label value, date range, time of day and labeled-before-a-timestamp, each row
       with a stage button, and "stage everything shown, with this reason" for the set. Its use is
       re-auditing labels made before a change to the review page, such as `not_cat` labels made
       before the whole-clip tiles.
       *The page:* a third tab, `/timeline`. Above the list, the filter:
-      - a **date strip**, a bar per day of the events the other filters let through, coloured by
+      - a **date strip**, a bar per day of the events the other filters let through, colored by
         label, with a brush (two handles, and the span between them dragged to move it) that
         selects a date range;
       - an **hour-of-day strip**, 24 bars with a brush of its own; a range may wrap midnight
         (22:00 to 06:00);
       - **label chips**, one per label value, toggled on and off;
-      - an optional **labelled-before** date.
+      - an optional **labeled-before** date.
       Filtering happens once, on the server: `GET /api/timeline` takes the filter as parameters
       and returns the rows, plus each strip's counts under every filter but its own, so a strip
       shows what its brush can select. The page asks when a handle is released and highlights
@@ -789,9 +789,9 @@ A.2 measures cats in pixels directly, so the mounting height no longer gates any
 Day 1 of the run showed daylight crossing the floor (A.2 above).
 
 **Can the cats actually be told apart from directly overhead? Resolved 2026-08-26: yes.** Each
-cat has a distinct pattern and colour, which is what a top-down view preserves
-best. Part B is viable as designed; no second camera or RFID fallback is needed. Coat colour
-also makes the B.5 baseline worth trying first — mean colour inside the mask may separate the
+cat has a distinct pattern and color, which is what a top-down view preserves
+best. Part B is viable as designed; no second camera or RFID fallback is needed. Coat color
+also makes the B.5 baseline worth trying first — mean color inside the mask may separate the
 cats without any neural network.
 
 - Camera mounting height and floor coverage — every pixel-area estimate depends on it.

@@ -62,7 +62,7 @@ from it.
 A strip of the first eight seconds — pre-roll plus
 the trigger — is not enough for cat/not-cat: in one 96 s clip a cat used the left box for eighty
 seconds, and eight early tiles showed one paw at the top of the last frame, so the reviewer
-labelled it `not_cat`. Cut that way, every visit also looks like "a cat enters and never leaves",
+labeled it `not_cat`. Cut that way, every visit also looks like "a cat enters and never leaves",
 because the exit is minutes past the last tile. The strip covers the file: one tile per second up
 to `MAX_TILES` (48), then every 2, 3, … seconds so the count stays bounded (`tile_seconds`).
 
@@ -130,7 +130,7 @@ A strip not yet built holds a connection while
 ffmpeg decodes its clip, and a browser opens only six to one host, so an event with six or more
 uncached clips held up every other request to the server until the builds ended. On a 14-clip
 event whose builds each ran into the 60 s ffmpeg timeout, a fetch took 60 s with the strips
-pending and 4 ms after cancelling them (headless Chromium, 2026-09-26). So every action that moves
+pending and 4 ms after canceling them (headless Chromium, 2026-09-26). So every action that moves
 to another event removes the pending strips' sources before sending its own request, and the
 page does the same on `beforeunload`: Chrome sends a reload's request before the old document
 unloads, so `pagehide` comes too late. When the page stays on the event after all (a failed
@@ -143,7 +143,7 @@ requests the strips again. The build itself runs on to the end on the server.
 MP4 costs ~0.7 s for an 18 MB clip on a Pi 5 (2026-09-12) and no CPU worth mentioning; the
 result is cached like the strips. Doing it at clip close would put ffmpeg on the Pi's capture
 side for every clip whether or not anyone ever watches it. The `<video>` element uses
-`preload="none"` so opening an event does not fetch every clip. Flask's `send_file` honours
+`preload="none"` so opening an event does not fetch every clip. Flask's `send_file` honors
 `Range`, which is what lets the player seek; the test asserts a 206, since `Accept-Ranges` is
 advertised either way.
 
@@ -151,8 +151,8 @@ advertised either way.
 
 ### Single-page UI
 
-Labelling navigates no pages — next event and images are fetched and swapped
-in place — so the undo history can live in a JS array rather than sessionStorage, and labelling
+Labeling navigates no pages — next event and images are fetched and swapped
+in place — so the undo history can live in a JS array rather than sessionStorage, and labeling
 is one keypress with no page load between events.
 
 ### The address is the position (2026-09-26, ROADMAP B.3)
@@ -165,18 +165,18 @@ history entry, so Back steps through the events seen; the first event shown repl
 `/review` it was reached by, or Back would land on an address that resolves to the same event. An id
 the database no longer has (a regroup renumbers events) says so and falls back to the walk's next
 event. A response that returns after Back or Forward has moved the address is dropped, and a label
-moves on to the next event only if the address still names the event it labelled; otherwise a slow
+moves on to the next event only if the address still names the event it labeled; otherwise a slow
 request would undo the reviewer's Back. The review queue takes `after` like the other walks, but
-the page never sends it: labelling removes an event from the queue, staged or not, so its oldest
+the page never sends it: labeling removes an event from the queue, staged or not, so its oldest
 event is always next. Undo stays in page state; the address holds position, not history.
 
 ### An empty walk names itself and points at the queue (2026-09-28)
 
 A phone restored an old
-`/review?filter=cat` tab, a walk that no longer holds anything because every cat visit is labelled
+`/review?filter=cat` tab, a walk that no longer holds anything because every cat visit is labeled
 by name, and the page said "Nothing left to review here" while dozens of events waited in the
 queue; the only way back was a small link at the end of the counts line. An empty walk now says
-which walk it is and offers the queue as a full-size button with the number waiting (unlabelled
+which walk it is and offers the queue as a full-size button with the number waiting (unlabeled
 plus staged).
 
 ### The page never hides the grouping (2026-09-12)
@@ -184,7 +184,7 @@ plus staged).
 Every clip of an event
 is rendered with its own strip, times, close reason and the gap since the previous clip; a
 multi-clip event says so in the header; the counter reports `multi_clip`; and `?filter=multi`
-walks every multi-clip event, labelled or not, so the grouping rule's output can be audited as a
+walks every multi-clip event, labeled or not, so the grouping rule's output can be audited as a
 whole rather than noticed one event at a time.
 
 ### The multi-clip audit walks time order, not the multi-clip list (2026-09-16)
@@ -199,7 +199,7 @@ oldest event instead of advancing.
 ### Label shortcuts ignore modified and repeated keys (2026-09-22)
 
 `Ctrl+C` to copy a time from
-the page labelled the event `cat`, `Ctrl+Z` undid a label, and a held key labelled several events
+the page labeled the event `cat`, `Ctrl+Z` undid a label, and a held key labeled several events
 in a row. Each was a silent write to the training set. The handler returns on any modifier or
 autorepeat before matching a key.
 
@@ -228,7 +228,7 @@ value, so the per-cat counts A.2 asks for came free. A cat's name may not be one
 values or `multiple`, and names may not repeat; `Review` refuses such a list at construction, which
 `build_review` reports as "Review unavailable" rather than serving a page whose keys collide.
 `cat` was kept with the meaning "a cat, which one not decided": it was the value of every visit
-labelled before names existed, it stays the honest answer when the tiles do not show the coat, and
+labeled before names existed, it stays the honest answer when the tiles do not show the coat, and
 keeping it meant migrating nothing. The page builds the cat buttons and their digit keys from the
 list in JavaScript with `textContent`, rather than in the template, so a name is never interpolated
 into a script string. An empty list leaves the page exactly as it was.
@@ -243,7 +243,7 @@ on the same network shares, so they are read as local; C.6 makes that explicit.
 ### The timeline filters once, on the server (2026-09-28, ROADMAP B.6)
 
 `GET /api/timeline` takes
-the filter (label chips, a day range, an hour range, labelled-before) as its query string, which
+the filter (label chips, a day range, an hour range, labeled-before) as its query string, which
 is also the page's address, and `timeline.build_timeline` applies it to one row per event, so
 pytest checks the only implementation. Filtering in the browser as a handle moves would have meant
 a second implementation in JavaScript with no test; instead the page asks when a handle is
@@ -253,8 +253,8 @@ strip always shows what its brush could select rather than only what it already 
 cannot wrap, so an hour range across midnight is a brushed range plus an "outside the range"
 toggle, which sends it reversed (`hours=22-6`). A drag whose two ends round to the same boundary
 selects the one day or hour it touched. Stage-everything sends ids, not the filter, so exactly
-what the reviewer saw is staged, and it waits while a newer filter is loading. Only labelled events
-not already staged are taken, by the server as well as the page: an unlabelled event is in the
+what the reviewer saw is staged, and it waits while a newer filter is loading. Only labeled events
+not already staged are taken, by the server as well as the page: an unlabeled event is in the
 queue already, and restaging would overwrite the reason and source an event was staged with. A
 response carries the first 500 rows, the total, and the ids stageable among all of them, so the
 page stays small as the archive grows without narrowing what staging can reach. An address the
@@ -304,7 +304,7 @@ from `onclick`, which modules do not expose.
 The timeline's strips need a brush that
 drags by mouse and by touch, time scales and axes; d3 does all three, and hand-written dragging
 is where touch handling goes wrong. `package.json` pins d3 exactly, `npm run vendor` copies its
-bundle and licence to `src/static/vendor/`, and the copy is committed, so the Pi serves it with no
+bundle and license to `src/static/vendor/`, and the copy is committed, so the Pi serves it with no
 build and no network. A gate (`npm run vendor:check`) fails if the copy differs from the pinned
 package, so an upgrade is a version bump plus `npm run vendor`. The whole bundle (280 KB, cached)
 is served rather than the few d3 modules used: those import one another by bare name, which a

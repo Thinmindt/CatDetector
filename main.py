@@ -237,7 +237,7 @@ def regroup_events() -> dict[str, int]:
 
 
 def stage_events(args: argparse.Namespace) -> int:
-    """Put the labelled events the arguments select back in the review queue.
+    """Put the labeled events the arguments select back in the review queue.
     Safe beside the service: staging renumbers nothing."""
     db = open_db()
     try:
@@ -342,7 +342,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     command.add_argument(
         "--stage",
         action="store_true",
-        help="put labelled events back in the review queue, then exit",
+        help="put labeled events back in the review queue, then exit",
     )
     command.add_argument(
         "--calibrate",
@@ -374,7 +374,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         "--labeled-before",
         type=datetime.datetime.fromisoformat,
         metavar="TIME",
-        help="only events labelled before this ISO time",
+        help="only events labeled before this ISO time",
     )
     staging.add_argument("--reason", help="shown with each event; required")
     staging.add_argument("--source", choices=STAGING_SOURCES, default="human")

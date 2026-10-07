@@ -169,7 +169,7 @@ def clean_mask(mask: Frame) -> Frame:
 
 
 def measure(gray: Frame, mask: Frame) -> FrameMetrics:
-    """The metrics for one analysis frame, from its grey image and foreground mask."""
+    """The metrics for one analysis frame, from its gray image and foreground mask."""
     return FrameMetrics(
         foreground_px=int(cv2.countNonZero(mask)),
         blob=largest_blob(mask),

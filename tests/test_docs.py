@@ -1,5 +1,5 @@
 """What the documents promise, checked: links resolve, every setting, option and key
-is in the README, prose spells words one way, and the summaries stay readable."""
+is in the README, prose spells the American way, and the summaries stay readable."""
 
 from __future__ import annotations
 
@@ -21,16 +21,35 @@ TRACKED = [
     DOCS / "STYLE.md",
     *sorted((DOCS / "design").glob("*.md")),
 ]
-# The archive is history, moved verbatim, so it keeps the spelling it had.
-CURRENT = [doc for doc in TRACKED if doc.name != "ROADMAP_ARCHIVE.md"]
 
 FENCED = re.compile(r"^```.*?^```", re.MULTILINE | re.DOTALL)
 CODE_SPAN = re.compile(r"`[^`\n]*`")
 LINK = re.compile(r"\]\(([^)\s]+)\)")
 HEADING = re.compile(r"^#+ (.+)$", re.MULTILINE)
 
-# Prose spells these the British way; identifiers keep their own spelling.
-AMERICAN = ("labeled", "labeling", "color", "colors", "behavior", "recognize")
+# British spellings, which no document uses: the owner writes American English.
+BRITISH = (
+    "labelled",
+    "labelling",
+    "unlabelled",
+    "grey",
+    "greys",
+    "colour",
+    "colours",
+    "centre",
+    "centres",
+    "behaviour",
+    "honour",
+    "honours",
+    "licence",
+    "judgement",
+    "signalled",
+    "cancelled",
+    "cancelling",
+    "neighbours",
+    "recognise",
+    "favour",
+)
 
 # The summary tiers: (most words a sentence on average, paragraphs over budget).
 # The roadmap's are its numbers today, until roadmap C.8 tiers it; lower, never raise.
@@ -109,9 +128,9 @@ def test_every_review_key_is_in_the_readme() -> None:
     assert "`1`\u2013`9`" in readme  # an en dash, as the README writes it
 
 
-@pytest.mark.parametrize("doc", CURRENT, ids=name)
-def test_prose_spells_words_the_british_way(doc: Path) -> None:
-    pattern = rf"\b({'|'.join(AMERICAN)})\b"
+@pytest.mark.parametrize("doc", TRACKED, ids=name)
+def test_prose_spells_words_the_american_way(doc: Path) -> None:
+    pattern = rf"\b({'|'.join(BRITISH)})\b"
     assert re.findall(pattern, without_code(doc.read_text()), re.IGNORECASE) == []
 
 

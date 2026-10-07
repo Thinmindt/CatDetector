@@ -171,7 +171,7 @@ def test_the_video_route_serves_a_playable_clip(
     assert response.status_code == 200
     assert response.mimetype == "video/mp4"
 
-    # Seeking in the player needs byte ranges honoured, not just advertised.
+    # Seeking in the player needs byte ranges honored, not just advertised.
     partial = client.get(url, headers={"Range": "bytes=0-9"})
     assert partial.status_code == 206
     assert len(partial.data) == 10

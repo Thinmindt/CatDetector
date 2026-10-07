@@ -46,7 +46,7 @@ SIGTERM, so a second one cannot interrupt that cleanup.
 
 It runs as a systemd service (`deploy/catdetector.service.in`, 2026-09-14), so it starts at boot
 and comes back after a crash. A detector started by hand stays down after a power cut until a
-person notices, and every hour of that is a gap in the record. Most of the unit's settings favour
+person notices, and every hour of that is a gap in the record. Most of the unit's settings favor
 recall over tidiness:
 
 - **It wants the share's mount but does not require it.** `RequiresMountsFor=/mnt/nas` would stop

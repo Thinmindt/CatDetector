@@ -13,7 +13,7 @@ with a meaning of their own are in the [glossary](../DESIGN.md#glossary).
   - [Event ids are stable across rescans](#event-ids-are-stable-across-rescans)
   - [Labels follow clips, not events](#labels-follow-clips-not-events)
   - [The label table is separate from event (per the roadmap)](#the-label-table-is-separate-from-event-per-the-roadmap)
-  - [A labelled event can be put back in the queue with its label (2026-09-27, ROADMAP B.3)](#a-labelled-event-can-be-put-back-in-the-queue-with-its-label-2026-09-27-roadmap-b3)
+  - [A labeled event can be put back in the queue with its label (2026-09-27, ROADMAP B.3)](#a-labeled-event-can-be-put-back-in-the-queue-with-its-label-2026-09-27-roadmap-b3)
   - [A staging row is written against the event's first clip (2026-09-27)](#a-staging-row-is-written-against-the-events-first-clip-2026-09-27)
   - [A peek is a mark beside the label, not a label (2026-10-03, ROADMAP B.3)](#a-peek-is-a-mark-beside-the-label-not-a-label-2026-10-03-roadmap-b3)
   - [Poop counts are typed from the cleaning clip, one per box (2026-09-16, ROADMAP B.5b)](#poop-counts-are-typed-from-the-cleaning-clip-one-per-box-2026-09-16-roadmap-b5b)
@@ -57,7 +57,7 @@ of a rescan.
 Before either placement pass, every clip remembers its
 event's label. Afterwards an event keeps a label its clips agree on and drops one they contest,
 returning to the review queue with a warning in the log. That is what lets `regroup` change the
-gap threshold without discarding a day of labelling, and what stops a bridge merge from silently
+gap threshold without discarding a day of labeling, and what stops a bridge merge from silently
 attributing a not-cat clip to a cat.
 
 ### The label table is separate from event (per the roadmap)
@@ -65,12 +65,12 @@ attributing a not-cat clip to a cat.
 The label table is separate from event (per the roadmap): model predictions and human labels
 can later coexist via the `source` column without overwriting each other.
 
-### A labelled event can be put back in the queue with its label (2026-09-27, ROADMAP B.3)
+### A labeled event can be put back in the queue with its label (2026-09-27, ROADMAP B.3)
 
 The
-review queue is every unlabelled event and every **staged** one, in time order, and a label press
+review queue is every unlabeled event and every **staged** one, in time order, and a label press
 takes an event out of it either way. Staging exists because the queue was implicit: the only way
-back into it was to erase a label, which loses the judgement being checked. A staged event keeps
+back into it was to erase a label, which loses the judgment being checked. A staged event keeps
 its label, so confirming it is the same keystroke that made it; the page shows the reason beside
 the label. A staging row names who staged it (`human`, `agent`, `model`), so the same queue serves
 a reviewer's re-audit, an agent's finding and, later, a model's low-confidence prediction.
@@ -114,7 +114,7 @@ the reviewer's decisions. The split's later half starts unlabeled, because it is
 reviewer has not judged; the first half keeps its id and label. A join names its target clip
 rather than "the previous event" so that interleaved boxes cannot make it land on the wrong visit.
 It marks every clip, not only the later event's first, because placement runs in time order and
-honours a join only to a clip already placed: when two events' clips interleave (two cats, two
+honors a join only to a clip already placed: when two events' clips interleave (two cats, two
 boxes, at once), the later event's first clip starts before the earlier event's last, and the
 single mark it used to write was silently ignored (2026-10-03). A join that grouping still keeps
 apart is refused and rolled back rather than reported as done.

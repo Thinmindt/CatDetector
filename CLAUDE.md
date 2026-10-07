@@ -19,7 +19,7 @@ DESIGN.md and the decisions under `docs/design/`, the plan in the roadmap, insta
 in the README. This file holds what is its own: how to work here, and the traps, each in a line
 or two with a pointer to the document under `docs/design/` that holds its reasoning. Read
 DESIGN.md before changing anything, `docs/STYLE.md` before writing code, and the decisions for
-the part you are changing before changing its behaviour. Event, visit, sidecar, tile, peek and
+the part you are changing before changing its behavior. Event, visit, sidecar, tile, peek and
 the project's other words mean what DESIGN.md's glossary says.
 
 The roadmap's section letters (A.2, A.4, B.5b, …) are cited by the design doc and the commit
@@ -39,7 +39,7 @@ A Raspberry Pi camera pointed **down at the litter boxes**, which must be lit ar
 motion-triggered clips and serves a live MJPEG stream. The end goal is **catching bowel or urinary
 trouble in a particular cat**. That needs every visit recorded and attributed to **which cat**
 made it, which is why the roadmap is split into triggering reliably (part A) and building a
-labelled dataset plus classifier (part B). Part C keeps it working for other installations: any
+labeled dataset plus classifier (part B). Part C keeps it working for other installations: any
 one installation's Pi, camera, box count and thresholds are one implementation and one
 calibration, not requirements. Telling poop from pee may be tried later; nothing
 should depend on it.
@@ -98,7 +98,7 @@ METRICS_CSV=$HOME/metrics.csv uv run python main.py          # + per-frame detec
 uv run python main.py --regroup              # rebuild every event from the current thresholds, then exit
                                              # (refused while the service has the database: stop it first)
 uv run python main.py --stage --label not_cat --labeled-before 2026-09-20 --reason "..."
-                                             # put labelled events back in the review queue; runs beside the service
+                                             # put labeled events back in the review queue; runs beside the service
 uv run python main.py --calibrate --since 2026-09-16
                                              # a data run's progress, doubts staged, proposed settings (A.2)
 ```
@@ -119,7 +119,7 @@ failure is lost). `.github/workflows/check.yml` runs the same script on every pu
 tests, so a README that no longer installs fails CI.
 
 The tests include the documents' own promises (`tests/test_docs.py`): links and anchors resolve,
-every setting, option and key is in the README, prose spells the British way, and the summary
+every setting, option and key is in the README, prose spells the American way, and the summary
 tiers stay within their readability budgets, measured by `scripts/readability.py`, the
 conventions plugin's script copied unchanged like `check_private.sh`. shellcheck and codespell
 are pinned dev dependencies, so `uv sync` installs them. The JavaScript gate is eslint, pinned by
@@ -154,7 +154,7 @@ started before an edit serves the old page: restart it.
 **The camera is exclusive.** One process at a time. If `main.py` is running, the smoke test and
 any hardware script will fail to open the camera, and vice versa. Check with
 `systemctl is-active catdetector` (and an anchored `pgrep`, below) before wondering why
-initialisation failed.
+initialization failed.
 
 **The detector normally runs as the `catdetector` systemd service** (built from
 `deploy/catdetector.service.in` by `deploy/install-service.sh`), so the camera is usually taken.
@@ -204,7 +204,7 @@ everything else.
 
 ## Conventions
 
-Source comments are **spartan and describe current behaviour**. No rationale, no measurements, no
+Source comments are **spartan and describe current behavior**. No rationale, no measurements, no
 rejected alternatives, no history — those go in the design documents (`docs/DESIGN.md`, `docs/design/`). If you are about to write a
 comment beginning "deliberately", "we used to", or "this would otherwise", write it there
 instead. Docstrings: one line if one line does it.
@@ -284,7 +284,7 @@ Traps when adding tests here:
 - **Join with a timeout and assert something that can fail.** `assert not thread.is_alive()`
   after an unbounded `join()` is a tautology, and a regression hangs the suite instead of failing
   it. The suite runs with `--timeout=60` for the same reason.
-- **Assert on behaviour, not on "it did not raise."** Several tests here once asserted only that
+- **Assert on behavior, not on "it did not raise."** Several tests here once asserted only that
   a frame was stored, and would have passed with the feature deleted.
 - **When a fake grows a method in production, grow it in the fake.** A diverged fake surfaces as
   an exception inside a worker thread, not as a clean failure.
@@ -293,7 +293,7 @@ Traps when adding tests here:
 regression test that has never failed has not been shown to work. Several tests in this repo were
 verified that way, and one turned out to be redundant rather than wrong.
 
-For a comment-only or docstring-only refactor, you can prove you changed no behaviour by parsing
+For a comment-only or docstring-only refactor, you can prove you changed no behavior by parsing
 each file before and after, stripping docstrings, and comparing `ast.dump`.
 
 ## Environment: the constraint that governs dependencies

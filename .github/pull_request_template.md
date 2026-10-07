@@ -7,7 +7,7 @@
 Tick what applies; strike out what does not.
 
 - [ ] `bash scripts/check.sh` passes: the gates, including the documents' own checks.
-- [ ] A change in behaviour is in its summary: the README for how to use it, DESIGN.md for how it works.
+- [ ] A change in behavior is in its summary: the README for how to use it, DESIGN.md for how it works.
 - [ ] A new decision is in `docs/design/<domain>.md`, as a heading with its date, with the measurement or the failure behind it.
 - [ ] A new word is in DESIGN.md's glossary, and the documents use it one way.
 - [ ] A new setting, option or key is in the README's tables.

@@ -141,12 +141,12 @@ and by the frame's brightness; the cleaned blob is what the sidecar records.
 
 ```mermaid
 flowchart TB
-  lores["lores frame, 640 × 480, to grey"] --> mog["MOG2: 255 foreground, 127 shadow"]
+  lores["lores frame, 640 × 480, to gray"] --> mog["MOG2: 255 foreground, 127 shadow"]
   mog --> thr["threshold > 127: shadows out"]
   thr --> cnt["countNonZero → foreground_px"]
   thr --> raw["largest contour → blob"]
   thr --> clean["open 3×3, close 9×9, largest contour → clean_blob"]
-  lores --> br["mean grey → brightness"]
+  lores --> br["mean gray → brightness"]
   cnt & raw & clean & br --> fm["FrameMetrics, one per frame"]
   fm -. "when METRICS_CSV is set" .-> csv[("CSV, written off-thread")]
   fm --> gate{"30 frames of warmup done, and brightness ≥ DARK_BRIGHTNESS?"}
@@ -331,15 +331,15 @@ The 9 decisions behind it, with their evidence:
 
 ## Glossary
 
-The words this project uses with a meaning of their own. Prose spells them the British way
-(labelled, colour); identifiers keep their own spelling (`?filter=labeled`, `labeled_at`).
+The words this project uses with a meaning of their own. Prose and code spell them the American
+way (labeled, color, gray), as `?filter=labeled` and `labeled_at` always have.
 
 **Visits and events**
 
 | term | meaning |
 |---|---|
 | visit | One cat's use of the boxes, from coming in to leaving: what the project counts. A peek is not one. |
-| event | The clips grouped as one visit, or as whatever else moved: the unit that is labelled. Its id can change on a regroup. |
+| event | The clips grouped as one visit, or as whatever else moved: the unit that is labeled. Its id can change on a regroup. |
 | clip | One recording, a raw H.264 file (`.h264`), from just before motion started until `MOTION_TIMEOUT` after it stopped, at most 300 s. |
 | sidecar | `<clip>.h264.json`, beside each clip: its start and end, its trigger and last blobs, and its close reason. |
 | close reason | Why a clip ended: `timeout`, `max_length`, `shutdown`, `abandoned` (writes failed partway) or `recovered` (no sidecar: a crash cut it off). |
@@ -355,8 +355,8 @@ The words this project uses with a meaning of their own. Prose spells them the B
 |---|---|
 | label | The verdict on an event: a cat's name, `cat` (which one not decided), `multiple`, `not_cat`, `unsure` or `clean`. |
 | peek | A mark beside a cat's label: the cat looked in and used no box. The event keeps the cat, and is not counted as a visit. |
-| cleaning | An event labelled `clean`: a litter scoop, with the poops found in each box, read from the hand signal. |
-| review queue | Every unlabelled event and every staged one, oldest first: the Review tab's default walk. |
+| cleaning | An event labeled `clean`: a litter scoop, with the poops found in each box, read from the hand signal. |
+| review queue | Every unlabeled event and every staged one, oldest first: the Review tab's default walk. |
 | staged | Sent back to the review queue with a reason and a source (a person, an agent, a model, or the grouping or calibration code). A staged event keeps its label until a label press confirms or replaces it. |
 | walk | The run of events the Review tab steps through: the review queue, or a filter (`multi`, `labeled`, or one label). |
 | tile | One still of a clip on the review page: a keyframe, one per second of the file (fewer past 48), with its offset drawn in. |
@@ -374,7 +374,7 @@ The words this project uses with a meaning of their own. Prose spells them the B
 | blob | The largest connected region of foreground in a frame. The cleaned blob (`clean_blob`) is the same after removing speckle and joining nearby pieces. |
 | trigger | A frame whose foreground count is over `MOTION_THRESHOLD`. The first one starts a clip; each one keeps it open. |
 | warmup | The first 30 frames after a start, ignored while MOG2 learns the scene. |
-| dark gate | Motion is ignored while the analysis frame's mean grey level is below `DARK_BRIGHTNESS`. |
+| dark gate | Motion is ignored while the analysis frame's mean gray level is below `DARK_BRIGHTNESS`. |
 | visit strength | The largest cleaned blob a visit reaches. The weakest visit sets how low a trigger has to reach. |
 
 **Running and calibrating**
@@ -382,7 +382,7 @@ The words this project uses with a meaning of their own. Prose spells them the B
 | term | meaning |
 |---|---|
 | installation | One setup: a Pi, its camera and how it is mounted, the boxes, the lighting and the cats. Thresholds belong to an installation. |
-| data run | A week or two of recording at a low threshold with `METRICS_CSV` on, labelled by hand, to calibrate an installation. |
+| data run | A week or two of recording at a low threshold with `METRICS_CSV` on, labeled by hand, to calibrate an installation. |
 | metrics CSV | A row of detection measurements per frame, written while `METRICS_CSV` is set. |
 | calibrate | `main.py --calibrate`: a data run's progress, its doubts staged for review, and the settings it proposes. |
 | share | The mounted filesystem finished clips go to (`NETWORK_SHARE_DIR`): a NAS, another computer's share or a USB disk. |

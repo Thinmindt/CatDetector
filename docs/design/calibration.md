@@ -34,15 +34,15 @@ start and its last clip's end, over lit frames. The blob that started a clip is 
 measure: it is set by the threshold the run used, by a head peeking in at the frame's edge, or,
 when a visit is split in two, by a sitting cat's twitch. In the run that motivated this
 (2026-10-03), the smallest starting blob was 29 px, the second half of a split visit, while the
-weakest visit's largest blob was 2,768 px: a grey coat on the litter, whose cleaned blob breaks
+weakest visit's largest blob was 2,768 px: a gray coat on the litter, whose cleaned blob breaks
 into pieces (18,419 px of foreground around it). A trigger that ignores a peek still fires when
 the whole cat steps in, so what decides recall is whether each visit ever reaches the trigger.
 
 ### What a data run counts (2026-10-03, ROADMAP A.2)
 
-A visit is an event labelled with a cat
+A visit is an event labeled with a cat
 (`cat`, a cat's name or `multiple`), not a peek, that started at or after `--since` and that the
-metrics CSV covers with a cleaned blob. Per-cat counts go by the label, so a visit labelled `cat`
+metrics CSV covers with a cleaned blob. Per-cat counts go by the label, so a visit labeled `cat`
 or `multiple` counts toward the total and toward no cat's. A visit split into two events counts
 twice until the reviewer joins them; the command does not join them, since only the footage
 says whether it was one visit, but stages the pair with that question. Night is a visit starting
@@ -91,7 +91,7 @@ before the gap, and the next clip's pre-roll reaches back no further than the re
 is the recorder's: from its first trigger, less the 5 s pre-roll but never before the end of the
 clip before it, to `MOTION_TIMEOUT` after its last, and cut at the recorder's 300 s limit, the next
 trigger opening another. A visit is missed when no trigger falls inside it: a clip that runs on from
-a neighbouring visit covers part of it without having triggered on it, so coverage alone would
+a neighboring visit covers part of it without having triggered on it, so coverage alone would
 flatter a high threshold. A clip that starts outside every visit is a false trigger. A visit's span
 reaches back one second before its first clip's recorded start, because the detector logs the
 frame that starts a clip a moment before the recorder notes the time; without that, every visit

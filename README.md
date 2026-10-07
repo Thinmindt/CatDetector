@@ -35,7 +35,7 @@ flowchart LR
 It would rather record a sunbeam than miss a visit. A missed visit is a gap in a cat's record, and
 a gap looks like the very change this project exists to catch; an extra clip costs a keypress.
 
-**What it does not do yet:** it does not recognise the cats by itself (you name each visit), it
+**What it does not do yet:** it does not recognize the cats by itself (you name each visit), it
 does not alert you when a cat's habits change, and its trigger counts changed pixels rather than
 looking for something cat-sized. Each is a step in [the roadmap](docs/ROADMAP.md).
 
@@ -44,7 +44,7 @@ looking for something cat-sized. Each is a step in [the roadmap](docs/ROADMAP.md
 | you want to | read |
 |---|---|
 | set it up | [What you need](#what-you-need) and [Install](#install), below |
-| label visits | [Labelling visits](#labelling-visits) |
+| label visits | [Labeling visits](#labeling-visits) |
 | tune it for your camera and cats | [Calibrating an installation](#calibrating-an-installation) |
 | understand how it works, and why | [docs/DESIGN.md](docs/DESIGN.md), a few minutes for the whole; each part links to the decisions behind it |
 | change the code | [docs/DESIGN.md](docs/DESIGN.md) and the decisions for the part you change, then [docs/STYLE.md](docs/STYLE.md) and the traps in [CLAUDE.md](CLAUDE.md) |
@@ -146,7 +146,7 @@ and this project cannot notice its own absence.
    sudo systemctl edit catdetector      # add Environment= lines under [Service]
    ```
 
-## Labelling visits
+## Labeling visits
 
 The **Review** tab shows one visit at a time: every clip of it, each as a grid of tiles one
 second apart (sparser for long clips), with the offset into the clip on each tile. Press a key,
@@ -174,9 +174,9 @@ starts here** splits a visit; **same visit as the next event**, under "more", jo
 survive `--regroup`, which rebuilds the events (below).
 
 **What it shows.** By default the Review tab walks the **review queue**: every visit not yet
-labelled, and every labelled one sent back for a second look, with the reason beside it. A
+labeled, and every labeled one sent back for a second look, with the reason beside it. A
 filter in the address walks another set: `/review?filter=multi` for the visits made of several
-clips, `?filter=labeled` for everything labelled, `?filter=<label>` for one label. The address
+clips, `?filter=labeled` for everything labeled, `?filter=<label>` for one label. The address
 names the visit, so a reload, Back or a shared link returns to it.
 
 **Cleanings.** When you scoop the boxes, put the number of poops you found into the footage with
@@ -193,11 +193,11 @@ The reviewer labels that event a cleaning (`l`) and types the counts in.
 The **Timeline** tab lists every event, newest first, with its time, label, box, length and clip
 count. Label chips choose which labels show, so one cat's rows are that cat's visit log. Drag
 across the day strip or the hour strip to take a slice of time ("outside the range" turns
-06:00–22:00 into the night), and "labelled before" picks out old labels. Any row, or everything
+06:00–22:00 into the night), and "labeled before" picks out old labels. Any row, or everything
 shown, can be sent back to the review queue with a reason. The filter is kept in the address.
 
-From the command line, beside the running service, `--stage` sends labelled events back to the
-review queue with a reason, keeping their labels; here, every `not_cat` labelled before 20
+From the command line, beside the running service, `--stage` sends labeled events back to the
+review queue with a reason, keeping their labels; here, every `not_cat` labeled before 20
 September. `--source` says who asked: `human` by default, or `agent` or `model`.
 
 ```
@@ -211,7 +211,7 @@ the events, so stop the service first; labels follow their clips.
 
 The default thresholds come from one installation. Another camera height, lens, framing or set
 of cats needs its own numbers, and they come from a **data run**: a week or two of recording
-everything, labelled by hand. Until then the default of 300 is a starting point, not a promise:
+everything, labeled by hand. Until then the default of 300 is a starting point, not a promise:
 a cat that reads weaker than the one it came from may not reach it.
 
 1. **Start the data run.** Settle the framing, the lighting and the camera mode first: changing
@@ -227,7 +227,7 @@ a cat that reads weaker than the one it came from may not reach it.
    Keep the CSV on local disk; it grows by about 150 MB a day. Note when the run starts.
 
 2. **Label every day.** Name the cat on each visit, mark peeks, and join a visit that was split in
-   two. Labelling is what limits a data run: fall behind, and the backlog outlives the run.
+   two. Labeling is what limits a data run: fall behind, and the backlog outlives the run.
 
 3. **Check progress** now and then, beside the running service:
 
@@ -275,7 +275,7 @@ Settings come from `.env` in the checkout, or from the service's drop-in; the dr
 | `MOTION_THRESHOLD` | 300 | changed pixels, of the 640x480 analysis frame, that start a clip; from one installation, and `--calibrate` proposes yours |
 | `MOTION_TIMEOUT` | 10 | seconds without motion before a clip closes |
 | `MOG2_HISTORY` | 500 | frames the background model (MOG2) learns over; something still fades into it in about that many |
-| `DARK_BRIGHTNESS` | 10 | mean grey level, 0–255, below which motion is ignored |
+| `DARK_BRIGHTNESS` | 10 | mean gray level, 0–255, below which motion is ignored |
 | `EVENT_GAP_SECONDS` | 180 | how soon a clip must follow the last to join its visit |
 | `EVENT_BOX_DISTANCE_PX` | 120 | how close two clips' positions must be to count as one box |
 | `METRICS_CSV` | off | a local file for a row of detection metrics per frame, for a data run |
@@ -336,7 +336,7 @@ check that the committed d3 matches the version `package.json` pins, and pytest,
 include the documents' own: links, settings, options, keys, spelling and readability. GitHub Actions
 runs the same script on every push, and every commit must pass it. A second job runs this
 README's install steps on a clean Debian, then the tests. Read
-[docs/DESIGN.md](docs/DESIGN.md) and the decisions behind the part you change before changing behaviour, [docs/STYLE.md](docs/STYLE.md) before
+[docs/DESIGN.md](docs/DESIGN.md) and the decisions behind the part you change before changing behavior, [docs/STYLE.md](docs/STYLE.md) before
 writing code, and the traps in [CLAUDE.md](CLAUDE.md), which is written for coding agents and
 useful to anyone.
 

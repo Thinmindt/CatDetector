@@ -76,7 +76,7 @@ metrics a threshold is tuned from.
 
 With `METRICS_CSV` set, each frame becomes a row: here an empty scene, then the frame where the
 cat's head came in. `blob_*` and `x`…`h` are the raw blob, `clean_*` the cleaned one, `cx`, `cy`
-the raw blob's centre, and an empty cell means no blob:
+the raw blob's center, and an empty cell means no blob:
 
 ```csv
 timestamp,foreground_px,blob_area,x,y,w,h,cx,cy,recording,clean_area,clean_x,clean_y,clean_w,clean_h,brightness
@@ -118,7 +118,7 @@ morphological open with a 3x3 ellipse, which drops speckle, then a close with a 
 which joins the pieces MOG2 splits one cat into. A.3's trigger is planned on the largest blob
 after cleanup, so logging it during the A.2 run gives the size band the same numbers the trigger
 sees. The raw blob is logged too, so other kernel sizes can be judged from the same data.
-Brightness is the mean grey level of the analysis frame. It makes lighting changes easy to pick
+Brightness is the mean gray level of the analysis frame. It makes lighting changes easy to pick
 out, and they are the main source of non-cat clips. Measured alone on a Pi 5's CPU with a
 synthetic mask (2026-09-11), cleanup plus contours cost about 1.7 ms a frame and brightness
 0.03 ms; the 2.4 ms above is the whole per-frame measurement that contains them.
@@ -153,11 +153,11 @@ neither setting has to be stretched to cover a cat sitting still.
 ### A dark scene cannot trigger (2026-09-14)
 
 The camera is the IR-filtered imx708, so an unlit
-room is black to it. Unlit, after a light went off, the mean grey
+room is black to it. Unlit, after a light went off, the mean gray
 level sat at 1.1–2.7 and sensor speckle alone gave 200–295 foreground px on every frame. At a
 threshold of 150 that recorded back-to-back 300 s clips of black, about 2 GB/h. Raising the threshold would cost daytime recall and gain nothing,
 because no cat is visible in that footage anyway. So `detect_motion` ignores motion while the
-analysis frame's mean grey level is below `DARK_BRIGHTNESS`. Its default of 10 sits between the
+analysis frame's mean gray level is below `DARK_BRIGHTNESS`. Its default of 10 sits between the
 brightest frame that night (2.7) and the dimmest lit frame that evening (46.1), leaving room for a
 dim night-light. MOG2 keeps learning in the dark, so its background is current when the light
 returns; the light coming on is itself a whole-frame change and records one clip. Each change
@@ -173,7 +173,7 @@ CSV, so `MetricsLog` leaves the old file alone, writes to a timestamped sibling 
 ## Recording and shipping a clip
 
 A sidecar, as written for a clip that a cat's head started at the top edge of the frame. Blob
-coordinates are in the 640x480 analysis frame, and `cx`, `cy` is the box's centre:
+coordinates are in the 640x480 analysis frame, and `cx`, `cy` is the box's center:
 
 ```json
 {

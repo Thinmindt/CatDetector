@@ -52,7 +52,7 @@ class TimelineRow:
 
     @property
     def stageable(self) -> bool:
-        """Labelled and not already staged: what "back for review" may take."""
+        """Labeled and not already staged: what "back for review" may take."""
         return self.label is not None and not self.staged
 
 

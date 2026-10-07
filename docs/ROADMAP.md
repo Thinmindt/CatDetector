@@ -13,7 +13,7 @@ Two workstreams, in dependency order, and a third that runs alongside both:
 - **Part A — trigger reliably.** A cat entering the frame always starts a recording.
   Recall is the priority: a missed visit is a failure, an extra clip is an annoyance.
 - **Part B — identify the cat.** Collect and label enough images to train a per-cat
-  classifier, which needs a labelling workflow before it needs a model.
+  classifier, which needs a labeling workflow before it needs a model.
 - **Part C — any installation.** Someone else's cats, boxes, camera, Pi and storage should work
   as well as the ones this was built on, with the hardware behind interfaces and nothing about
   one home written into the code.
@@ -36,13 +36,13 @@ needs it):
 ```mermaid
 flowchart LR
   A2["A.2<br>finish the<br>data run"] --> A3h["A.3<br>start and hold<br>thresholds"]
-  A5["A.5<br>freeze a<br>labelled set"] -->|gates| A3h
+  A5["A.5<br>freeze a<br>labeled set"] -->|gates| A3h
   A3h --> A3b["A.3<br>size band"]
   A3b --> A3p["A.3<br>persist<br>N frames"]
   A3b --> B1["B.1<br>crops"]
   B1 --> B3c["B.3<br>crop beside<br>the frame"]
   B1 --> B5m["B.5<br>a model"]
-  B5a["B.5<br>coat-colour<br>baseline"] -->|"not enough?"| B5m
+  B5a["B.5<br>coat-color<br>baseline"] -->|"not enough?"| B5m
   B5m --> B6m["B.6<br>the model<br>in the loop"]
   A6["A.6<br>a summary<br>per minute"] --> B4["B.4<br>habit alerts"]
   B3i["B.3<br>ingest on<br>a schedule"] --> B4
@@ -104,8 +104,8 @@ sees nothing in the dark; if the light fails, the dark gate stops black clips bu
    global count. A.3 fixes this.
 2. **A stationary cat fades out.** MOG2 absorbs anything static in ~17 s, so recording can stop
    mid-visit. That is accepted: A.4 links the clips on either side into one event.
-3. **False triggers.** Daylight, room light and people trigger clips that are labelled
-   `not_cat`, and what triggered each one is not labelled. A size band with an upper bound (A.3)
+3. **False triggers.** Daylight, room light and people trigger clips that are labeled
+   `not_cat`, and what triggered each one is not labeled. A size band with an upper bound (A.3)
    is the fix for the lighting ones.
 
 ## A.2 Measure before tuning
@@ -123,7 +123,7 @@ condition below holds.
 
 | condition | why |
 |---|---|
-| **50+ labelled visits, 100 preferred** | zero misses in 50 only bounds the miss rate at ~6% (95%); at 100, ~3% |
+| **50+ labeled visits, 100 preferred** | zero misses in 50 only bounds the miss rate at ~6% (95%); at 100, ~3% |
 | **10+ at night under the light** | more sensor gain, more noise: a different regime |
 | **15+ per cat** | a dark cat on dark litter gives a weaker signal than a pale one |
 | **every box used** | a far box covers fewer pixels and may read weaker |
@@ -133,7 +133,7 @@ condition below holds.
 How each condition is counted is `--calibrate`'s, in `docs/design/calibration.md`.
 False positives are measurable from hours rather than visits, and any candidate
 rule can be replayed against the metrics CSV without re-recording. Storage is not the constraint
-(the metrics CSV grows by roughly 150 MB a day). **Labelling is**: each day's events have to be
+(the metrics CSV grows by roughly 150 MB a day). **Labeling is**: each day's events have to be
 kept up with, or the backlog outlives the run. `main.py --calibrate` counts the conditions, stages
 what needs a second look and proposes the settings (archive, A.2).
 
@@ -148,31 +148,31 @@ The cleaned blob is already measured on every frame (A.0); what is left is makin
 - [ ] **Start and hold thresholds.** One threshold both starts a clip and keeps it going, so
       raising it to cut false triggers also closes clips while a cat sits still. Start a clip above
       `MOTION_THRESHOLD` and keep it recording while the foreground count stays above a lower
-      `MOTION_HOLD_THRESHOLD` (by default equal, which is today's behaviour). Replayed on one run
+      `MOTION_HOLD_THRESHOLD` (by default equal, which is today's behavior). Replayed on one run
       (2026-10-03), a start of 2876 with a hold of 150 missed no visit, kept the median visit 100 %
       recorded, and cut false triggers from 1.68 to 0.76 an hour and clips from 898 to 494; 2876
       alone recorded 84 %, and the size band below managed 0.82 an hour.
       **Done means** `MotionDetector` takes both, a test shows a count between the two neither
       starting a clip nor letting a running one close, `--calibrate` proposes the pair, and its
-      replay of the pair misses no labelled visit.
+      replay of the pair misses no labeled visit.
 - [ ] Trigger on a **size band** (`min_cat_area < area < max_cat_area`) from A.2. The upper
       bound rejects lighting changes: a cat cannot be 60% of the frame. The band is only
       defensible because the overhead mount keeps apparent size constant.
       **Done means** `MotionDetector` starts a clip on a cleaned blob inside the configured band
       and not on the global count, tests cover a blob just inside, just below and just above the
-      band, and `--calibrate`'s replay over A.5's set misses no labelled visit. Measure it after
+      band, and `--calibrate`'s replay over A.5's set misses no labeled visit. Measure it after
       the hold item: on one run it beat a calibrated threshold only narrowly (0.82 against 0.91
       false triggers an hour), and its upper edge came from exposure shifts, not a cat.
 - [ ] Require the blob to persist N consecutive frames (keep N at 2-3 — recall matters more
       than precision).
       **Done means** N is a setting (default 2), a test shows a one-frame flicker inside the band
       starting nothing and N frames starting a clip, and `--calibrate`'s replay at that N misses no
-      labelled visit.
+      labeled visit.
 
 - [ ] **Lock exposure and white balance.** The camera re-exposes as a dark cat crosses the frame,
       and the shift reads as foreground across the scene: on one run, blobs of 30,000 to 89,000 px
       came with it, while a cat leaping out of a box reached about 26,000. Under the constant light
-      the boxes need anyway, fixed exposure and colour gains (picamera2's `AeEnable` and
+      the boxes need anyway, fixed exposure and color gains (picamera2's `AeEnable` and
       `AwbEnable` off, with values taken from the light) should remove that class of false trigger.
       **Done means** a setting fixes them, a week runs with it, and `--calibrate` shows the
       strongest visit and the false triggers an hour before and after.
@@ -188,7 +188,7 @@ linked to the same litter-box event**. Built: a sidecar of facts per clip, the g
 the review page, stored as overrides a regroup respects. The design is in `DESIGN.md`; the plan
 as agreed is in the archive.
 
-- [ ] **Choose the thresholds from labelled events**, then `--regroup` and audit with
+- [ ] **Choose the thresholds from labeled events**, then `--regroup` and audit with
       `filter=multi`. `EVENT_GAP_SECONDS` (180) and `EVENT_BOX_DISTANCE_PX` (120) are starting
       guesses. Too small a gap splits a visit (double-counts frequency, shortens duration); too
       large merges two cats' visits (the labeler marks it `multiple`). The frequency signal is
@@ -219,12 +219,12 @@ clip can also cross from one box to another, and grouping places a clip by its t
 ## A.5 Verify against the goal
 
 Score on **recall first**, false-positive rate second. A change that trades recall for precision is
-a regression for this project. The labelled `captures.db` is the regression set; what it lacks is a
-frozen list, so later relabelling does not move the goalposts; one run's 126 labelled visits
+a regression for this project. The labeled `captures.db` is the regression set; what it lacks is a
+frozen list, so later relabeling does not move the goalposts; one run's 126 labeled visits
 (2026-10-03) are enough to freeze. `--calibrate`'s replay does the
 scoring, against the metrics rows rather than the video.
 
-- [ ] **Freeze a labelled set and gate detection changes on it.** Clips labelled cat / no cat /
+- [ ] **Freeze a labeled set and gate detection changes on it.** Clips labeled cat / no cat /
       ambiguous, listed by clip name, since event ids change on a regroup. The list is one
       installation's data, so it lives beside the database, not in the repository.
       **Done means** the list exists, `--calibrate`'s replay scores a candidate detector against
@@ -275,15 +275,15 @@ review side takes full frames from the clip itself. What is missing is the crops
 **Model the data as events, not frames.** One visit = one event = one or more clips (A.4) and
 many crops. This is the single most important structural decision in Part B, for two reasons:
 
-- **Labelling cost.** A human labels the *event* once ("that's Cat A"), and the label
-  propagates to every crop from it. Labelling frame-by-frame is 50x the work for the same
+- **Labeling cost.** A human labels the *event* once ("that's Cat A"), and the label
+  propagates to every crop from it. Labeling frame-by-frame is 50x the work for the same
   information.
 - **Honest evaluation.** Crops from one event are near-duplicates. Splitting train/val
   randomly *by crop* leaks the same cat-in-the-same-pose into both sides and inflates
   accuracy badly. **Split by event** (ideally by day). Decide this now; it is painful to
   retrofit once a model looks deceptively good.
 
-Two cats in one event are labelled `multiple`, which excludes the event from single-label
+Two cats in one event are labeled `multiple`, which excludes the event from single-label
 training rather than silently mislabeling it.
 
 ## B.2 Storage
@@ -311,16 +311,16 @@ key is the event, so an event holds one label: model predictions (B.6) need a ke
       (`/sys/block/mmcblk0/stat`), the main writers are named in the design documents, and anything over a
       stated daily budget has an item of its own.
 
-## B.3 Labelling UI
+## B.3 Labeling UI
 
 The Review tab labels at event level with one keystroke or one tap: the cats by name (a digit key
 each, from `CAT_NAMES`), `cat` when which one is not decided, `multiple`, `not_cat`, `unsure` and
 `clean`, with undo, live counts, `?filter=` walks for auditing, an address that holds the event
 and the walk, whole-clip tiles built before they are asked for, split and join, watch, a phone
-layout, a review queue that labelled events can be staged back into with a reason, and a peek
+layout, a review queue that labeled events can be staged back into with a reason, and a peek
 mark for a cat that looks in and uses no box. **The
 only requirement that really matters is speed:** hundreds of events reviewed by one person means
-labelling must be a single action, or it will not happen and the classifier never gets its data.
+labeling must be a single action, or it will not happen and the classifier never gets its data.
 
 Next:
 
@@ -349,7 +349,7 @@ Non-goals for v1: multi-user, accounts, editing bounding boxes by hand.
 
 Only a change in a cat's habits sends an alert: visits per day, or time in the box, moving out of
 that cat's usual range, including a cat that stops visiting. A peek is not a visit (B.3). There is
-no push per visit. Visits are labelled in sittings, not as they happen, so a push per visit would
+no push per visit. Visits are labeled in sittings, not as they happen, so a push per visit would
 be noise (archive, B.4).
 
 The rule runs on a schedule over `captures.db`, off the capture path. A gap in the record (the
@@ -386,11 +386,11 @@ visits is 5 examples. Split by event or day, never by crop (B.1). Expect **heavy
 the majority cat dominate. "Not a cat" negatives come free from false triggers; keep them, they
 are real data.
 
-- [ ] **Baseline first:** before any neural net, check whether mean coat colour inside the mask
-      separates the cats. A top-down view preserves a coat's pattern and colour best; if colour
+- [ ] **Baseline first:** before any neural net, check whether mean coat color inside the mask
+      separates the cats. A top-down view preserves a coat's pattern and color best; if color
       alone separates the cats, that is a few lines of OpenCV and no training loop.
-      **Done means** a script reports, for the labelled single-cat events, how well mean coat
-      colour inside the mask separates the cats (a confusion matrix on events held out by day),
+      **Done means** a script reports, for the labeled single-cat events, how well mean coat
+      color inside the mask separates the cats (a confusion matrix on events held out by day),
       and the result, with the decision it drives, is in the design documents.
 - [ ] **Otherwise, a model:** transfer learning on a small backbone (MobileNetV3 /
       EfficientNet-lite) over the crops, trained off the Pi. Decide where inference runs once
@@ -413,7 +413,7 @@ cleaning gives the bowel signal statistically — a cat whose visits hold steady
 fall is the case worth flagging. Counts cannot be reconstructed from old footage, so every
 cleaning should carry one.
 
-The convention, with the reason for each rule, is in the README (Labelling visits, Cleanings).
+The convention, with the reason for each rule, is in the README (Labeling visits, Cleanings).
 
 - [ ] A view over time of counts per box, beside visit frequency per cat (B.6).
       **Done means** B.6's timeline filtered to `clean` shows each cleaning's counts per box, a
@@ -425,7 +425,7 @@ the urinary side of the goal rests on visit frequency and duration per cat (B.6)
 
 ## B.6 The payoff
 
-- [ ] **A timeline of every event**, filtered by label, day, hour and labelled-before, that
+- [ ] **A timeline of every event**, filtered by label, day, hour and labeled-before, that
       stages what it shows for review. Built: the Timeline tab (DESIGN.md, The review page);
       its spec is in the archive.
       **Done means** a reviewer drags a brush by touch on a phone, the one condition of the
@@ -455,7 +455,7 @@ place where that installation is written into the project, or says plainly what 
       `src/capture/` to that module. A Pi 4 (which needs a YUV analysis stream and has a hardware
       encoder) or another camera then becomes a second module. A NoIR camera with an IR light
       would also arrive this way; it is not supported now, because it changes the night regime
-      and the coat colours B.5 relies on, and it is untested.
+      and the coat colors B.5 relies on, and it is untested.
       **Done means** `picamera2` is importable only in the implementation module, the rest of
       `src/capture/` is tested against a fake of the interface, and the docs name the Pi 5 and
       Camera Module 3 as that implementation rather than as requirements.
@@ -591,12 +591,12 @@ project reads the documents cold.
       on GitHub.
 - [ ] **A first week, as a tutorial.**
       **Done means** a tracked page walks a stranger from a working install to the first
-      labelled visit and a look at the timeline, linked from the README's reading map, with
+      labeled visit and a look at the timeline, linked from the README's reading map, with
       screenshots from C.7's synthetic installation, and a cold read finds no step it could not
       follow.
 - [ ] **The people and systems around it, in one picture.**
       **Done means** the README shows a context diagram, the top zoom level of the C4 model: the
-      cats, the person labelling on a phone or a laptop, the Pi and its camera, the share, and
+      cats, the person labeling on a phone or a laptop, the Pi and its camera, the share, and
       the dead man's switch, rendered at page width and read.
 - [ ] **The roadmap in tiers.**
       **Done means** the roadmap opens with where things stand and one line per open item; an
@@ -625,9 +625,9 @@ that, so the space a month takes is about 75 MB times the minutes recorded in it
 `clip.size_bytes` in `captures.db` gives what an installation has used so far.
 
 - [ ] Set a retention policy before space runs short. Full clips are the bulk and are the least
-      valuable once an event is labelled and cropped.
+      valuable once an event is labeled and cropped.
       **Done means** a stated policy (which clips go, and when) is enforced by the service and
-      configurable, never deletes a clip of an unlabelled event, a test over a seeded share shows
+      configurable, never deletes a clip of an unlabeled event, a test over a seeded share shows
       only eligible clips removed, and the README says what it deletes. Until B.1's crops exist it
       can only go by label and age.
 
@@ -644,7 +644,7 @@ not known.
 combinations may do worse. Untested so far: a dark cat on dark litter gives a weaker foreground
 signal; a mid-dark cat on pale litter may be classed as shadow and not counted at all (MOG2 calls
 a pixel shadow when it is darker than the background by up to half, by OpenCV's defaults; not
-yet measured); and the colour baseline in B.5 may not separate similar coats. None of this can
+yet measured); and the color baseline in B.5 may not separate similar coats. None of this can
 be settled without other cats. Leave the thresholds configurable and report what other
 installations see.
 
