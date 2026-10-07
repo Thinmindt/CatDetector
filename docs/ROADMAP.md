@@ -577,7 +577,7 @@ project reads the documents cold.
       plugin's `readability.py`, copied unchanged like `check_private.sh`.
       **Done means** pytest checks each, so `check.sh` and CI run them, and each check was seen
       to fail once against a broken document.
-- [ ] **A pull request asks about its documents.**
+- [x] **A pull request asks about its documents.**
       **Done means** `.github/pull_request_template.md` lists, a line each, what a change's
       documents may need: its summary, a dated decision, the glossary, an example with a test,
       the README's tables, a looked-at page, the roadmap box, and nothing private.
