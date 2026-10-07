@@ -112,16 +112,20 @@ It keeps its label and waits in the review queue with the reason beside it.
 ## Gates
 
 **Every gate must pass before every commit**: the privacy check, shellcheck, codespell, lint,
-format check, type check, the JavaScript lint, the vendored-d3 check, tests. The tests include the
-documents' own promises (`tests/test_docs.py`): links and anchors resolve, every setting, option
-and key is in the README, prose spells the British way, and the summary tiers stay within their
-readability budgets, measured by `scripts/readability.py`, the conventions plugin's script copied
-unchanged like `check_private.sh`. `scripts/check.sh` runs them, and
-`.github/workflows/check.yml` runs the same script on every push. Run it and report the result.
-shellcheck and codespell are pinned dev dependencies, so `uv sync` installs them. The JavaScript
-gate is eslint, pinned by `package.json` and `package-lock.json` and configured in
-`eslint.config.mjs`; run `npm install` once per checkout (CI runs `npm ci`). It needs node, which
-CI installs and a contributor installs once.
+format check, type check, the JavaScript lint, the vendored-d3 check, tests. `scripts/check.sh`
+runs them; run it and report the result, and commit only when it exits 0 (piped into `tail`, its
+failure is lost). `.github/workflows/check.yml` runs the same script on every push, and
+`install.yml` runs the README's install steps on a clean Debian as an ordinary user, then the
+tests, so a README that no longer installs fails CI.
+
+The tests include the documents' own promises (`tests/test_docs.py`): links and anchors resolve,
+every setting, option and key is in the README, prose spells the British way, and the summary
+tiers stay within their readability budgets, measured by `scripts/readability.py`, the
+conventions plugin's script copied unchanged like `check_private.sh`. shellcheck and codespell
+are pinned dev dependencies, so `uv sync` installs them. The JavaScript gate is eslint, pinned by
+`package.json` and `package-lock.json` and configured in `eslint.config.mjs`; run `npm install`
+once per checkout (CI runs `npm ci`). It needs node, which CI installs and a contributor installs
+once.
 JavaScript dependencies go in `package.json` like Python ones go in `pyproject.toml`.
 
 Before the gates, `scripts/check.sh` runs `scripts/check_private.sh`, which fails if any private

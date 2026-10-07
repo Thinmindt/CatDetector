@@ -9,6 +9,7 @@ from pathlib import Path
 import pytest
 
 from scripts.readability import PARAGRAPH_BUDGET, SENTENCE_BUDGET, measure
+from scripts.readme_install import install_commands
 
 ROOT = Path(__file__).resolve().parents[1]
 README = ROOT / "README.md"
@@ -123,3 +124,16 @@ def test_summary_tiers_stay_within_their_budgets(doc: Path) -> None:
     assert len(long_paragraphs) <= paragraphs_over, (
         f"paragraphs over {PARAGRAPH_BUDGET} words"
     )
+
+
+def test_the_readme_install_runs_without_a_pi_as_written() -> None:
+    """What CI's clean-machine job runs: the README's own commands, in order."""
+    commands = install_commands(README.read_text())
+    apt = "sudo apt install libcap-dev python3-dev ffmpeg"
+    assert commands[:2] == ["sudo apt update", apt]
+    assert "uv venv --system-site-packages" in commands
+    assert commands[-1] == "uv sync"
+    uv_on_path = next(i for i, c in enumerate(commands) if "/.local/bin/env" in c)
+    assert uv_on_path < commands.index("uv venv --system-site-packages")
+    pi_only = [c for c in commands if "picamera2" in c or c.startswith(("git ", "cd "))]
+    assert pi_only == []

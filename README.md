@@ -99,6 +99,7 @@ and this project cannot notice its own absence.
 
    ```
    curl -LsSf https://astral.sh/uv/install.sh | sh
+   source $HOME/.local/bin/env      # puts uv on this shell's PATH; a new shell has it
    uv venv --system-site-packages
    uv sync
    ```
@@ -333,7 +334,8 @@ npm run vendor               # after changing d3's version in package.json
 `check.sh` runs the privacy check, shellcheck, codespell, ruff, the format check, mypy, eslint, a
 check that the committed d3 matches the version `package.json` pins, and pytest, whose tests
 include the documents' own: links, settings, options, keys, spelling and readability. GitHub Actions
-runs the same script on every push, and every commit must pass it. Read
+runs the same script on every push, and every commit must pass it. A second job runs this
+README's install steps on a clean Debian, then the tests. Read
 [docs/DESIGN.md](docs/DESIGN.md) and the decisions behind the part you change before changing behaviour, [docs/STYLE.md](docs/STYLE.md) before
 writing code, and the traps in [CLAUDE.md](CLAUDE.md), which is written for coding agents and
 useful to anyone.
