@@ -581,7 +581,7 @@ project reads the documents cold.
       **Done means** `.github/pull_request_template.md` lists, a line each, what a change's
       documents may need: its summary, a dated decision, the glossary, an example with a test,
       the README's tables, a looked-at page, the roadmap box, and nothing private.
-- [ ] **Citations and figures are gates too.** The link check reads only the documents'
+- [x] **Citations and figures are gates too.** The link check reads only the documents'
       Markdown links. A unit file kept citing a heading that had moved, and a figure can change
       in the code while its sentence stands.
       **Done means** a test checks each of these, and each was seen to fail once:

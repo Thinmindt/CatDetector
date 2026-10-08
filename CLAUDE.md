@@ -118,10 +118,16 @@ failure is lost). `.github/workflows/check.yml` runs the same script on every pu
 `install.yml` runs the README's install steps on a clean Debian as an ordinary user, then the
 tests, so a README that no longer installs fails CI.
 
-The tests include the documents' own promises (`tests/test_docs.py`): links and anchors resolve,
-every setting, option and key is in the README, prose spells the American way, and the summary
-tiers stay within their readability budgets, measured by `scripts/readability.py`, the
-conventions plugin's script copied unchanged like `check_private.sh`. shellcheck and codespell
+The tests include the documents' own promises (`tests/test_docs.py`). Links, anchors and
+citations resolve, in a comment or a unit file as much as in a document, and so does every roadmap
+section cited. Every setting, option and key is in the README, with its default. Prose spells the
+American way, and the summary tiers stay within their readability budgets, measured by
+`scripts/readability.py`, the conventions plugin's script copied unchanged like
+`check_private.sh`. `tests/test_doc_figures.py` builds each figure the documents quote (the
+stall's 10 s, the 48 tiles, the calibration targets) from the constant behind it, so a constant
+that moves without its sentence fails; a figure added to a summary gets a line there.
+
+shellcheck and codespell
 are pinned dev dependencies, so `uv sync` installs them. The JavaScript gate is eslint, pinned by
 `package.json` and `package-lock.json` and configured in `eslint.config.mjs`; run `npm install`
 once per checkout (CI runs `npm ci`). It needs node, which CI installs and a contributor installs
@@ -219,7 +225,8 @@ the code unable to tick the box. A branch is reviewed before it is pushed.
 
 **Check a branch before handing it to the maintainer, by what it changes.** Code gets
 `/code-review high`; documentation gets the doc-audit checks (the conventions plugin's `doc-audit`
-skill: true, current, in one place, safe to publish, general), not a code review. Fix each
+skill: true, current, in one place, safe to publish, general, shaped, readable), not a code
+review. Fix each
 finding or say why not. The gates check what they were written to check; a review reads the change
 against the libraries it calls. On the capture-stall branch it found, after every gate had passed, a
 self-exit that picamera2's `atexit` close could hang forever and a secret URL reaching the log
