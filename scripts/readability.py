@@ -4,12 +4,12 @@ Usage: python3 readability.py SUMMARY.md [...] [--detail EVIDENCE.md ...]
 
 For each file: words, sentences, the average sentence and the long ones, the
 paragraphs over budget with their line numbers, headings and pictures. Fenced
-blocks and table rows are not prose and are left out. A list item is a paragraph
-of its own; a task item (`- [ ]`), which carries a spec and its done-means, has a
-budget of its own. The budgets bind the summary tiers; files after --detail are
-evidence, measured for information and marked so. A measuring tool, not a gate:
-it always exits 0. A project copies it unchanged and imports measure() in a test
-to make the budgets a gate.
+blocks, table rows and a YAML header are not prose and are left out. A list item
+is a paragraph of its own, its marker not counted; a task item (`- [ ]`), which
+carries a spec and its done-means, has a budget of its own. The budgets bind the
+summary tiers; files after --detail are evidence, measured for information and
+marked so. A measuring tool, not a gate: it always exits 0. A project copies it
+unchanged and imports measure() in a test to make the budgets a gate.
 """
 
 import re
@@ -26,6 +26,7 @@ SHORTEST_SENTENCE = 3
 
 LIST_ITEM = re.compile(r"^\s*(?:[-*+]|\d+\.)\s")
 TASK_ITEM = re.compile(r"^\s*[-*+]\s\[[ xX]\]")
+MARKER = re.compile(r"^(?:[-*+]|\d+\.)\s+(?:\[[ xX]\]\s+)?")
 SENTENCE_END = re.compile(r"(?<=[.!?])\s+(?=[A-Z`*_(\[\"'])")
 
 
@@ -34,6 +35,7 @@ class Prose:
     """A document's prose blocks, each with its first line, and what is not prose."""
 
     blocks: list[tuple[int, str]] = field(default_factory=list)
+    tasks: set[int] = field(default_factory=set)
     headings: int = 0
     pictures: int = 0
     current: list[str] = field(default_factory=list)
@@ -62,6 +64,10 @@ class Prose:
         if LIST_ITEM.match(line) or not self.current:
             self.close()
             self.start = number
+        if TASK_ITEM.match(line):
+            self.tasks.add(number)
+        if LIST_ITEM.match(line):
+            stripped = MARKER.sub("", stripped)
         self.current.append(stripped.lstrip("> "))
 
     def close(self) -> None:
@@ -89,15 +95,15 @@ class Measure:
         return sum(length > LONG_SENTENCE for length in self.sentences)
 
 
-def budget(block: str) -> int:
-    return TASK_BUDGET if TASK_ITEM.match(block) else PARAGRAPH_BUDGET
-
-
 def measure(text: str) -> Measure:
     """The prose measurements of one Markdown document."""
     prose = Prose()
-    for number, line in enumerate(text.splitlines(), 1):
-        prose.add(number, line)
+    lines = text.splitlines()
+    framed = lines[:1] == ["---"] and "---" in lines[1:]
+    header = lines.index("---", 1) + 1 if framed else 0
+    for number, line in enumerate(lines, 1):
+        if number > header:
+            prose.add(number, line)
     prose.close()
     sentences = [
         len(sentence.split())
@@ -108,7 +114,11 @@ def measure(text: str) -> Measure:
     return Measure(
         words=sum(len(block.split()) for _, block in prose.blocks),
         sentences=sentences,
-        over=[(n, b) for n, b in prose.blocks if len(b.split()) > budget(b)],
+        over=[
+            (n, b)
+            for n, b in prose.blocks
+            if len(b.split()) > (TASK_BUDGET if n in prose.tasks else PARAGRAPH_BUDGET)
+        ],
         headings=prose.headings,
         pictures=prose.pictures,
     )
