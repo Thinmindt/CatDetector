@@ -67,7 +67,7 @@ SUMMARIES = {
     "README.md": (SENTENCE_BUDGET, 0),
     "DESIGN.md": (SENTENCE_BUDGET, 0),
     "CLAUDE.md": (SENTENCE_BUDGET, 0),
-    "ROADMAP.md": (25.0, 1),
+    "ROADMAP.md": (24.8, 1),
 }
 
 

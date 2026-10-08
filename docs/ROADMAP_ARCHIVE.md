@@ -759,6 +759,19 @@ the roadmap until its last condition, a brush dragged by touch on a phone, is me
 
 # Part C — any installation
 
+## C.1 Hardware behind interfaces
+
+Moved 2026-10-08: the encoder item as it stood once both paths were documented; the
+roadmap keeps the stack trace that remains.
+
+- [ ] **Correct the encoder trap for the implementation that runs.** `CLAUDE.md` and `DESIGN.md`
+      say clip bytes are written on `V4L2Encoder.thread_poll`. That is the hardware encoder; on a
+      Pi 5 picamera2's `H264Encoder` is `LibavH264Encoder`, so that thread never runs. Find where
+      output happens there, re-check that nothing can raise out of it, and state the trap per
+      implementation. **Done means** the documented thread is the one a stack trace from a Pi 5
+      shows. CLAUDE.md and DESIGN.md state both paths from the picamera2 source; the stack trace
+      is what remains.
+
 ## C.2 What every installation needs
 
 Moved 2026-09-26.
@@ -779,6 +792,31 @@ Moved 2026-09-26: not a task; it is now prose in B.5.
 - [ ] Training hardware is a choice: the plan names the Jetson (B.5), but any machine with a GPU,
       a Hailo accelerator, or a CPU for a small model will do. Keep the handoff (crops and labels
       on the share) the only contract.
+
+## C.8 Documentation a stranger can follow
+
+Moved 2026-10-08: the three finished items.
+
+- [x] **The documents' promises are gates.** Every relative link and anchor resolves; every
+      setting `config.py` reads, every option `main.py` takes and every key the Review tab
+      answers to is in the README; prose spells words the glossary's way; and the summary tiers
+      (README, DESIGN.md, CLAUDE.md) stay within python-style's readability budgets, the roadmap
+      no worse than today until it is tiered (below). The measuring script is the conventions
+      plugin's `readability.py`, copied unchanged like `check_private.sh`.
+      **Done means** pytest checks each, so `check.sh` and CI run them, and each check was seen
+      to fail once against a broken document.
+- [x] **A pull request asks about its documents.**
+      **Done means** `.github/pull_request_template.md` lists, a line each, what a change's
+      documents may need: its summary, a dated decision, the glossary, an example with a test,
+      the README's tables, a looked-at page, the roadmap box, and nothing private.
+- [x] **Citations and figures are gates too.** The link check reads only the documents'
+      Markdown links. A unit file kept citing a heading that had moved, and a figure can change
+      in the code while its sentence stands.
+      **Done means** a test checks each of these, and each was seen to fail once:
+      - every document, anchor and roadmap section a tracked file names resolves, in comments
+        and unit files too;
+      - the README's settings table gives each default as `config.py` sets it;
+      - each figure a summary quotes from the code is built from the constant behind it.
 
 ---
 

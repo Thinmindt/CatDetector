@@ -23,12 +23,25 @@ same box that crops training images. Do not build the crop pipeline twice.
 
 ## Where things stand
 
-As of 2026-10-05. **Built:** recording on motion, with the seconds before it, shipped to the
-share and kept going through its outages; a restart, and an optional alert, when the camera
-stalls (A.6); clips grouped into visits, with split and join (A.4); the review page with the
-cats' names, peeks, cleanings and the review queue (B.3); the timeline (B.6); and `--calibrate`,
-which counts a data run and proposes its settings (A.2). **Under way:** the data run that gives
-the first calibrated threshold (A.2).
+As of 2026-10-08.
+
+**Built:**
+
+- recording on motion, with the seconds before it, shipped to the share and kept going through
+  its outages;
+- a restart, and an optional alert, when the camera stalls (A.6);
+- clips grouped into visits, with split and join (A.4);
+- the review page with the cats' names, peeks, cleanings and the review queue (B.3);
+- the timeline (B.6);
+- `--calibrate`, which counts a data run and proposes its settings (A.2);
+- checks that hold the documents to the code: links, citations, settings and the figures they
+  quote (C.8).
+
+**Under way:**
+
+- the data run that gives the first calibrated threshold (A.2);
+- a CI job that installs from the README on a clean Debian, waiting for its first run on GitHub
+  (C.8).
 
 What the open items wait on, as their entries below state it (an arrow points at the item that
 needs it):
@@ -46,11 +59,12 @@ flowchart LR
   B5m --> B6m["B.6<br>the model<br>in the loop"]
   A6["A.6<br>a summary<br>per minute"] --> B4["B.4<br>habit alerts"]
   B3i["B.3<br>ingest on<br>a schedule"] --> B4
+  C7s["C.7<br>synthetic<br>installation"] --> C8t["C.8<br>first-week<br>tutorial"]
 ```
 
 Waiting on nothing: A.3's locked exposure; A.4's grouping thresholds and boxes where the cat
 stayed; B.2's cache pruning, database backup and SD wear; B.5b's counts beside visits; B.6's
-touch test of the timeline; every item in Part C; and retention (Risks).
+touch test of the timeline; every other item in Part C; and retention (Risks).
 
 **What every installation needs.** A fixed camera mounted overhead, pointing straight down at
 the litter boxes, and **the boxes lit around the clock**: the camera sees nothing in the dark, and
@@ -220,8 +234,8 @@ clip can also cross from one box to another, and grouping places a clip by its t
 
 Score on **recall first**, false-positive rate second. A change that trades recall for precision is
 a regression for this project. The labeled `captures.db` is the regression set; what it lacks is a
-frozen list, so later relabeling does not move the goalposts; one run's 126 labeled visits
-(2026-10-03) are enough to freeze. `--calibrate`'s replay does the
+frozen list, so later relabeling does not move the goalposts; a finished data run's labeled
+visits are enough to freeze. `--calibrate`'s replay does the
 scoring, against the metrics rows rather than the video.
 
 - [ ] **Freeze a labeled set and gate detection changes on it.** Clips labeled cat / no cat /
@@ -251,6 +265,14 @@ while frames arrive, for a dead man's switch set up outside this project.
       **Done means** the rows are written without `METRICS_CSV`, B.4 reads its recorded hours from
       them, the review page lists near misses for the last week, and a test shows a minute of no
       frames counted as a gap rather than as a quiet minute.
+- [ ] **A shipped clip is never overwritten.** Clips are named by their local start time, and
+      the recorder avoids only a name still on local disk. A shipped clip is gone from there, and
+      `ClipTransfer` replaces a file of the same name on the share, so across the daylight-saving
+      fall-back a clip that starts in the repeated hour can overwrite one from the hour before,
+      sidecar and all. C.6 removes the cause; this closes the loss until then.
+      **Done means** `ClipTransfer` never replaces a clip or a sidecar on the share: a second clip
+      of one name ships under a free name with its sidecar beside it, and a test ships two clips
+      that share a name.
 
 ---
 
@@ -258,9 +280,9 @@ while frames arrive, for a dead man's switch set up outside this project.
 
 ## B.1 Capture the right data
 
-A classifier trains on stills, not clips. The per-clip facts are already kept: the sidecar and
-the `clip` table hold each clip's times, path, and trigger and last blobs with their boxes, and the
-review side takes full frames from the clip itself. What is missing is the crops:
+A classifier trains on stills, not clips. The per-clip facts are already kept: the sidecar holds
+each clip's times and its trigger and last blobs with their boxes, the `clip` table its times,
+path and the blobs' centroids, and the review side takes full frames from the clip itself. What is missing is the crops:
 
 - [ ] **Crops with their boxes, stored per event.** A handful of JPEG crops per event, cut from
       A.3's bounding box (the cat), not the whole frame. Several frames spread across the event,
@@ -290,7 +312,7 @@ training rather than silently mislabeling it.
 
 SQLite on local disk (`captures.db`), media on the share; never SQLite on the CIFS share, and never
 image blobs in SQLite. The built tables are in `src/review/capture_db.py`: `event`, `clip`,
-`label`, `poop_count` and `staged`, and B.1 adds `crop`. `label` is a table of its own, but its
+`label`, `poop_count`, `staged`, `peek` and `asked`, and B.1 adds `crop`. `label` is a table of its own, but its
 key is the event, so an event holds one label: model predictions (B.6) need a key of
 `(event_id, source)` or a table of their own before they can sit beside the human labels.
 
@@ -459,13 +481,10 @@ place where that installation is written into the project, or says plainly what 
       **Done means** `picamera2` is importable only in the implementation module, the rest of
       `src/capture/` is tested against a fake of the interface, and the docs name the Pi 5 and
       Camera Module 3 as that implementation rather than as requirements.
-- [ ] **Correct the encoder trap for the implementation that runs.** `CLAUDE.md` and `DESIGN.md`
-      say clip bytes are written on `V4L2Encoder.thread_poll`. That is the hardware encoder; on a
-      Pi 5 picamera2's `H264Encoder` is `LibavH264Encoder`, so that thread never runs. Find where
-      output happens there, re-check that nothing can raise out of it, and state the trap per
-      implementation. **Done means** the documented thread is the one a stack trace from a Pi 5
-      shows. CLAUDE.md and DESIGN.md state both paths from the picamera2 source; the stack trace
-      is what remains.
+- [ ] **Confirm the Pi 5's encoder path with a stack trace.** CLAUDE.md and DESIGN.md state both
+      paths from the picamera2 source: `V4L2Encoder.thread_poll` on a Pi 4, the camera event loop
+      through `LibavH264Encoder` on a Pi 5. **Done means** the documented thread is the one a
+      stack trace from a Pi 5 shows.
 
 ## C.2 What every installation needs
 
@@ -474,7 +493,8 @@ Nothing open; finished items are in the archive.
 ## C.3 Any number of boxes, anywhere, and more than one camera
 
 - [ ] **No fixed number or layout of boxes.** Three are hard-coded today: `BOXES` in
-      `src/review/api.py`, the cleaning form in `app.html` and `app.js`, and the tests. Boxes
+      `src/review/timeline.py` (and `--boxes`' default), the cleaning form in `app.html` and
+      `review.js`, and the tests. Boxes
       become configuration, per camera, so the cleaning form shows the installation's boxes and
       a fourth one's counts can be recorded. Event grouping already places clips by centroid
       distance, so it needs no box map.
@@ -491,7 +511,7 @@ Nothing open; finished items are in the archive.
 - [ ] **The pixel numbers are one installation's.** `MOTION_THRESHOLD`, `EVENT_BOX_DISTANCE_PX`, the
       blob kernels and A.3's future size band all depend on mounting height, resolution and the
       size of the cats. Label every default as "from one installation". `--calibrate` (A.2)
-      proposes the threshold and the band; `EVENT_BOX_DISTANCE_PX`, `EVENT_GAP_SECONDS` and the
+      proposes the threshold and replays the band; `EVENT_BOX_DISTANCE_PX`, `EVENT_GAP_SECONDS` and the
       blob kernels are still guesses with no procedure. **Done means** `--calibrate` also proposes
       the grouping thresholds from the joins and splits reviewers made, and every default says
       where it came from.
@@ -512,12 +532,12 @@ Nothing open; finished items are in the archive.
 ## C.6 Times stored in UTC, shown in local time
 
 - [ ] Everything stored records UTC with an explicit `Z` or offset: clip names, sidecars, the
-      database, the metrics CSV. Everything a person reads shows local time in a readable form
-      (the review page takes the browser's zone and locale; logs take the Pi's). This removes the
-      daylight-saving collisions the recorder works around today, makes time-of-day analysis
-      (B.6) independent of how the Pi's zone was set, and absorbs B.3's "Dates are machine-shaped".
-      Existing data was written in the Pi's local time: ingest reads an unmarked time as local
-      and converts it, and names already on the share stay as they are.
+      database, the metrics CSV. Everything a person reads shows local time in a readable form (the
+      review page takes the browser's zone and locale; logs take the Pi's). This removes the
+      daylight-saving collisions, which the recorder avoids today only on local disk (A.6), makes
+      time-of-day analysis (B.6) independent of how the Pi's zone was set, and absorbs B.3's "Dates
+      are machine-shaped". Existing data was written in the Pi's local time: ingest reads an
+      unmarked time as local and converts it, and names already on the share stay as they are.
       **Done means** every stored time carries its zone, a test crosses both daylight-saving
       changes, and no page or log shows a raw ISO string.
 
@@ -569,29 +589,10 @@ was not there. No second installation or contributor exists yet, so stand-ins pl
 a clean Debian container installs from the README, and an agent started with no memory of the
 project reads the documents cold.
 
-- [x] **The documents' promises are gates.** Every relative link and anchor resolves; every
-      setting `config.py` reads, every option `main.py` takes and every key the Review tab
-      answers to is in the README; prose spells words the glossary's way; and the summary tiers
-      (README, DESIGN.md, CLAUDE.md) stay within python-style's readability budgets, the roadmap
-      no worse than today until it is tiered (below). The measuring script is the conventions
-      plugin's `readability.py`, copied unchanged like `check_private.sh`.
-      **Done means** pytest checks each, so `check.sh` and CI run them, and each check was seen
-      to fail once against a broken document.
-- [x] **A pull request asks about its documents.**
-      **Done means** `.github/pull_request_template.md` lists, a line each, what a change's
-      documents may need: its summary, a dated decision, the glossary, an example with a test,
-      the README's tables, a looked-at page, the roadmap box, and nothing private.
-- [x] **Citations and figures are gates too.** The link check reads only the documents'
-      Markdown links. A unit file kept citing a heading that had moved, and a figure can change
-      in the code while its sentence stands.
-      **Done means** a test checks each of these, and each was seen to fail once:
-      - every document, anchor and roadmap section a tracked file names resolves, in comments
-        and unit files too;
-      - the README's settings table gives each default as `config.py` sets it;
-      - each figure a summary quotes from the code is built from the constant behind it.
-- [ ] **The README's install runs on a clean machine.** CI's own setup is not the README's: it
-      installs `libgl1` and never runs the README's commands, so a missing package or a missing
-      step passes unnoticed (whether `libcap-dev` is needed has been open since 2026-09-26).
+- [ ] **The README's install runs on a clean machine.** CI's own setup was not the README's: it
+      installed `libgl1` and never ran the README's commands, so a missing package or step passed
+      unnoticed (whether `libcap-dev` is needed has been open since 2026-09-26).
+      `.github/workflows/install.yml` now runs them; its first run on GitHub is what remains.
       **Done means** a CI job on a clean Debian trixie, as an ordinary user with `sudo`, runs the
       README's install commands as written, less only what needs a Pi (the camera package) and
       the clone CI has already made, then runs the tests; a script extracts the commands from
@@ -611,7 +612,7 @@ project reads the documents cold.
       item's spec past the summary budget lives on a page of its own linked from that line; and
       the readability gate holds the roadmap to the summary budgets.
 - [ ] **Cold reads before hand-off.**
-      **Done means** CLAUDE.md's "check a branch before handing it over" includes a cold read for
+      **Done means** CLAUDE.md's "check a branch before handing it to the maintainer" includes a cold read for
       any branch that changes a summary tier: an agent with no memory of the project reads it
       and lists what it could not answer, and the hand-off says what was answered.
 - [ ] **Releases, for a make-believe second installation.**
