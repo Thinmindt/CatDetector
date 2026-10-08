@@ -60,7 +60,8 @@ Three consequences worth holding onto:
 This only runs on a Pi with an attached camera. `picamera2` binds to real hardware when a
 `Picamera2` object is **constructed** (not when the module is imported), so nothing in
 `src/capture/` can be exercised on a dev machine; the unit tests fake that layer instead. The
-review half runs anywhere (see `tests/manual/check_page.py`). The suite itself runs
+review half imports anywhere; `tests/manual/check_page.py` serves it with no camera attached, but
+it builds the whole web app, so it needs `picamera2` installed. The suite itself runs
 anywhere: on a machine with no `picamera2`, `tests/conftest.py` registers empty stand-in modules
 before `src/` is imported, and the two tests that exercise the real `CircularOutput` skip.
 
@@ -138,7 +139,8 @@ Before the gates, `scripts/check.sh` runs `scripts/check_private.sh`, which fail
 term appears in a file git tracks or would add, or in the author, committer or message of a
 commit no remote has yet. The terms are each line of the gitignored `.private-terms` and
 whatever `scripts/private_terms.sh` prints, which here is the names in `.env`'s `CAT_NAMES` and
-the `CAPTURE_HEARTBEAT_URL` there, whole and its last path segment.
+the `CAPTURE_HEARTBEAT_URL` there: the URL without its query, and each part of it that looks like
+a token (8 or more characters, a digit among them).
 Without `.env` and `.private-terms`, as on CI and in a fresh clone, it reports that nothing is
 configured and passes. When a new private fact turns up (an address, a hostname, a token), add it
 to `.private-terms`. `check_private.sh` is the template from the
@@ -380,21 +382,23 @@ measurement and the failure are in the document under `docs/design/` named after
 - **A clip reaches the share by two renames**: `.part` to its final name on local disk, then a
   copy to `.part` on the share and a rename there. Never `shutil.move` across filesystems: it
   degrades to copy-then-delete and shows the final name before the bytes are all there.
-- **The sidecar goes first**: written before the clip takes its final name, copied before the
-  clip. Do not reorder either. A clip with no sidecar was cut off by a crash; that is expected.
+- **The sidecar goes first**: written before the clip takes its final name, copied before the clip.
+  Do not reorder either. A clip with no sidecar was cut off by a crash, or its sidecar write failed
+  and was logged; that is expected.
 - Clips are raw `.h264` elementary streams, not MP4: no duration, no seeking. Remux with
   `ffmpeg -i clip.h264 -c copy clip.mp4` if that matters.
 
 **The review side** (`docs/design/`: `system.md`, `events.md`, `review.md`):
 
-- **Share I/O stays outside `CaptureDB`'s lock**, in `src/review/clip_scan.py`, which holds no
-  lock. Under the lock, a stalled CIFS mount would freeze every review request.
+- **Share I/O stays outside `CaptureDB`'s lock**: the scan in `src/review/clip_scan.py`, which
+  holds no lock, and the media `ClipFrames` builds, after the lock is let go. Under the lock, a
+  stalled CIFS mount would freeze every review request.
 - **Never open the database file itself for a lock**: closing any descriptor of it drops
   SQLite's own POSIX locks. The cross-process lock is a `flock` on `<database>.lock`, shared by
   every open `CaptureDB`, which is why `--regroup` refuses to run beside the service.
 - **Event ids change on a regroup; clip ids never do.** Anything that must survive a regroup is
   keyed by clip: the cache files (`clip<id>*`), the media URLs (`/review/clip/<clip id>/...`),
-  staging rows, poop counts and peeks.
+  staging rows, poop counts, peeks and the questions already asked.
 - **The tiles assume one keyframe a second.** The recorder pins `iperiod=CAMERA_FPS`, extraction
   decodes keyframes only, and the stride comes from the keyframe count, not the sidecar (the file
   starts up to `buffer_seconds` before the sidecar's `started_at`). Change any of these and the

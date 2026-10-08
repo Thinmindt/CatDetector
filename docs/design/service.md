@@ -64,6 +64,8 @@ recall over tidiness:
 - **`Restart=on-failure`.** SIGTERM takes the clean-shutdown path and exits 0, so a
   `systemctl stop` is not undone.
 - **`TimeoutStopSec=60`** covers the 30 s final clip flush and the metrics writer's 10 s join.
+  Every bounded wait in `shut_down` adds up to about 57 s (5 + 30 + 2 + 10 + 5 + 5), so the margin
+  is 3 s, and `stop_encoder` has no bound of its own.
 - **It runs the venv's Python, not `uv run`**, which can sync the environment at startup, and so
   change or fail it at boot.
 

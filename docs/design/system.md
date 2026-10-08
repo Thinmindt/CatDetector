@@ -97,8 +97,9 @@ one bad consumer cannot stop the loop.
 
 ### Joins are bounded
 
-A wedged consumer must not make shutdown hang. Five seconds, then log and
-move on.
+A wedged consumer must not make shutdown hang. Every join has a bound: 5 s
+for the frame thread (which logs when it runs out), `ClipTransfer` and the heartbeat, 30 s for
+the final clip's drain, and 2 s then 10 s for the metrics writer.
 
 ### Nothing may raise out of the thread that writes clip bytes (2026-09-26)
 

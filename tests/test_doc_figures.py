@@ -14,11 +14,15 @@ from src.capture.capture_heartbeat import PING_TIMEOUT_SECONDS
 from src.capture.clip_transfer import SCAN_INTERVAL_SECONDS
 from src.capture.motion_recorder import MotionRecorder
 from src.clips.format import CAMERA_FPS, H264_BITRATE
+from src.review.api import TIMELINE_ROWS_SENT
 from src.review.calibration import (
     BOX_DWELL_SECONDS,
+    COVERAGE_KEPT,
+    COVERAGE_POOR,
     NIGHT_FROM_HOUR,
     NIGHT_UNTIL_HOUR,
     NIGHT_VISITS_NEEDED,
+    POORLY_RECORDED_EXTRA,
     VISITS_NEEDED,
     VISITS_PER_CAT_NEEDED,
     VISITS_PREFERRED,
@@ -67,11 +71,22 @@ FIGURES = [
         "README.md",
         (
             f"{VISITS_NEEDED} visits ({VISITS_PREFERRED} is better), "
-            f"{NIGHT_VISITS_NEEDED} of them at night, "
+            f"{NIGHT_VISITS_NEEDED} of them at night "
+            f"({NIGHT_FROM_HOUR:02}:00\u2013{NIGHT_UNTIL_HOUR:02}:00), "
             f"and {VISITS_PER_CAT_NEEDED} per cat"
         ),
     ),
     ("README.md", f"a cat staying {s(BOX_DWELL_SECONDS)} in that box's third"),
+    (
+        "README.md",
+        f"still records {COVERAGE_KEPT:.0%} of the median visit".replace("%", " %"),
+    ),
+    (
+        "README.md",
+        f"under {COVERAGE_POOR:.0%} of a few more visits than the run did, "
+        f"at most {POORLY_RECORDED_EXTRA:.0%} of them".replace("%", " %"),
+    ),
+    ("README.md", f"it shows the newest {TIMELINE_ROWS_SENT} and counts them all"),
     ("docs/DESIGN.md", f"capture_arrays(main, lores), ~{CAMERA_FPS} fps"),
     ("docs/DESIGN.md", f"ClipTransfer, every {s(SCAN_INTERVAL_SECONDS)}"),
     ("docs/DESIGN.md", f"every {s(SCAN_INTERVAL_SECONDS)}, copy finished clips"),

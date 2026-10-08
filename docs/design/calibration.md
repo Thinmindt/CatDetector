@@ -45,7 +45,8 @@ A visit is an event labeled with a cat
 metrics CSV covers with a cleaned blob. Per-cat counts go by the label, so a visit labeled `cat`
 or `multiple` counts toward the total and toward no cat's. A visit split into two events counts
 twice until the reviewer joins them; the command does not join them, since only the footage
-says whether it was one visit, but stages the pair with that question. Night is a visit starting
+says whether it was one visit, but stages the earlier of the two with that question, naming
+the later. Night is a visit starting
 from 20:00 to 06:00. The weakest visit has settled when, with more than 20 visits, none of the
 last 20 is weaker than the weakest of those before them. The weather is the reviewer's call:
 the camera's auto-exposure holds the CSV's brightness level through the day, so an overcast day

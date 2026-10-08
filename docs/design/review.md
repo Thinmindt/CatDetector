@@ -48,14 +48,14 @@ clip id — clips are immutable once closed, so the cache never needs invalidati
 
 ### Cache entries are published by rename (2026-09-16)
 
-Flask serves the review UI threaded, and
-ffmpeg creates and truncates its output before it writes anything, so a check-then-write on the
-final cache path has two failure modes: a second request for the same clip can see the file exist
-and be served a truncated MP4 or JPEG, and two requests can run ffmpeg against one path and leave
-a corrupt entry cached for good, since nothing invalidates the cache. Each artifact is written
-to a unique `<name>.<hex>.part.<ext>` beside it and renamed into place; the rename is atomic within
-the cache directory, and the real extension stays last because ffmpeg and cv2 choose the format
-from it.
+Flask serves the review UI threaded, and ffmpeg creates and truncates its output before it writes
+anything, so a check-then-write on the final cache path has two failure modes: a second request for
+the same clip can see the file exist and be served a truncated MP4 or JPEG, and two requests can
+run ffmpeg against one path and leave a corrupt entry cached for good, since nothing invalidates
+the cache. Each artifact is written to a unique `<name>.<hex>.part.<ext>` beside it and renamed
+into place; the rename is atomic within the cache directory, and the real extension stays last
+because ffmpeg and cv2 choose the format from it. The full frames, added later, are written into a
+temporary directory inside the cache and renamed out of it, for the same guarantee.
 
 ### Tiles span the whole clip (2026-09-17)
 
@@ -200,8 +200,8 @@ oldest event instead of advancing.
 
 `Ctrl+C` to copy a time from
 the page labeled the event `cat`, `Ctrl+Z` undid a label, and a held key labeled several events
-in a row. Each was a silent write to the training set. The handler returns on any modifier or
-autorepeat before matching a key.
+in a row. Each was a silent write to the training set. The handler returns on Ctrl, Alt, Meta or
+autorepeat before matching a key; Shift passes, and only `→` and `Esc` still match with it.
 
 ### The label buttons are a bar fixed to the bottom of the screen (2026-09-22, ROADMAP B.3)
 
@@ -224,8 +224,9 @@ rule exists because the sheet's own `display: flex` beat the attribute and showe
 comma-separated list of any length; the review side takes it as `Review.cat_names` and derives the
 set of label values from it: the four fixed labels, then a name per cat, then `multiple`. The
 `label.value` column always took any text, so no schema changed, and `counts()` already grouped by
-value, so the per-cat counts A.2 asks for came free. A cat's name may not be one of the fixed
-values or `multiple`, and names may not repeat; `Review` refuses such a list at construction, which
+value, so the per-cat counts A.2 asks for came free. A cat's name may not be empty, a fixed
+value, `multiple`, or the name of a review walk (`multi`, `labeled`, `staged`, `unlabeled`), and
+names may not repeat; `Review` refuses such a list at construction, which
 `build_review` reports as "Review unavailable" rather than serving a page whose keys collide.
 `cat` was kept with the meaning "a cat, which one not decided": it was the value of every visit
 labeled before names existed, it stays the honest answer when the tiles do not show the coat, and
@@ -257,18 +258,19 @@ what the reviewer saw is staged, and it waits while a newer filter is loading. O
 not already staged are taken, by the server as well as the page: an unlabeled event is in the
 queue already, and restaging would overwrite the reason and source an event was staged with. A
 response carries the first 500 rows, the total, and the ids stageable among all of them, so the
-page stays small as the archive grows without narrowing what staging can reach. An address the
-server would refuse, hand-edited or stale, is read as no filter rather than drawn as an error.
+page stays small as the archive grows without narrowing what staging can reach. A value the page
+cannot read is dropped from the address; a filter the server still refuses, such as a date that
+does not exist, is shown as a message that says to clear it, not drawn as data.
 The box is the third of the analysis frame (`ANALYSIS_SIZE`, the coordinate frame of a sidecar's
 blobs) holding the first clip's trigger. That is mostly where the cat came in, not the box it
 used, so A.4 replaces it with the boxes the cat stayed in; C.3 makes boxes configuration.
 
 ### The timeline query uses an index on `clip(event_id)` (2026-09-28)
 
-Two correlated subqueries
-per event, the first clip's trigger and whether any clip is staged, each scanned every clip
-without it: 39 ms for 375 events, growing with the square of the archive, under the lock every
-review request waits on. With the index, 2.5 ms (2026-09-28). A test reads the query plan.
+Two correlated subqueries per event, the first clip's trigger and whether any clip is staged (a
+third, whether the event is a peek, came later), each scanned every clip without it: 39 ms for 375
+events, growing with the square of the archive, under the lock every review request waits on. With
+the index, 2.5 ms (2026-09-28). A test reads the query plan.
 
 ### The strips are drawn for a thumb (2026-09-28)
 

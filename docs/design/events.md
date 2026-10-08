@@ -28,13 +28,12 @@ with a meaning of their own are in the [glossary](../DESIGN.md#glossary).
 
 ### Clips are grouped into events at ingest, by one rule, from the sidecars
 
-`event_grouping`
-holds the rule as a pure function over `ClipRow`s so it can be tested against synthetic timelines
-with no database. `CaptureDB` calls it from two places: `ingest`, for every rescan, and `regroup`,
-on demand. The thresholds (`EVENT_GAP_SECONDS`, `EVENT_BOX_DISTANCE_PX`) are `CaptureDB`
-constructor arguments with no defaults of their own; `main.py` passes them from `Config`, which
-reads the environment when the process starts, so a changed setting takes effect at the next
-start or `main.py --regroup`.
+`event_grouping` holds the rule as a pure function over `ClipRow`s so it can be tested against
+synthetic timelines with no database. `CaptureDB` calls it wherever clips are placed: at ingest,
+for every rescan; in `regroup`, on demand; and after every split or join. The thresholds
+(`EVENT_GAP_SECONDS`, `EVENT_BOX_DISTANCE_PX`) are `CaptureDB` constructor arguments with no
+defaults of their own; `main.py` passes them from `Config`, which reads the environment when the
+process starts, so a changed setting takes effect at the next start or `main.py --regroup`.
 
 ### Ingest reads only the sidecars of clips it has not seen (2026-09-16)
 
@@ -54,7 +53,7 @@ of a rescan.
 
 ### Labels follow clips, not events
 
-Before either placement pass, every clip remembers its
+Before any placement pass, every clip remembers its
 event's label. Afterwards an event keeps a label its clips agree on and drops one they contest,
 returning to the review queue with a warning in the log. That is what lets `regroup` change the
 gap threshold without discarding a day of labeling, and what stops a bridge merge from silently
@@ -62,18 +61,20 @@ attributing a not-cat clip to a cat.
 
 ### The label table is separate from event (per the roadmap)
 
-The label table is separate from event (per the roadmap): model predictions and human labels
-can later coexist via the `source` column without overwriting each other.
+The label table is separate from event (per the roadmap), so predictions have somewhere to go,
+but its key is still the event: an event holds one label, and writing one replaces its value and
+source alike. Before a model's prediction can sit beside a human label (B.6), the key must become
+`(event_id, source)`, or predictions get a table of their own (roadmap B.2).
 
 ### A labeled event can be put back in the queue with its label (2026-09-27, ROADMAP B.3)
 
-The
-review queue is every unlabeled event and every **staged** one, in time order, and a label press
-takes an event out of it either way. Staging exists because the queue was implicit: the only way
-back into it was to erase a label, which loses the judgment being checked. A staged event keeps
+The review queue is every unlabeled event and every **staged** one, in time order, and a label
+press takes an event out of it either way. Staging exists because the queue was implicit: the only
+way back into it was to erase a label, which loses the judgment being checked. A staged event keeps
 its label, so confirming it is the same keystroke that made it; the page shows the reason beside
-the label. A staging row names who staged it (`human`, `agent`, `model`), so the same queue serves
-a reviewer's re-audit, an agent's finding and, later, a model's low-confidence prediction.
+the label. A staging row names who staged it (`human`, `agent` or `model` through the API, and
+`grouping` or `calibration` from the code itself), so the same queue serves a reviewer's re-audit,
+an agent's finding and, later, a model's low-confidence prediction.
 
 ### A staging row is written against the event's first clip (2026-09-27)
 
@@ -142,10 +143,12 @@ nothing.
 
 ### A clip with no sidecar is `recovered`
 
-It was cut off by a crash before the recorder could write
-one. Its start comes from the filename and its end is estimated from size at `H264_BITRATE`
-(`BYTES_PER_SECOND` in `clip_scan`). It has no centroids, and the rule lets an unknown position
-match on time alone rather than strand the clip in its own event.
+It was cut off by a crash before the recorder could write one, or the write failed, which the
+recorder logs before shipping the clip anyway. A sidecar that cannot be read or parsed counts the
+same, and since ingest never reads a known path again, one failed read from the share leaves a clip
+`recovered` for good. Its start comes from the filename and its end is estimated from size at
+`H264_BITRATE` (`BYTES_PER_SECOND` in `clip_scan`). It has no centroids, and the rule lets an
+unknown position match on time alone rather than strand the clip in its own event.
 
 ### Media URLs name the clip (2026-09-27)
 

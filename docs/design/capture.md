@@ -94,7 +94,7 @@ frame 2 onward under 25 pixels. `warmup_frames = 30` is ~1 s of margin.
 ### Shadows are excluded by thresholding, not by disabling shadow detection
 
 MOG2 marks shadow
-pixels 127 and real foreground 255. Turning `detectShadows=False` off is a no-op for this
+pixels 127 and real foreground 255. Setting `detectShadows=False` is a no-op for this
 purpose: it relabels those pixels 255 instead of removing them, and `countNonZero` returns the
 same number either way. Verified against real MOG2 (2026-08-26) — with a synthetic shadow, both
 settings counted 3400 pixels, of which 1600 were shadow. Shadow detection stays on and the mask is
@@ -102,7 +102,7 @@ thresholded at 127 so only true foreground counts.
 
 ### Every frame is measured once, whether or not metrics are on (2026-09-19)
 
-`detect_motion`
+`MotionDetector.detect`
 decides from the same `FrameMetrics` the log receives, so the trigger and the CSV can never
 disagree, and A.3's size band reads its blob from the same place. The whole measurement, on the
 Pi 5 with a synthetic 640x480 mask (2026-09-19): 2.4 ms for a cat-sized blob or an empty mask,
@@ -152,18 +152,18 @@ neither setting has to be stretched to cover a cat sitting still.
 
 ### A dark scene cannot trigger (2026-09-14)
 
-The camera is the IR-filtered imx708, so an unlit
-room is black to it. Unlit, after a light went off, the mean gray
-level sat at 1.1–2.7 and sensor speckle alone gave 200–295 foreground px on every frame. At a
-threshold of 150 that recorded back-to-back 300 s clips of black, about 2 GB/h. Raising the threshold would cost daytime recall and gain nothing,
-because no cat is visible in that footage anyway. So `detect_motion` ignores motion while the
-analysis frame's mean gray level is below `DARK_BRIGHTNESS`. Its default of 10 sits between the
-brightest frame that night (2.7) and the dimmest lit frame that evening (46.1), leaving room for a
-dim night-light. MOG2 keeps learning in the dark, so its background is current when the light
-returns; the light coming on is itself a whole-frame change and records one clip. Each change
-between dark and lit is logged. This removes the waste, not the gap: visits in the dark go
-unrecorded, which is why light around the clock is a requirement (ROADMAP C.2). A lit night
-averaged ~125/255 (2026-09-20), so the gate matters only if the light fails.
+The camera is the IR-filtered imx708, so an unlit room is black to it. Unlit, after a light went
+off, the mean gray level sat at 1.1–2.7 and sensor speckle alone gave 200–295 foreground px on
+every frame. At a threshold of 150 that recorded back-to-back 300 s clips of black, about 2 GB/h.
+Raising the threshold would cost daytime recall and gain nothing, because no cat is visible in that
+footage anyway. So `MotionDetector.detect` ignores motion while the analysis frame's mean gray
+level is below `DARK_BRIGHTNESS`. Its default of 10 sits between the brightest frame that night
+(2.7) and the dimmest lit frame that evening (46.1), leaving room for a dim night-light. MOG2 keeps
+learning in the dark, so its background is current when the light returns; the light coming on is
+itself a whole-frame change and records one clip. Each change between dark and lit is logged. This
+removes the waste, not the gap: visits in the dark go unrecorded, which is why light around the
+clock is a requirement (ROADMAP C.2). A lit night averaged ~125/255 (2026-09-20), so the gate
+matters only if the light fails.
 
 ### A file with a different column layout is never appended to
 
@@ -177,7 +177,7 @@ coordinates are in the 640x480 analysis frame, and `cx`, `cy` is the box's cente
 
 ```json
 {
- "started_at": "2026-09-12T08:04:13.120",
+ "started_at": "2026-09-12T08:04:13.022",
  "ended_at": "2026-09-12T08:05:02.480",
  "close_reason": "timeout",
  "trigger_blob": {
@@ -222,7 +222,8 @@ the sidecars rather than at capture time, because the gap threshold is set from 
 over recorded facts can be re-run when it changes. The recorder writes the sidecar *before*
 promoting the clip and `ClipTransfer` copies it *before* the clip, so neither the local scan nor
 the review server can see a finished clip without its facts. A clip recovered after a crash has no
-sidecar; ingest treats that as `recovered` and estimates the end from size. The blobs come from
+sidecar, nor has one whose sidecar write failed (logged, and the clip ships anyway); ingest treats
+either as `recovered` and estimates the end from size. The blobs come from
 the per-frame measurement described under Detecting motion, so recording them costs nothing extra.
 
 ### A clip abandoned mid-write says so (2026-09-16)
@@ -250,8 +251,8 @@ the `.part` is left for a person to look at.
 
 `stop()` empties the ring buffer, so pre-motion footage is bounded by
 the gap since the last clip ended regardless of buffer size. A 30 s buffer buys nothing and
-makes every drain ~37 MB (2026-08-25). `.start()` flushes from the *oldest* keyframe in the
-buffer, not the most recent.
+makes every drain ~37 MB (2026-08-25). After `.start()`, the next frame writes the ring out
+from its *oldest* keyframe, not the most recent, and each later frame drains one more.
 
 ### Clips are `.h264`
 
@@ -261,13 +262,15 @@ with `ffmpeg -i clip.h264 -c copy clip.mp4` if that matters.
 
 ### Bounded clip length and a free-space check
 
-Nothing else closes a clip except the motion
-timeout, and anything that keeps triggering — a sunbeam, a moving shadow — would record without
-bound at `H264_BITRATE` (4.5 GB/hour; see [the clip cache's sizing](system.md#the-local-clip-cache-is-sized-for-a-long-outage-of-the-share)). ENOSPC is not merely a failed
-recording; it is the `OSError` of [the thread that writes clip bytes](system.md#nothing-may-raise-out-of-the-thread-that-writes-clip-bytes-2026-09-26). `_has_room` guards the *local* clip directory, throttled to
-one check every 5 s: it runs on the capture thread for every motion frame, so an unthrottled
-`statvfs` plus its warning means 30 syscalls and 30 log lines a second for as long as the disk
-stays full.
+Without a limit, nothing but the motion timeout would close a clip, and anything that keeps
+triggering — a sunbeam, a moving shadow — would record without bound at `H264_BITRATE` (4.5
+GB/hour; see [the clip cache's
+sizing](system.md#the-local-clip-cache-is-sized-for-a-long-outage-of-the-share)). ENOSPC is not
+merely a failed recording; it is the `OSError` of [the thread that writes clip
+bytes](system.md#nothing-may-raise-out-of-the-thread-that-writes-clip-bytes-2026-09-26).
+`_has_room` guards the *local* clip directory, throttled to one check every 5 s: it runs on the
+capture thread for every motion frame, so an unthrottled `statvfs` plus its warning means 30
+syscalls and 30 log lines a second for as long as the disk stays full.
 
 ### A clip that cannot open is logged at most once a minute (2026-09-27)
 
@@ -288,8 +291,11 @@ truncates one early.
 
 ### UTC is not used for clip names
 
-Local time is friendlier for browsing, so collisions across
-the DST fall-back are handled by never returning a path that already exists.
+Local time is friendlier for browsing. Across the DST
+fall-back the recorder never returns a path that already exists on local disk, but the guard
+stops there: a shipped clip is gone from local disk, and `ClipTransfer` replaces a file of the same
+name on the share, so a clip that starts in the repeated hour can overwrite one from the hour
+before (roadmap A.6).
 
 ### Mount the share `soft`, and say so
 
@@ -297,7 +303,8 @@ the DST fall-back are handled by never returning a path that already exists.
 not name it gets it anyway. On a soft mount an unreachable server makes writes fail with an error
 after ~1–2 minutes (governed by `echo_interval=60`) instead of blocking forever, which is what
 lets `ClipTransfer`'s `OSError` handling work at all. With clips written locally first, a `hard`
-mount stalls only `ClipTransfer`'s thread rather than the camera, but pin `soft` explicitly
+mount stalls the threads that touch the share (`ClipTransfer`, the startup ingest and a rescan,
+and `ClipFrames`' ffmpeg) rather than the camera, but pin `soft` explicitly
 anyway: switching it looks like a robustness improvement and is the opposite.
 
 ### `ClipTransfer` writes only to a mounted share

@@ -35,23 +35,26 @@ the camera, decides when something is moving and writes clips to local disk; the
 those clips back from the share, groups them into visits and serves the page a person labels them
 on. The whole contract between the halves is a clip and its sidecar (a small JSON file of what the
 video cannot say: when, where in the frame, why it ended) on the share, so either half can change
-without the other noticing. The review half imports without the camera stack, which is how the
-tests and `check_page.py` run it on a machine with no camera, and a lint rule (`TID251`, which
-bans `picamera2` outside `src/capture/`) keeps that true. The service itself needs a camera:
-`main.py`, its only entry point, opens one first.
+without the other noticing.
+
+The review half imports without the camera stack, and a lint rule (`TID251`, which bans `picamera2`
+outside `src/capture/`) keeps that true, so the tests run on any machine. `check_page.py` serves
+the page with no camera attached; it builds the whole web app, so it needs `picamera2` installed.
+The service itself needs a camera: `main.py`, its only entry point, opens one first.
 
 ```mermaid
 flowchart TB
   subgraph capture["src/capture, on the Pi with the camera"]
     cam(["Picamera2, one per process"])
     cam -- "capture_arrays(main, lores), ~30 fps" --> fan["CameraManager: one capture thread calls each consumer in turn"]
-    fan --> det["MotionDetector: background subtraction (MOG2) on the 640x480 frame"]
+    fan --> rec["MotionRecorder: the consumer that records"]
     fan --> web["WebStreamer: the newest main frame"]
-    det --> rec["MotionRecorder"]
-    det -. "FrameMetrics, every frame" .-> csv[("METRICS_CSV")]
+    rec --> det["MotionDetector: background subtraction (MOG2) on the 640x480 frame"]
+    rec -. "FrameMetrics, every frame" .-> csv[("METRICS_CSV")]
     cam --> ring["H264Encoder into CircularOutput: a 5 s ring buffer, continuously"]
     rec -- "begin / stop" --> ring
-    ring --> local[("LOCAL_CLIP_DIR: clip.h264 + clip.h264.json")]
+    ring -- "the clip's bytes" --> local[("LOCAL_CLIP_DIR: clip.h264 + clip.h264.json")]
+    rec -- "its sidecar, after the drain" --> local
     local --> ship["ClipTransfer, every 60 s"]
   end
   ship --> share[("the share: captures/*.h264 + *.json")]
@@ -104,6 +107,7 @@ each rule there.
 | metrics writer (`MetricsLog`) | rows off a bounded queue into the CSV | — | block the capture thread: a full queue drops the row |
 | `ClipTransfer` | every 60 s, copy finished clips to the share, sidecar first | — | nothing; it is the one capture-side thread that may block on the share |
 | `CaptureHeartbeat` | one GET a minute, 10 s timeout, while the last frame is under 10 s old | — | log the URL |
+| Flask server (`app.run`, on a daemon thread `main.py` starts) | accepts connections and hands each to a request thread | — | — |
 | Flask request threads (`threaded=True`) | the pages, the review API, and one `generate_frames` generator per live viewer | `CaptureDB._lock`, an `RLock` around its one SQLite connection, through `@serialized`; a per-clip build lock in `ClipFrames` | hold `CaptureDB._lock` while reading the share; hold `WebStreamer.frame_lock` across a `yield` |
 | `startup-ingest` | one scan of the share when the process starts | `CaptureDB._lock` only to insert what the scan found | — |
 | `strips-ahead`, reniced to 10 | the strips of the next 30 queued events, one clip at a time | `CaptureDB._lock` to read the queue; the clip's build lock | hold the database lock while ffmpeg runs |
@@ -158,7 +162,8 @@ flowchart TB
 ```
 
 The settings an installation tunes, `MOTION_THRESHOLD`, `MOTION_TIMEOUT`, `MOG2_HISTORY` and
-`DARK_BRIGHTNESS`, come from the environment and reach the detector as constructor arguments.
+`DARK_BRIGHTNESS`, come from the environment and reach the detector, or for `MOTION_TIMEOUT` the
+recorder, as constructor arguments.
 Calibration, at the end of this document, is how a data run turns into their values.
 
 The 9 decisions behind it, with their evidence, and an example of the metrics CSV:
@@ -218,8 +223,8 @@ out, and they differ in the exit code, which is what tells systemd whether to re
 ```mermaid
 flowchart TB
   systemd["systemd starts catdetector"] --> ntp["ExecStartPre: wait for NTP, at most 90 s"]
-  ntp --> start["main.py: camera · recover .part clips · encoder into the ring ·<br>ClipTransfer · Flask · review (startup ingest, strips ahead) · heartbeat"]
-  start --> mon["monitor(): frame distribution runs;<br>every second, how old is the last frame?"]
+  ntp --> start["main.py: camera · recover .part clips · encoder into the ring ·<br>ClipTransfer · review (startup ingest, strips ahead) · Flask"]
+  start --> mon["monitor(): frame distribution starts, then the heartbeat;<br>every second, how old is the last frame?"]
   mon -- "SIGTERM (systemctl stop) or Ctrl-C" --> down["shut_down: stop distribution (join ≤ 5 s) →<br>recorder.cleanup (close the clip, drain ≤ 30 s, stop_encoder) →<br>transfer.stop → heartbeat.stop"]
   down --> exit0["exit 0: not restarted"]
   mon -- "no frame for 10 s" --> stall["SystemExit(1), SIGTERM ignored,<br>60 s timer armed"]
@@ -278,7 +283,8 @@ erDiagram
   }
 ```
 
-Timestamp columns are left out of the picture.
+The bookkeeping columns (`created_at`, `labeled_at`, `staged_at`, `noted_at`, `asked_at` and
+`size_bytes`) are left out of the picture.
 
 The 15 decisions behind it, with their evidence:
 [design/events.md](design/events.md#from-clips-to-events).
@@ -313,7 +319,8 @@ The 9 decisions behind it, with their evidence: [design/review.md](design/review
 One Flask app on one port serves one template (`src/templates/app.html`) with three tabs: Live,
 the MJPEG feed (`/video_feed`) and the recorder's status (`/api/status`); Review, the labeler;
 and Timeline, brushable strips of counts by day and hour.
-The script is ES modules with no build step, one per tab plus `common.js`. The server owns every
+The script is ES modules with no build step: one per tab, `app.js`, which switches the tabs, and
+`common.js`. The server owns every
 rule that would otherwise exist twice, such as the timeline's filter; the browser owns position,
 which lives in the address, and the undo history. A change to the page is checked by looking at
 it: `tests/manual/check_page.py` screenshots it at a phone's size and a laptop's.

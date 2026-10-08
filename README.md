@@ -156,13 +156,13 @@ an **event**: the clips of one visit, or of whatever else moved.
 | key | button | records |
 |---|---|---|
 | `1`–`9` | the cat's name | that cat made the visit; the keys follow the order of `CAT_NAMES` |
-| `m` | multiple | more than one cat |
+| `m` | multiple | more than one cat (once `CAT_NAMES` is set) |
 | `c` | cat, which one not decided | a cat whose coat the tiles do not show (under "more" once names are set) |
 | `n` | not a cat | a person, a lighting change, anything else |
 | `u` | unsure | the tiles cannot tell |
-| `p`, then a digit | a peek | that cat looked in and used no box; it is not counted as a visit |
+| `p`, then a digit | a peek | that cat looked in and used no box, so it is not counted as a visit; `p` again clears the mark |
 | `l` | cleaning | a litter cleaning: type the poops found in each box, `Enter` saves |
-| `z` | undo | undoes the last label |
+| `z` | back | brings back the last event you labeled, to label it again |
 | `→` | next | skips, while walking a filter |
 | `Esc` | close | closes the "more" sheet |
 
@@ -190,11 +190,12 @@ a hand signal, so it is recorded at the moment it was true. For each box just cl
 
 The reviewer labels that event a cleaning (`l`) and types the counts in.
 
-The **Timeline** tab lists every event, newest first, with its time, label, box, length and clip
-count. Label chips choose which labels show, so one cat's rows are that cat's visit log. Drag
-across the day strip or the hour strip to take a slice of time ("outside the range" turns
-06:00–22:00 into the night), and "labeled before" picks out old labels. Any row, or everything
-shown, can be sent back to the review queue with a reason. The filter is kept in the address.
+The **Timeline** tab lists the events that match, newest first, with their time, label, box, length
+and clip count; it shows the newest 500 and counts them all. Label chips choose which labels show,
+so one cat's rows are that cat's visit log. Drag across the day strip or the hour strip to take a
+slice of time ("outside the range" turns 06:00–22:00 into the night), and "labeled before" picks
+out old labels. Any row, or everything the filter matches, can be sent back to the review queue
+with a reason. The filter is kept in the address.
 
 From the command line, beside the running service, `--stage` sends labeled events back to the
 review queue with a reason, keeping their labels; here, every `not_cat` labeled before 20
@@ -239,7 +240,7 @@ a cat that reads weaker than the one it came from may not reach it.
    (`--metrics PATH` names another CSV). A couple of weeks of CSV takes several minutes. It
    reports what the run still needs:
 
-   - 50 visits (100 is better), 10 of them at night, and 15 per cat;
+   - 50 visits (100 is better), 10 of them at night (20:00–06:00), and 15 per cat;
    - every box used: a cat staying 10 s in that box's third of the picture (with fewer than
      three boxes, name the thirds that hold one: `--boxes 1,3`);
    - the weakest visit settled: none of the last 20 weaker than the weakest before them (a
@@ -252,13 +253,15 @@ a cat that reads weaker than the one it came from may not reach it.
    - the same cat seconds apart: one visit split in two?
    - the weakest visits: a peek?
    - `not_cat` events that held something visit-sized: a cat after all?
+   - a visit the metrics show no blob for: is its label right?
 
 4. **Apply the result.** Once every condition holds, it replays a range of thresholds over the CSV.
    For each it shows the visits it would miss, how many clips an hour it would start with no cat in
    them, and how much of each visit it would record. It can judge only the visits the run recorded,
    which is why the run's threshold is low. It proposes the highest threshold that misses no visit
-   and still records 98 % of the median visit, marked provisional while any of its questions waits
-   in the queue. Put it in the drop-in, remove `METRICS_CSV`, and restart the service.
+   and still records 98 % of the median visit. It may record under 80 % of a few more visits than
+   the run did, at most 5 % of them. The proposal is marked provisional while any of its questions
+   waits in the queue. Put it in the drop-in, remove `METRICS_CSV`, and restart the service.
 
 ## Settings
 
@@ -307,10 +310,10 @@ and a grace time of at least three, so a routine restart does not alert. If pi-t
 for the Pi, make a second one for the camera: the Pi can be up while the camera is not.
 
 The URL is a secret, since anyone who has it can keep your check quiet. Keep it in `.env` and out
-of every tracked file; `scripts/check_private.sh` refuses a commit that contains it. A URL that is
-not `http://` or `https://`, has no host, or contains a space turns the heartbeat off with a
-warning. So does a recorder that failed to start, since frames would then arrive with nothing
-recorded.
+of every tracked file; `scripts/check_private.sh`, one of the gates `scripts/check.sh` runs, fails
+on a commit that contains it. A URL that is not `http://` or `https://`, has no host, or contains a
+space turns the heartbeat off with a warning. So does a recorder that failed to start, since frames
+would then arrive with nothing recorded.
 
 ## Security
 
