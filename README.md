@@ -37,6 +37,7 @@ costs the storage and a quick review.
 
 - Machine Learning cat classification
 - Refined motion detection for fewer clips with no cat
+- Alerts when a cat's habits change
 - See [the roadmap](docs/ROADMAP.md) for more
 
 ## Contents
@@ -56,28 +57,20 @@ costs the storage and a quick review.
 - **Up to three boxes, side by side across the picture.** Until boxes become a
   setting (roadmap C.3), the review page numbers them by the third of the
   picture they sit in, 1 to 3 from the left.
-- **The boxes lit around the clock.** The camera cannot see in the dark, and a
-  visit it cannot see is not recorded. Keep the light constant: a light that
-  switches on with motion leaves the moments before it dark, and switching on
-  changes the whole picture at once.
-- **Supported hardware.** Today that is one combination: a Raspberry Pi 5 with
-  the IR-filtered Camera Module 3, on Raspberry Pi OS trixie. Other Pis and
-  cameras are planned (roadmap C.1).
-- **Somewhere for the clips** other than the SD card: a mounted share, such as a
-  NAS, another computer's share or a USB disk (see [The share](#the-share)). The
-  `captures/` folder in it is created for you. A local-only mode is planned
-  (roadmap C.5).
-- **Room and time.** Footage is about 75 MB a minute (10 Mbit/s), and clips have
-  averaged about 18 MB; [the design
-  notes](docs/design/system.md#the-local-clip-cache-is-sized-for-a-long-outage-of-the-share)
-  have the sizing. Every event, cat or not, waits for one key press in the
-  review queue.
+- **The boxes lit around the clock.** The motion detection is most reliable with
+  consistent light.
+- **Supported hardware.** Today that is one combination: a Raspberry Pi 5 with the IR-filtered
+  Camera Module 3, on Raspberry Pi OS trixie. Other Pis and cameras are planned (roadmap C.1).
+- **Somewhere for the clips** other than the SD card: a mounted share, such as a NAS, another
+  computer's share or a USB disk (see [The share](#the-share)).
+- **Storage space.** Footage is about 75 MB a minute (10 Mbit/s), and clips have averaged about
+  18 MB; [the design notes](docs/design/system.md#the-local-clip-cache-is-sized-for-a-long-outage-of-the-share) have the sizing. 
+- **Your time.** Every event needs to be reviewed by your eyes.
 
 Recommended: [pi-tools](https://github.com/Thinmindt/pi-tools), a Claude Code
 plugin that keeps the Pi's logs across reboots, logs its supply voltage and
 temperature, powers a Pi 5 back on after an unexpected power-off, and tells you
-when the Pi goes quiet. A Pi that is off records nothing, and this project
-cannot notice its own absence.
+when the Pi goes quiet.
 
 ## Install
 
