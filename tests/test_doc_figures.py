@@ -35,9 +35,7 @@ DEFAULTS = dict(
 )
 RECORDER = inspect.signature(MotionRecorder).parameters
 BUFFER_SECONDS = RECORDER["buffer_seconds"].default
-LONGEST_CLIP_MINUTES = RECORDER["max_clip_seconds"].default / 60
 MB_A_MINUTE = H264_BITRATE * 60 / 8 / 1e6
-MOTION_TIMEOUT = float(DEFAULTS["MOTION_TIMEOUT"])
 UNIT = (ROOT / "deploy" / "catdetector.service.in").read_text()
 RESTART_SECONDS = re.findall(r"^RestartSec=(\d+)$", UNIT, re.MULTILINE)[0]
 NUMBERS = ["zero", "one", "two", "three", "four", "five", "six", "seven", "eight"]
@@ -53,15 +51,6 @@ def s(seconds: float) -> str:
 
 
 FIGURES = [
-    ("README.md", f"keeps the last {spelled(BUFFER_SECONDS)} seconds in memory"),
-    ("README.md", f"begins up to {spelled(BUFFER_SECONDS)} seconds before the motion"),
-    (
-        "README.md",
-        (
-            f"A clip closes after {s(MOTION_TIMEOUT)} without motion, "
-            f"or at {spelled(LONGEST_CLIP_MINUTES)} minutes"
-        ),
-    ),
     (
         "README.md",
         f"about {MB_A_MINUTE:g} MB a minute ({H264_BITRATE / 1e6:g} Mbit/s)",
