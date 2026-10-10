@@ -47,8 +47,8 @@ As of 2026-10-08.
 - a CI job that installs from the README on a clean Debian, waiting for its
   first run on GitHub (C.8).
 
-What the open items wait on, as their entries below state it (an arrow points at
-the item that needs it):
+What the open items wait on, as their entries below state it; an arrow points at
+the item that needs it:
 
 ```mermaid
 flowchart LR
@@ -90,8 +90,8 @@ leave the Pi.
 
 **Platform.** A Raspberry Pi 5 with no accelerator, so any *on-Pi* inference
 would be CPU. The share is typically **CIFS**, which is why SQLite stays local
-(B.2). A training machine keeps its own environment: on a Jetson, JetPack pins
-its own Python (3.10 on JetPack 6) and PyTorch comes from NVIDIA's wheels, so it
+(B.2). A training machine keeps its own environment. On a Jetson, JetPack pins
+its own Python, 3.10 on JetPack 6, and PyTorch comes from NVIDIA's wheels, so it
 should not try to share this repo's `==3.13.*` pin.
 
 **Thermal headroom.** A fanless Pi 5 throttles under the detector at 84–86 °C;
@@ -105,13 +105,13 @@ assuming there is any.
 
 ## A.0 Where detection stands
 
-`MotionDetector.detect` (`src/capture/motion_detector.py`) runs MOG2 on the
-640x480 lores frame, drops MOG2's shadow pixels, and calls the frame moving when
-the foreground pixel count exceeds `MOTION_THRESHOLD`. It is gated off during
-MOG2's warmup and while the frame's mean brightness is below `DARK_BRIGHTNESS`.
-Every frame is also measured for a cleaned blob (morphological open and close,
-then the largest contour), which the metrics CSV logs and the sidecar records,
-but which does not yet decide anything.
+`MotionDetector.detect`, in `src/capture/motion_detector.py`, runs MOG2 on the
+lores frame, drops MOG2's shadow pixels, and calls the frame moving when the
+foreground pixel count exceeds `MOTION_THRESHOLD`. It is gated off during MOG2's
+warmup and while the frame's mean brightness is below `DARK_BRIGHTNESS`. Every
+frame is also measured for a cleaned blob, a morphological open and close and
+then the largest contour. The metrics CSV logs it and the sidecar records it,
+but it does not yet decide anything.
 
 | setting | default |
 |---|---|
@@ -128,9 +128,9 @@ stops black clips but not the gap.
 
 1. **No spatial coherence.** Scattered noise and one solid cat-sized blob are
    identical to a global count. A.3 fixes this.
-2. **A stationary cat fades out.** MOG2 absorbs anything static in ~17 s, so
-   recording can stop mid-visit. That is accepted: A.4 links the clips on either
-   side into one event.
+2. **A stationary cat fades out.** MOG2 absorbs anything static within
+   `MOG2_HISTORY` frames, so recording can stop mid-visit. That is accepted: A.4
+   links the clips on either side into one event.
 3. **False triggers.** Daylight, room light and people trigger clips that are
    labeled `not_cat`, and what triggered each one is not labeled. A size band
    with an upper bound (A.3) is the fix for the lighting ones.
@@ -139,16 +139,19 @@ stops black clips but not the gap.
 
 **A data run** comes first: the detector runs as the service with a low
 `MOTION_THRESHOLD` and `METRICS_CSV` on, over-capturing rather than missing, so
-a visit below the threshold still leaves a trace in the CSV. The trigger is
-tuned to the weakest visit, not the average one, so the unit to collect is
-**visits, not hours**. A visit's strength is the **largest** cleaned blob it
-produces, not the blob that started its clip: a band that ignores a cat's head
-peeking in at the frame's edge still fires a second later when the whole cat
-steps in, so what decides recall is whether a visit ever reaches the band. A
-dark or low-contrast coat on the litter is the weak case, since its cleaned blob
-breaks into pieces. Only visits recorded once the setup has settled (lighting,
-framing, sensor mode) count; earlier ones are a different regime. The run stops
-when every condition below holds.
+a visit below the threshold still leaves a trace in the CSV.
+
+The trigger is tuned to the weakest visit, not the average one, so the unit to
+collect is **visits, not hours**. A visit's strength is the **largest** cleaned
+blob it produces, not the blob that started its clip. A band that ignores a
+cat's head peeking in at the frame's edge still fires a second later when the
+whole cat steps in, so what decides recall is whether a visit ever reaches the
+band. A dark or low-contrast coat on the litter is the weak case, since its
+cleaned blob breaks into pieces.
+
+Only visits recorded once the lighting, framing and sensor mode have settled
+count; earlier ones are a different regime. The run stops when every condition
+below holds.
 
 | condition | why |
 |---|---|
@@ -162,8 +165,8 @@ when every condition below holds.
 How each condition is counted is `--calibrate`'s, in
 `docs/design/calibration.md`. False positives are measurable from hours rather
 than visits, and any candidate rule can be replayed against the metrics CSV
-without re-recording. Storage is not the constraint (the metrics CSV grows by
-roughly 150 MB a day). **Labeling is**: each day's events have to be kept up
+without re-recording. Storage is not the constraint: the metrics CSV grows by
+roughly 150 MB a day. **Labeling is**: each day's events have to be kept up
 with, or the backlog outlives the run. `main.py --calibrate` counts the
 conditions, stages what needs a second look and proposes the settings (archive,
 A.2).
@@ -270,8 +273,8 @@ and grouping places a clip by its trigger position.
 
 Score on **recall first**, false-positive rate second. A change that trades
 recall for precision is a regression for this project. The labeled `captures.db`
-is the regression set; what it lacks is a frozen list, so later relabeling does
-not move the goalposts; a finished data run's labeled visits are enough to
+is the regression set. What it lacks is a frozen list, so that later relabeling
+cannot move the goalposts; a finished data run's labeled visits are enough to
 freeze. `--calibrate`'s replay does the scoring, against the metrics rows rather
 than the video.
 
@@ -294,10 +297,10 @@ shutdown has been seen to complete with the camera still wedged. In normal
 running, the longest gap between frames outside a restart or power-off measured
 under 2 s.
 
-Both halves are built (archive, A.6): after 10 s with no frame the detector
-exits non-zero through its usual cleanup, so systemd restarts it, and an
-optional `CAPTURE_HEARTBEAT_URL` is pinged only while frames arrive, for a dead
-man's switch set up outside this project.
+Both halves are built (archive, A.6). When the camera stops delivering frames
+the detector exits non-zero through its usual cleanup, so systemd restarts it.
+An optional `CAPTURE_HEARTBEAT_URL` is pinged only while frames arrive, for a
+dead man's switch set up outside this project.
 
 - [ ] **A summary per minute.** Once a data run ends, `METRICS_CSV` is off and a
   visit the trigger
@@ -349,12 +352,12 @@ side takes full frames from the clip itself. What is missing is the crops:
 clips (A.4) and many crops. This is the single most important structural
 decision in Part B, for two reasons:
 
-- **Labeling cost.** A human labels the *event* once ("that's Cat A"), and the
-  label propagates to every crop from it. Labeling frame-by-frame is 50x the
-  work for the same information.
+- **Labeling cost.** A human labels the *event* once, "that is Cat A", and the
+  label propagates to every crop from it. Labeling frame by frame is fifty times
+  the work for the same information.
 - **Honest evaluation.** Crops from one event are near-duplicates. Splitting
   train/val randomly *by crop* leaks the same cat-in-the-same-pose into both
-  sides and inflates accuracy badly. **Split by event** (ideally by day). Decide
+  sides and inflates accuracy badly. **Split by event**, ideally by day. Decide
   this now; it is painful to retrofit once a model looks deceptively good.
 
 Two cats in one event are labeled `multiple`, which excludes the event from
@@ -397,15 +400,15 @@ the human labels.
 ## B.3 Labeling UI
 
 The Review tab labels at event level with one keystroke or one tap: the cats by
-name (a digit key each, from `CAT_NAMES`), `cat` when which one is not decided,
-`multiple`, `not_cat`, `unsure` and `clean`, with undo, live counts, `?filter=`
-walks for auditing, an address that holds the event and the walk, whole-clip
-tiles built before they are asked for, split and join, watch, a phone layout, a
-review queue that labeled events can be staged back into with a reason, and a
-peek mark for a cat that looks in and uses no box. **The only requirement that
-really matters is speed:** hundreds of events reviewed by one person means
-labeling must be a single action, or it will not happen and the classifier never
-gets its data.
+name, a digit key each from `CAT_NAMES`, `cat` when which one is not decided,
+`multiple`, `not_cat`, `unsure` and `clean`. Around that: undo, live counts,
+`?filter=` walks for auditing, an address that holds the event and the walk,
+whole-clip tiles built before they are asked for, split and join, watch, a phone
+layout, a review queue that labeled events can be staged back into with a
+reason, and a peek mark for a cat that looks in and uses no box. **The only
+requirement that really matters is speed:** hundreds of events reviewed by one
+person means labeling must be a single action, or it will not happen and the
+classifier never gets its data.
 
 Next:
 
@@ -443,7 +446,7 @@ A peek is not a visit (B.3). There is no push per visit. Visits are labeled in
 sittings, not as they happen, so a push per visit would be noise (archive, B.4).
 
 The rule runs on a schedule over `captures.db`, off the capture path. A gap in
-the record (the service down, the Pi off, the light out) looks exactly like a
+the record, the service down, the Pi off or the light out, looks exactly like a
 cat visiting less, so the rule must count only the hours the camera was
 recording and say how many it had. Only the optional metrics CSV records those
 hours today, so the detector must keep its own record of them. The transport is
@@ -470,8 +473,8 @@ bot, SMTP or a Home Assistant webhook would do as well.
 may pin its own Python and PyTorch build, as JetPack does; a separate project on
 the training machine that reads crops from the share is cleaner than widening
 this repo's pins to straddle both machines. Any machine with a GPU, a Hailo
-accelerator, or a CPU for a small model will do, and the handoff (crops and
-labels on the share) is the only contract.
+accelerator, or a CPU for a small model will do, and the handoff, crops and
+labels on the share, is the only contract.
 
 **Rough target:** several hundred to a low thousand crops per cat, spread across
 many distinct events, days, and lighting conditions. Event count matters more
@@ -741,8 +744,8 @@ reads the documents cold.
 **Security.** The Flask app binds `0.0.0.0` on the dev server with no
 authentication, which already warns about production use. Adding a UI that
 browses stored images makes exposure worse. Keep it LAN-only, and add auth and a
-real WSGI server (waitress/gunicorn) before it is reachable from anywhere else.
-Do not port-forward it.
+real WSGI server, waitress or gunicorn, before it is reachable from anywhere
+else. Do not port-forward it.
 
 **Storage growth and retention.** 10 Mbps is ~75 MB per minute of recording, and
 crops add to that, so the space a month takes is about 75 MB times the minutes
@@ -769,11 +772,11 @@ alerts; what causes a stall is not known.
 **Coats and litter.** Detection has been tested on a few cats' coats and one
 litter, and other combinations may do worse. Untested so far: a dark cat on dark
 litter gives a weaker foreground signal; a mid-dark cat on pale litter may be
-classed as shadow and not counted at all (MOG2 calls a pixel shadow when it is
-darker than the background by up to half, by OpenCV's defaults; not yet
-measured); and the color baseline in B.5 may not separate similar coats. None of
-this can be settled without other cats. Leave the thresholds configurable and
-report what other installations see.
+classed as shadow and not counted at all, since MOG2 calls a pixel shadow when
+it is darker than the background by up to half, by OpenCV's defaults; and the
+color baseline in B.5 may not separate similar coats. None of this can be
+settled without other cats. Leave the thresholds configurable and report what
+other installations see.
 
 Still open:
 

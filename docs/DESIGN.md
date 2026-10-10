@@ -1,19 +1,20 @@
 # Design
 
-How the system works, and why it is shaped that way. Kept here so the source can
+How the system works, and why it is shaped that way, kept here so the source can
 stay terse.
 
-This file is the map, readable in a few minutes: the goal, the whole system and
-its threads, then a summary of each thing the system does, with a picture where
-there is a flow, a state machine or more than one thread. Each summary ends with
-a link to the decisions behind it, in a document of its own under
-[design/](design/): what was decided, why, and when it was measured, with the
-numbers and failures that settled it. Read those before changing that part.
+This file is the map, read in a few minutes. It opens with the goal, then the
+whole system and its threads, then a summary of each thing the system does, with
+a picture wherever there is a flow, a state machine or more than one thread.
+Each summary ends with a link to the decisions behind it, in a document of its
+own under [design/](design/): what was decided, why, and when, with the
+measurements and failures that settled it. Read those before changing that part.
 
-Decisions cite `ROADMAP.md` by section (A.2, A.4, B.5b, …). Words with a meaning
-of their own (visit, event, sidecar, tile, …) are in the [Glossary](#glossary)
-at the end. The pictures are Mermaid, which GitHub renders in place; a box or an
-arrow in one is a claim about the code, held to the same standard as a sentence.
+Decisions cite `ROADMAP.md` by section letter, A.2 or B.5b. The project's own
+words, visit, event, sidecar, tile and the rest, are in the
+[Glossary](#glossary) at the end. The pictures are Mermaid, which GitHub renders
+in place. A box or an arrow in one is a claim about the code, held to the same
+standard as a sentence.
 
 ## Goal
 
@@ -21,15 +22,13 @@ arrow in one is a claim about the code, held to the same standard as a sentence.
 Knowing which cat made a visit is the way there, not the goal itself. Three
 things follow from it:
 
-- **Recall comes first.** A missed visit leaves a gap in a cat's record. A gap
-  can look like the very change the project exists to flag, so losing a visit
-  can lead to wrongly flagging a healthy cat. An extra clip only costs review
-  time.
-- **A visit may span several clips.** It is fine to stop recording while nothing
-  is truly moving, for example while a cat sits still in the box, as long as the
-  clips on either side of the pause are linked to the same litter-box event. One
-  clip does not have to stay open through the stillness. Clips are linked into
-  events at ingest; see From clips to events below, and ROADMAP A.4.
+- **Recall comes first.** A missed visit leaves a gap in a cat's record, and a
+  gap looks like the very change the project exists to flag, so a lost visit can
+  get a healthy cat flagged. An extra clip costs only review time.
+- **A visit may span several clips.** Recording may stop while a cat sits still
+  in the box, as long as the clips on either side of the pause are linked to one
+  litter-box event. No clip has to stay open through the stillness. Clips are
+  linked into events at ingest; see From clips to events below, and ROADMAP A.4.
 - **Poop versus pee is a possible later step.** Telling them apart looks hard
   and error-prone, so nothing should depend on it.
 
@@ -37,17 +36,17 @@ things follow from it:
 
 One process on the Pi does everything, in two halves that share no objects. The
 capture half owns the camera, decides when something is moving and writes clips
-to local disk; the review half reads those clips back from the share, groups
+to local disk. The review half reads those clips back from the share, groups
 them into visits and serves the page a person labels them on. The whole contract
-between the halves is a clip and its sidecar (a small JSON file of what the
-video cannot say: when, where in the frame, why it ended) on the share, so
-either half can change without the other noticing.
+between the halves is a clip and its sidecar on the share. The sidecar is a
+small JSON file holding what the video cannot say: when, where in the frame and
+why it ended. Either half can change without the other noticing.
 
-The review half imports without the camera stack, and a lint rule (`TID251`,
-which bans `picamera2` outside `src/capture/`) keeps that true, so the tests run
-on any machine. `check_page.py` serves the page with no camera attached; it
-builds the whole web app, so it needs `picamera2` installed. The service itself
-needs a camera: `main.py`, its only entry point, opens one first.
+The review half imports without the camera stack. A lint rule, `TID251`, bans
+`picamera2` outside `src/capture/` and keeps that true, so the tests run on any
+machine. `check_page.py` serves the page with no camera attached, but it builds
+the whole web app, so it needs `picamera2` installed. The service itself needs a
+camera: `main.py`, its only entry point, opens one first.
 
 ```mermaid
 flowchart TB
@@ -79,15 +78,15 @@ flowchart TB
 ```
 
 Two things in the picture carry most of the weight. The camera's frames take two
-independent paths: the fan-out, on one capture thread, feeds detection and the
-live view, while the recorded bytes go through picamera2's own encoder into a
-ring buffer that the recorder diverts to a file when motion starts; changing
-frame distribution does not change what is recorded, and vice versa. And nothing
-on the capture side writes to the share: clips land on local disk and
+independent paths. The fan-out, on one capture thread, feeds detection and the
+live view. The recorded bytes go through picamera2's own encoder into a ring
+buffer, which the recorder diverts to a file when motion starts. Changing frame
+distribution does not change what is recorded, and vice versa. And nothing on
+the capture side writes to the share. Clips land on local disk and
 `ClipTransfer` ships them on its own thread, so the camera never waits on the
 network and recording survives an outage of the share. Each half keeps its own
 state on local disk, the clip cache on one side and the database and frame cache
-on the other; the share holds only the clips.
+on the other. The share holds only the clips.
 
 The code follows the same split. `src/web_app.py` assembles the one Flask app
 from both halves, `src/logging_setup.py` configures logging, and `main.py` is
@@ -104,9 +103,9 @@ The 6 decisions behind it, with their evidence:
 
 ## Threads and locks
 
-The process runs about ten threads. The table is the map: what each one does,
-which locks it takes and what it must never do. The entries under it are the
-measurements and failures that put each rule there.
+The table is the map of the threads: what each one does, which locks it takes
+and what it must never do. The measurements and failures that put each rule
+there are in the decisions linked below it.
 
 | Thread | Runs | Takes | Must never |
 |---|---|---|---|
@@ -126,22 +125,22 @@ measurements and failures that put each rule there.
 Across processes, every open `CaptureDB` holds a shared `flock` on
 `<database>.lock`, and `regroup` takes it exclusive.
 
-The rule the table enforces: the two threads the camera depends on, the capture
+The table enforces one rule. The two threads the camera depends on, the capture
 thread and picamera2's output thread, wait on nothing that can stall: not a
 network share, not another thread, not a lock held across I/O. Everything that
 can block, the share, ffmpeg, HTTP, the CSV, has a thread of its own, and the
-review side does its share I/O with no database lock held.
+review side reads the share with no database lock held.
 
 The 7 decisions behind it, with their evidence:
 [design/system.md](design/system.md#threads-and-locks).
 
 ## Capturing frames
 
-`CameraManager` configures two streams from the one sensor: `main` at 1280x720
-for the recording and the live view, `lores` at 640x480 (`ANALYSIS_SIZE`) for
-detection, from the full array binned 2x2. One blocking `capture_arrays` call a
-frame returns both, which paces the loop at the sensor's ~30 fps, and the
-consumers, registered with `add_consumer`, run one after another on that thread.
+`CameraManager` configures two streams from the one sensor: `main` for the
+recording and the live view, and the smaller `lores`, `ANALYSIS_SIZE`, for
+detection, both from the whole sensor array. One blocking `capture_arrays` call
+a frame returns both and paces the loop at the sensor's rate. The consumers,
+registered with `add_consumer`, run one after another on that thread.
 
 The 4 decisions behind it, with their evidence:
 [design/capture.md](design/capture.md#capturing-frames).
@@ -184,20 +183,21 @@ CSV: [design/capture.md](design/capture.md#detecting-motion).
 
 ## Recording and shipping a clip
 
-The encoder runs continuously into a five-second ring buffer, and nothing
+The encoder runs all the time into a ring buffer a few seconds long, and nothing
 reaches disk until motion starts. From there a clip's life is a sequence of
 renames, each atomic because it stays within one filesystem, and only a final
-name means complete: that holds on local disk, where the recorder writes, and
+name means complete. That holds on local disk, where the recorder writes, and
 again on the share, where `ClipTransfer` copies to. The facts the raw stream
-cannot carry, when the clip started and ended, where the cat was and why the
-clip closed, travel in a sidecar that is written before the clip takes its final
-name and copied before it.
+cannot carry travel in a sidecar: when the clip started and ended, where the cat
+was and why the clip closed. The sidecar is written before the clip takes its
+final name and copied before it.
 
-`MotionRecorder` diverts the ring with `_ResilientCircularOutput.begin(<.part
-path>)`: from the next frame on, the file starts at the ring's oldest keyframe
-and the ring drains a frame for every frame that arrives, until `stop()` writes
-out what remains. `ClipTransfer`'s scan is stateless: each pass ships whatever
-finished clips it finds, so one stranded by a crash ships on the next.
+`MotionRecorder` diverts the ring with `_ResilientCircularOutput.begin()` on the
+clip's `.part` path. From the next frame on, the file starts at the ring's
+oldest keyframe and the ring drains a frame for every frame that arrives, until
+`stop()` writes out what remains. `ClipTransfer`'s scan is stateless: each pass
+ships whatever finished clips it finds, so one stranded by a crash ships on the
+next.
 
 ```mermaid
 stateDiagram-v2
@@ -233,8 +233,8 @@ The 12 decisions behind it, with their evidence, and an example of a sidecar:
 The detector runs as the `catdetector` systemd unit, built from
 `deploy/catdetector.service.in`. `main.py` builds the pieces in an order that
 lets each fail without taking the rest down, then `monitor()` blocks on the main
-thread watching the age of the last frame. There are three ways out, and they
-differ in the exit code, which is what tells systemd whether to restart.
+thread watching the age of the last frame. There are three ways out, told apart
+by the exit code, which is what tells systemd whether to restart.
 
 ```mermaid
 flowchart TB
@@ -259,14 +259,14 @@ The 9 decisions behind it, with their evidence:
 ## From clips to events
 
 Ingest registers each clip once, from its sidecar, and groups clips into events:
-one visit, one or more clips, chained by `event_grouping`'s rule when a clip
-starts within `EVENT_GAP_SECONDS` of the previous clip's end and within
-`EVENT_BOX_DISTANCE_PX` of where that clip left the cat. Event ids survive a
-rescan but are rebuilt by `regroup`, while clip ids never change. So every fact
-that must outlive a change of thresholds hangs off a clip: a reviewer's split or
-join, a staging, a poop count, a peek, a frame cache entry; and labels, keyed by
-event, are remembered per clip through a regroup and restored where an event's
-clips agree.
+one visit, one or more clips. `event_grouping`'s rule chains a clip to the
+previous one when it starts within `EVENT_GAP_SECONDS` of that clip's end and
+within `EVENT_BOX_DISTANCE_PX` of where it left the cat. Event ids survive a
+rescan but are rebuilt by `regroup`; clip ids never change. So every fact that
+must outlive a change of thresholds hangs off a clip: a reviewer's split or
+join, a staging, a poop count, a peek, a frame cache entry. Labels are keyed by
+event; through a regroup each is remembered per clip, then restored where an
+event's clips agree.
 
 ```mermaid
 erDiagram
@@ -301,20 +301,20 @@ erDiagram
   }
 ```
 
-The bookkeeping columns (`created_at`, `labeled_at`, `staged_at`, `noted_at`,
-`asked_at` and `size_bytes`) are left out of the picture.
+The picture leaves out the bookkeeping columns: `created_at`, `labeled_at`,
+`staged_at`, `noted_at`, `asked_at` and `size_bytes`.
 
 The 15 decisions behind it, with their evidence:
 [design/events.md](design/events.md#from-clips-to-events).
 
 ## Showing a clip
 
-A clip is a raw H.264 stream on a CIFS share, so the page never reads one
+A clip is a raw H.264 stream on a network share, so the page never reads one
 directly. `ClipFrames` decodes it once with ffmpeg, keyframes only, into a strip
-of captioned tiles and the full frames behind them, published into
-`.review_cache` by rename so a half-written entry is never served; Watch remuxes
-it to MP4 the same way. `StripsAhead` does that work before the page asks, at
-low priority, for the next thirty events in the queue.
+of captioned tiles and the full frames behind them. Each is published into
+`.review_cache` by rename, so a half-written entry is never served, and Watch
+remuxes a clip to MP4 the same way. `StripsAhead` does that work before the page
+asks, at low priority, for the events next in the queue.
 
 ```mermaid
 flowchart TB
@@ -336,24 +336,25 @@ The 9 decisions behind it, with their evidence:
 
 ## The review page
 
-One Flask app on one port serves one template (`src/templates/app.html`) with
-three tabs: Live, the MJPEG feed (`/video_feed`) and the recorder's status
-(`/api/status`); Review, the labeler; and Timeline, brushable strips of counts
-by day and hour. The script is ES modules with no build step: one per tab,
-`app.js`, which switches the tabs, and `common.js`. The server owns every rule
-that would otherwise exist twice, such as the timeline's filter; the browser
-owns position, which lives in the address, and the undo history. A change to the
-page is checked by looking at it: `tests/manual/check_page.py` screenshots it at
-a phone's size and a laptop's.
+One Flask app on one port serves one template, `src/templates/app.html`, with
+three tabs. Live shows the MJPEG feed from `/video_feed` and the recorder's
+status from `/api/status`. Review is the labeler. Timeline is brushable strips
+of counts by day and hour. The script is ES modules with no build step: one per
+tab, `app.js`, which switches the tabs, and `common.js`. The server owns every
+rule that would otherwise exist twice, such as the timeline's filter. The
+browser owns position, which lives in the address, and the undo history. A
+change to the page is checked by looking at it: `tests/manual/check_page.py`
+screenshots it at a phone's size and a laptop's.
 
 The 16 decisions behind it, with their evidence:
 [design/review.md](design/review.md#the-review-page).
 
 ## Calibration
 
-A data run ends in `main.py --calibrate`, which reads the run's metrics CSV and
-the review database, proposes the trigger settings and stages for review what it
-cannot decide.
+A data run, a week or two of recording at a low threshold with the metrics on,
+ends in `main.py --calibrate`. It reads the run's metrics CSV and the review
+database, proposes the trigger settings and stages for review what it cannot
+decide.
 
 The 9 decisions behind it, with their evidence:
 [design/calibration.md](design/calibration.md#calibration).
@@ -361,7 +362,7 @@ The 9 decisions behind it, with their evidence:
 ## Glossary
 
 The words this project uses with a meaning of their own. Prose and code spell
-them the American way (labeled, color, gray), as `?filter=labeled` and
+them the American way, labeled, color, gray, as `?filter=labeled` and
 `labeled_at` always have.
 
 **Visits and events**
@@ -397,7 +398,7 @@ them the American way (labeled, color, gray), as `?filter=labeled` and
 
 | term | meaning |
 |---|---|
-| analysis frame | The 640x480 `lores` stream that detection runs on. Recording and the live view use the 1280x720 `main` stream. |
+| analysis frame | The 640x480 `lores` stream, picamera2's name for the small one, that detection runs on. Recording and the live view use the 1280x720 `main` stream. |
 | consumer | A function the capture thread calls with every frame (`add_consumer`): the detector's and the live view's. |
 | background model | MOG2's picture of the empty scene, learned over `MOG2_HISTORY` frames. A cat that sits still fades into it. |
 | foreground | The pixels that differ from the background model, shadows excluded. Their number, the foreground count (`foreground_px`), is what triggers a clip today. |

@@ -27,8 +27,8 @@ flowchart LR
 2. **Clips land on the Pi first** and move to your share a moment later.
    Recording never waits on the network, so a NAS that is slow, asleep or
    unplugged costs you nothing but a delay.
-3. **Label the visit**, name the cat, mark a peek or a litter cleaning, and the
-   timeline shows what happened and when.
+3. **Label the visit**, name the cat, mark a peek, a cat that looked in and
+   left, or a litter cleaning, and the timeline shows what happened and when.
 
 The project errs toward oversensitivity. It would rather record a sunbeam than
 miss a visit because one visit can make a big difference. An extra clip only
@@ -65,10 +65,11 @@ costs the storage and a quick review.
   cameras are planned (roadmap C.1).
 - **Somewhere for the clips** other than the SD card: a mounted share, such as a
   NAS, another computer's share or a USB disk (see [The share](#the-share)).
-- **Storage space.** Footage is about 75 MB a minute (10 Mbit/s), and clips
-  have averaged about 18 MB; [the design
+- **Storage space.** Footage is about 75 MB a minute (10 Mbit/s), and clips have
+  averaged about 18 MB; [the design
   notes](docs/design/system.md#the-local-clip-cache-is-sized-for-a-long-outage-of-the-share)
-  have the sizing.
+  have the sizing. Nothing is deleted yet; retention is on [the
+  roadmap](docs/ROADMAP.md#risks-and-open-questions).
 - **Your time.** Every event needs to be reviewed by your eyes.
 
 Recommended: [pi-tools](https://github.com/Thinmindt/pi-tools), a Claude Code
@@ -139,11 +140,11 @@ when the Pi goes quiet.
    sudo systemctl stop catdetector      # free the camera, which takes one process at a time
    ```
 
-   The script builds the unit for this checkout, run as the checkout's owner
-   and started once the share is mounted. The service also restarts itself when
-   the camera stops delivering frames. Settings for one run, such as a data
-   run's threshold, go in a drop-in, systemd's file of local additions to a
-   unit, where they survive a re-run of the script:
+   The script builds the unit for this checkout, run as the checkout's owner and
+   started once the share is mounted. The service also restarts itself when the
+   camera stops delivering frames. Settings for one run, such as the threshold
+   of a [data run](#calibrating-an-installation), go in a drop-in, systemd's
+   file of local additions to a unit, where they survive a re-run of the script:
 
    ```
    sudo systemctl edit catdetector      # add Environment= lines under [Service]
@@ -154,8 +155,8 @@ when the Pi goes quiet.
 The **Review** tab shows one visit at a time as a grid of stills, enough to tell
 at a glance which cat it was. Press that cat's key, or tap their name on your
 phone, and the next one appears. The page calls each of these an **event**,
-since not everything that moves is a cat; [the glossary](docs/DESIGN.md#glossary)
-has the project's other words.
+since not everything that moves is a cat; [the
+glossary](docs/DESIGN.md#glossary) has the project's other words.
 
 | key | button | records |
 |---|---|---|
@@ -170,13 +171,13 @@ has the project's other words.
 | `→` | next | skips, while walking a filter |
 | `Esc` | close | closes the "more" sheet |
 
-The share is read when the detector starts and when you ask, so a page left
-open shows nothing new until you **rescan clip directory**, under "more", or
-restart (roadmap B.3 makes this automatic). Click a tile for the full frame, or
+The share is read when the detector starts and when you ask, so a page left open
+shows nothing new until you **rescan clip directory**, under "more", or restart
+(roadmap B.3 makes this automatic). Click a tile for the full frame, or
 **watch** to play the clip. A visit the detector split in two is rejoined with
 **same visit as the next event**, under "more"; two it ran together are parted
-with **a new visit starts here**. Both survive `--regroup`, which rebuilds the
-events (below).
+with **a new visit starts here**. A join and a split both survive `--regroup`,
+the rebuild of every event described below.
 
 **What it shows.** By default the Review tab walks the **review queue**: every
 visit not yet labeled, and every labeled one sent back for a second look, with
@@ -190,17 +191,18 @@ each box, palm to the camera, one finger per poop, a fist for none. Hold it a
 few seconds so the stills catch it. Later, label that event a cleaning (`l`) and
 type the counts in.
 
-The **Timeline** tab lists the events that match, newest first, with their
-time, label, box, length and clip count. Label chips choose which labels show,
-so one cat's rows are that cat's visit log. Drag across the day strip or the
-hour strip to take a slice of time, and "outside the range" turns a daytime
-slice into the night; "labeled before" picks out old labels. Any row, or everything the filter matches, can be sent
-back to the review queue with a reason. The filter is kept in the address.
+The **Timeline** tab lists the events that match, newest first, with their time,
+label, box, length and clip count. Label chips choose which labels show, so one
+cat's rows are that cat's visit log. Drag across the day strip or the hour strip
+to take a slice of time, and "outside the range" turns a daytime slice into the
+night; "labeled before" picks out old labels. Any row, or everything the filter
+matches, can be sent back to the review queue with a reason. The filter is kept
+in the address.
 
 From the command line, beside the running service, `--stage` sends labeled
-events back to the review queue with a reason, keeping their labels; here,
-every `not_cat` labeled before 20 September. `--source` says who asked: `human`
-by default, or `agent` or `model`.
+events back to the review queue with a reason, keeping their labels; here, every
+`not_cat` labeled before 20 September. `--source` says who asked: `human` by
+default, or `agent` or `model`.
 
 ```
 uv run python main.py --stage --label not_cat --labeled-before 2026-09-20 --reason "recheck"
@@ -215,8 +217,8 @@ follow their clips.
 The default thresholds come from one installation. Another camera height, lens,
 framing or set of cats needs its own numbers, and they come from a **data run**:
 a week or two of recording everything, labeled by hand. Until then the default
-is a starting point, not a promise: a cat that reads weaker than the one it came
-from may not reach it.
+is a starting point, not a promise: a cat that shows up fainter than the cats it
+was tuned on may never reach it.
 
 1. **Start the data run.** Settle the framing, the lighting and the camera mode
    first: changing one afterwards means starting the run again. Then, in the
@@ -302,7 +304,11 @@ page's tiles are slow to build. A plain local directory is refused for now
 Mount a share from `/etc/fstab` with the `soft` option written out. On a `hard`
 mount an unreachable server blocks writes forever instead of failing. `soft` is
 the CIFS default, so it is easy to lose without noticing, and NFS mounts `hard`
-unless told otherwise.
+unless told otherwise. A CIFS line, with the login in a file only root can read:
+
+```
+//server/share  /mnt/nas  cifs  credentials=/root/.smbcredentials,soft,_netdev,uid=you,gid=you  0  0
+```
 
 ### The capture heartbeat
 
@@ -323,8 +329,8 @@ The URL is a secret, since anyone who has it can keep your check quiet. Keep it
 in `.env` and out of every tracked file; `scripts/check_private.sh`, one of the
 gates `scripts/check.sh` runs, fails on a commit that contains it. A URL that is
 not `http://` or `https://`, has no host, or contains a space turns the
-heartbeat off with a warning. So does a recorder that failed to start, since
-frames would then arrive with nothing recorded.
+heartbeat off with a warning. A recorder that failed to start turns it off too,
+since frames would then arrive with nothing recorded.
 
 ## Security
 
