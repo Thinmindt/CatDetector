@@ -55,27 +55,6 @@ FIGURES = [
         "README.md",
         f"about {MB_A_MINUTE:g} MB a minute ({H264_BITRATE / 1e6:g} Mbit/s)",
     ),
-    ("README.md", f"camera stops delivering frames for {s(CAPTURE_STALL_SECONDS)}"),
-    (
-        "README.md",
-        (
-            f"{VISITS_NEEDED} visits ({VISITS_PREFERRED} is better), "
-            f"{NIGHT_VISITS_NEEDED} of them at night "
-            f"({NIGHT_FROM_HOUR:02}:00\u2013{NIGHT_UNTIL_HOUR:02}:00), "
-            f"and {VISITS_PER_CAT_NEEDED} per cat"
-        ),
-    ),
-    ("README.md", f"a cat staying {s(BOX_DWELL_SECONDS)} in that box's third"),
-    (
-        "README.md",
-        f"still records {COVERAGE_KEPT:.0%} of the median visit".replace("%", " %"),
-    ),
-    (
-        "README.md",
-        f"under {COVERAGE_POOR:.0%} of a few more visits than the run did, "
-        f"at most {POORLY_RECORDED_EXTRA:.0%} of them".replace("%", " %"),
-    ),
-    ("README.md", f"it shows the newest {TIMELINE_ROWS_SENT} and counts them all"),
     ("docs/DESIGN.md", f"capture_arrays(main, lores), ~{CAMERA_FPS} fps"),
     ("docs/DESIGN.md", f"ClipTransfer, every {s(SCAN_INTERVAL_SECONDS)}"),
     ("docs/DESIGN.md", f"every {s(SCAN_INTERVAL_SECONDS)}, copy finished clips"),
@@ -98,6 +77,28 @@ FIGURES = [
         "docs/design/calibration.md",
         f"from {NIGHT_FROM_HOUR:02}:00 to {NIGHT_UNTIL_HOUR:02}:00",
     ),
+    (
+        "docs/ROADMAP.md",
+        f"**{VISITS_NEEDED}+ labeled visits, {VISITS_PREFERRED} preferred**",
+    ),
+    ("docs/ROADMAP.md", f"**{NIGHT_VISITS_NEEDED}+ at night under the light**"),
+    ("docs/ROADMAP.md", f"**{VISITS_PER_CAT_NEEDED}+ per cat**"),
+    (
+        "docs/design/calibration.md",
+        f"A box is used in a visit with a stay of {s(BOX_DWELL_SECONDS)}",
+    ),
+    (
+        "docs/design/calibration.md",
+        f"records {COVERAGE_KEPT:.0%} of the median visit".replace("%", " %"),
+    ),
+    (
+        "docs/design/calibration.md",
+        (
+            f"no more than {POORLY_RECORDED_EXTRA:.0%} of the visits more under "
+            f"{COVERAGE_POOR:.0%}"
+        ).replace("%", " %"),
+    ),
+    ("docs/design/review.md", f"carries the first {TIMELINE_ROWS_SENT} rows"),
     ("CLAUDE.md", f"**~{CAMERA_FPS} fps**"),
     ("CLAUDE.md", f"one that blocks for {s(CAPTURE_STALL_SECONDS)}"),
     ("CLAUDE.md", f"arms an `os._exit` after {s(STALL_EXIT_DEADLINE_SECONDS)}"),

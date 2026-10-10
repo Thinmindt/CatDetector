@@ -24,8 +24,9 @@ flowchart LR
 1. **The Pi watches** the boxes through a fixed overhead camera and keeps the
    last few seconds in memory. When something moves, it starts a recording clip.
    A clip closes after motion is no longer detected.
-2. **Clips go to local disk first**, then, within a minute, to a share: a NAS or
-   another disk (see [What you need](#what-you-need)).
+2. **Clips land on the Pi first** and move to your share a moment later.
+   Recording never waits on the network, so a NAS that is slow, asleep or
+   unplugged costs you nothing but a delay.
 3. **Label the visit**, name the cat, mark a peek or a litter cleaning, and the
    timeline shows what happened and when.
 
@@ -57,14 +58,17 @@ costs the storage and a quick review.
 - **Up to three boxes, side by side across the picture.** Until boxes become a
   setting (roadmap C.3), the review page numbers them by the third of the
   picture they sit in, 1 to 3 from the left.
-- **The boxes lit around the clock.** The motion detection is most reliable with
-  consistent light.
-- **Supported hardware.** Today that is one combination: a Raspberry Pi 5 with the IR-filtered
-  Camera Module 3, on Raspberry Pi OS trixie. Other Pis and cameras are planned (roadmap C.1).
-- **Somewhere for the clips** other than the SD card: a mounted share, such as a NAS, another
-  computer's share or a USB disk (see [The share](#the-share)).
-- **Storage space.** Footage is about 75 MB a minute (10 Mbit/s), and clips have averaged about
-  18 MB; [the design notes](docs/design/system.md#the-local-clip-cache-is-sized-for-a-long-outage-of-the-share) have the sizing. 
+- **Well lit boxes.** The motion detection is most reliable with consistent
+  lighting.
+- **Supported hardware.** Today that is one combination: a Raspberry Pi 5 with
+  the IR-filtered Camera Module 3, on Raspberry Pi OS trixie. Other Pis and
+  cameras are planned (roadmap C.1).
+- **Somewhere for the clips** other than the SD card: a mounted share, such as a
+  NAS, another computer's share or a USB disk (see [The share](#the-share)).
+- **Storage space.** Footage is about 75 MB a minute (10 Mbit/s), and clips
+  have averaged about 18 MB; [the design
+  notes](docs/design/system.md#the-local-clip-cache-is-sized-for-a-long-outage-of-the-share)
+  have the sizing.
 - **Your time.** Every event needs to be reviewed by your eyes.
 
 Recommended: [pi-tools](https://github.com/Thinmindt/pi-tools), a Claude Code
@@ -75,8 +79,7 @@ when the Pi goes quiet.
 ## Install
 
 1. **System packages.** `picamera2` and its `libcamera` bindings come from apt,
-   not PyPI. They are built for the system's Python, so the OS sets the Python
-   version: 3.13 on trixie.
+   not PyPI, so the OS chooses the Python version: 3.13 on trixie.
 
    ```
    sudo apt update
@@ -93,7 +96,8 @@ when the Pi goes quiet.
    ```
 
 3. **The Python environment**, with [uv](https://docs.astral.sh/uv/). The venv
-   must see the apt-installed packages, so `--system-site-packages` is required:
+   must see the apt-installed packages, which is what `--system-site-packages`
+   arranges:
 
    ```
    curl -LsSf https://astral.sh/uv/install.sh | sh
@@ -102,12 +106,12 @@ when the Pi goes quiet.
    uv sync
    ```
 
-   > **Never delete `.venv` and run a bare `uv sync`.** uv recreates it
+   > **Never delete `.venv` and run a bare `uv sync`.** uv recreates the venv
    > *without* system site packages, and `import picamera2` fails. Re-run both
-   > lines above to recover. Do the same after an OS upgrade: the old venv's own
-   > packages vanish from `sys.path` without an error.
+   > lines above to recover, and after an OS upgrade, which empties the old venv
+   > just as quietly.
 
-4. **Settings.** Create `.env` in the checkout (it is gitignored). Most
+4. **Settings.** Create `.env` in the checkout; it is gitignored. Most
    installations need two lines:
 
    ```
@@ -124,8 +128,8 @@ when the Pi goes quiet.
    uv run python main.py                        # the detector; open http://<the Pi's address>:5000
    ```
 
-   The page has three tabs: **Live** (the camera, and whether it is recording),
-   **Review** and **Timeline**.
+   The page has three tabs: **Live**, the camera and whether it is recording;
+   **Review**; and **Timeline**.
 
 6. **Run it as a service**, so it starts at boot and comes back after a crash:
 
@@ -135,12 +139,11 @@ when the Pi goes quiet.
    sudo systemctl stop catdetector      # free the camera, which takes one process at a time
    ```
 
-   The script builds the unit for this checkout, run as the checkout's owner and
-   started after the share's mount, and stops a copy started by hand. The
-   service also restarts itself when the camera stops delivering frames for 10
-   s. Settings for one run, such as a data run's threshold, go in a drop-in,
-   systemd's file of local additions to a unit, so that re-running the script
-   keeps them:
+   The script builds the unit for this checkout, run as the checkout's owner
+   and started once the share is mounted. The service also restarts itself when
+   the camera stops delivering frames. Settings for one run, such as a data
+   run's threshold, go in a drop-in, systemd's file of local additions to a
+   unit, where they survive a re-run of the script:
 
    ```
    sudo systemctl edit catdetector      # add Environment= lines under [Service]
@@ -148,12 +151,11 @@ when the Pi goes quiet.
 
 ## Labeling visits
 
-The **Review** tab shows one visit at a time: every clip of it, each as a grid
-of tiles one second apart (sparser for long clips), with the offset into the
-clip on each tile. Press a key, or tap a button on a phone, and the next visit
-appears. The page and the commands call each one an **event**: the clips of one
-visit, or of whatever else moved ([the glossary](docs/DESIGN.md#glossary) has
-the project's words).
+The **Review** tab shows one visit at a time as a grid of stills, enough to tell
+at a glance which cat it was. Press that cat's key, or tap their name on your
+phone, and the next one appears. The page calls each of these an **event**,
+since not everything that moves is a cat; [the glossary](docs/DESIGN.md#glossary)
+has the project's other words.
 
 | key | button | records |
 |---|---|---|
@@ -168,12 +170,13 @@ the project's words).
 | `→` | next | skips, while walking a filter |
 | `Esc` | close | closes the "more" sheet |
 
-New clips appear after a **rescan clip directory**, under "more", or a restart:
-the share is read when the detector starts and when you ask, so a page left open
-shows nothing new until you rescan (roadmap B.3 makes this automatic). Click a
-tile for the full frame, or **watch** to play the clip. Between two clips, **a
-new visit starts here** splits a visit; **same visit as the next event**, under
-"more", joins two. Both survive `--regroup`, which rebuilds the events (below).
+The share is read when the detector starts and when you ask, so a page left
+open shows nothing new until you **rescan clip directory**, under "more", or
+restart (roadmap B.3 makes this automatic). Click a tile for the full frame, or
+**watch** to play the clip. A visit the detector split in two is rejoined with
+**same visit as the next event**, under "more"; two it ran together are parted
+with **a new visit starts here**. Both survive `--regroup`, which rebuilds the
+events (below).
 
 **What it shows.** By default the Review tab walks the **review queue**: every
 visit not yet labeled, and every labeled one sent back for a second look, with
@@ -182,30 +185,22 @@ the reason beside it. A filter in the address walks another set:
 for everything labeled, `?filter=<label>` for one label. The address names the
 visit, so a reload, Back or a shared link returns to it.
 
-**Cleanings.** When you scoop the boxes, put the number of poops you found into
-the footage with a hand signal, so it is recorded at the moment it was true. For
-each box just cleaned:
+**Cleanings.** When you scoop, tell the camera what you found: hold a hand over
+each box, palm to the camera, one finger per poop, a fist for none. Hold it a
+few seconds so the stills catch it. Later, label that event a cleaning (`l`) and
+type the counts in.
 
-- hold a hand over that box, palm to the camera, a finger per poop;
-- a closed fist means none, so a missing signal can only mean "forgot";
-- hold it about three seconds, while the scooping is still being recorded (the
-  tiles are a second apart);
-- for more than five, use both hands, or signal twice.
-
-The reviewer labels that event a cleaning (`l`) and types the counts in.
-
-The **Timeline** tab lists the events that match, newest first, with their time,
-label, box, length and clip count; it shows the newest 500 and counts them all.
-Label chips choose which labels show, so one cat's rows are that cat's visit
-log. Drag across the day strip or the hour strip to take a slice of time
-("outside the range" turns 06:00–22:00 into the night), and "labeled before"
-picks out old labels. Any row, or everything the filter matches, can be sent
+The **Timeline** tab lists the events that match, newest first, with their
+time, label, box, length and clip count. Label chips choose which labels show,
+so one cat's rows are that cat's visit log. Drag across the day strip or the
+hour strip to take a slice of time, and "outside the range" turns a daytime
+slice into the night; "labeled before" picks out old labels. Any row, or everything the filter matches, can be sent
 back to the review queue with a reason. The filter is kept in the address.
 
 From the command line, beside the running service, `--stage` sends labeled
-events back to the review queue with a reason, keeping their labels; here, every
-`not_cat` labeled before 20 September. `--source` says who asked: `human` by
-default, or `agent` or `model`.
+events back to the review queue with a reason, keeping their labels; here,
+every `not_cat` labeled before 20 September. `--source` says who asked: `human`
+by default, or `agent` or `model`.
 
 ```
 uv run python main.py --stage --label not_cat --labeled-before 2026-09-20 --reason "recheck"
@@ -220,8 +215,8 @@ follow their clips.
 The default thresholds come from one installation. Another camera height, lens,
 framing or set of cats needs its own numbers, and they come from a **data run**:
 a week or two of recording everything, labeled by hand. Until then the default
-of 300 is a starting point, not a promise: a cat that reads weaker than the one
-it came from may not reach it.
+is a starting point, not a promise: a cat that reads weaker than the one it came
+from may not reach it.
 
 1. **Start the data run.** Settle the framing, the lighting and the camera mode
    first: changing one afterwards means starting the run again. Then, in the
@@ -248,21 +243,17 @@ it came from may not reach it.
    ```
 
    It reads the run's settings from the service's drop-in and says where they
-   came from (`--metrics PATH` names another CSV). A couple of weeks of CSV
-   takes several minutes. It reports what the run still needs:
+   came from; `--metrics PATH` names another CSV. A couple of weeks of CSV takes
+   several minutes. It reports what the run still needs: enough visits, some of
+   them at night and some from each cat; every box used; and the weakest visit
+   settled, so the run has seen how faint a cat can read. With fewer than three
+   boxes, name the thirds that hold one: `--boxes 1,3`. The roadmap's
+   [A.2](docs/ROADMAP.md#a2-measure-before-tuning) gives the targets and the
+   reasons for them. Varied weather, including an overcast day, is yours to
+   judge; it matters less when the boxes' own light swamps the daylight.
 
-   - 50 visits (100 is better), 10 of them at night (20:00–06:00), and 15 per
-     cat;
-   - every box used: a cat staying 10 s in that box's third of the picture (with
-     fewer than three boxes, name the thirds that hold one: `--boxes 1,3`);
-   - the weakest visit settled: none of the last 20 weaker than the weakest
-     before them (a visit's strength is the largest blob it made; see the
-     [glossary](docs/DESIGN.md#glossary)).
-
-   Varied weather, including an overcast day, is yours to judge; it matters less
-   when the boxes' own light swamps the daylight. It also sends events that need
-   a second look to the review queue, each with its question, and asks each
-   question only once:
+   It also sends events that need a second look to the review queue, each with
+   its question, and asks each question only once:
 
    - the same cat seconds apart: one visit split in two?
    - the weakest visits: a peek?
@@ -274,10 +265,9 @@ it came from may not reach it.
    clips an hour it would start with no cat in them, and how much of each visit
    it would record. It can judge only the visits the run recorded, which is why
    the run's threshold is low. It proposes the highest threshold that misses no
-   visit and still records 98 % of the median visit. It may record under 80 % of
-   a few more visits than the run did, at most 5 % of them. The proposal is
-   marked provisional while any of its questions waits in the queue. Put it in
-   the drop-in, remove `METRICS_CSV`, and restart the service.
+   visit and still records nearly all of a typical one, marked provisional while
+   any of its questions waits in the queue. Put it in the drop-in, remove
+   `METRICS_CSV`, and restart the service.
 
 ## Settings
 
