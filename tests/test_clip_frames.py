@@ -19,8 +19,8 @@ from src.review.clip_frames import (
 )
 
 
-def tile_greys(strip: Path) -> list[int]:
-    """The mean grey of each tile's top half, left to right, clear of the caption."""
+def tile_grays(strip: Path) -> list[int]:
+    """The mean gray of each tile's top half, left to right, clear of the caption."""
     image = cv2.imread(str(strip))
     assert image is not None
     assert image.shape[1] % THUMB_WIDTH == 0
@@ -31,7 +31,7 @@ def tile_greys(strip: Path) -> list[int]:
     ]
 
 
-def frame_grey(frame: Path | None) -> float:
+def frame_gray(frame: Path | None) -> float:
     assert frame is not None
     image = cv2.imread(str(frame))
     assert image is not None
@@ -62,10 +62,10 @@ def test_strip_spans_the_whole_clip_one_tile_a_second(
     strip = frames.strip(1, long_clip)
 
     assert strip is not None
-    greys = tile_greys(strip)
-    assert len(greys) == 12
-    # Tile k is frame 30k, drawn at grey 15k; the codec shifts it a little.
-    assert greys == pytest.approx([15 * k for k in range(12)], abs=3)
+    grays = tile_grays(strip)
+    assert len(grays) == 12
+    # Tile k is frame 30k, drawn at gray 15k; the codec shifts it a little.
+    assert grays == pytest.approx([15 * k for k in range(12)], abs=3)
 
 
 def test_long_clips_get_sparser_tiles(
@@ -77,7 +77,7 @@ def test_long_clips_get_sparser_tiles(
     strip = frames.strip(1, long_clip)
 
     assert strip is not None
-    assert tile_greys(strip) == pytest.approx([0, 60, 120], abs=3)  # 0, 4, 8 s
+    assert tile_grays(strip) == pytest.approx([0, 60, 120], abs=3)  # 0, 4, 8 s
 
 
 def test_tiles_are_captioned_with_their_offset(
@@ -90,10 +90,10 @@ def test_tiles_are_captioned_with_their_offset(
     assert strip is not None
     image = cv2.imread(str(strip))
     assert image is not None
-    # The second tile is a flat grey except for its "0:01" caption. Grey first:
+    # The second tile is a flat gray except for its "0:01" caption. Gray first:
     # a decoder may give a flat frame three slightly different channels.
-    grey = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-    second = grey[:, THUMB_WIDTH : 2 * THUMB_WIDTH]
+    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    second = gray[:, THUMB_WIDTH : 2 * THUMB_WIDTH]
     assert second[: second.shape[0] // 2].std() < 1
     assert second[second.shape[0] // 2 :].std() > 5
 
@@ -110,7 +110,7 @@ def test_full_frames_behind_the_tiles_are_kept(tmp_path: Path, long_clip: Path) 
 
     frame = frames.frame(1, long_clip, slot=2)
 
-    assert frame_grey(frame) == pytest.approx(30, abs=3)  # frame 60, 2 s in
+    assert frame_gray(frame) == pytest.approx(30, abs=3)  # frame 60, 2 s in
     assert frame is not None and frame.stat().st_size > 0
     assert frames.frame(1, long_clip, slot=12) is None  # past the end
     assert frames.frame(1, long_clip, slot=-1) is None
@@ -124,7 +124,7 @@ def test_full_frame_follows_the_strip_stride(
 
     frame = frames.frame(1, long_clip, slot=2)
 
-    assert frame_grey(frame) == pytest.approx(120, abs=3)  # frame 240, 8 s in
+    assert frame_gray(frame) == pytest.approx(120, abs=3)  # frame 240, 8 s in
     assert frames.frame(1, long_clip, slot=3) is None
 
 

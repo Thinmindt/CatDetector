@@ -51,7 +51,7 @@ def two_fragments() -> Any:
 
 
 def test_mog2_marks_shadows_with_a_distinct_value() -> None:
-    """Documents the behaviour the fix depends on, against real MOG2."""
+    """Documents the behavior the fix depends on, against real MOG2."""
     subtractor = cv2.createBackgroundSubtractorMOG2()
     background = np.full(SMALL_SIZE, 200, dtype=np.uint8)
     for _ in range(60):

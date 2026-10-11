@@ -1,7 +1,7 @@
 # Python Style Guide
 
 Conventions for writing and reviewing Python in this project. Ruff and mypy enforce the
-mechanical parts; this document covers the judgement they cannot.
+mechanical parts; this document covers the judgment they cannot.
 
 The guiding idea: **the code should say what it does, and comments should say what the code
 cannot.** Most style debates resolve once you ask which of those two a line is doing.
@@ -40,12 +40,12 @@ find yourself writing `# --- validation ---`, that block is a function.
 
 ## Comments
 
-Comments describe **current behaviour**, not the reasoning that produced it. Keep them short.
+Comments describe **current behavior**, not the reasoning that produced it. Keep them short.
 Assume the reader is busy, competent, and already looking at the code.
 
 Write one when the code cannot state the fact itself:
 
-- surprising behaviour of a third-party call
+- surprising behavior of a third-party call
 - a constraint the code must respect
 - a non-obvious consequence a caller needs to know
 
@@ -201,7 +201,7 @@ need to catch that specific failure, not merely to satisfy a linter.
 
 ## Tests
 
-**Assert something that would fail if the behaviour were deleted.** A test asserting only that a
+**Assert something that would fail if the behavior were deleted.** A test asserting only that a
 call did not raise usually passes forever, including after the feature is removed. Check the
 output, the state, or the side effect.
 
@@ -214,7 +214,7 @@ test that fails when it breaks, the code drifts from it unnoticed. Write the tes
 the sentence, and cover every case the sentence names, not only the one in front of you: a README
 that lists three URL formats has promised all three.
 
-**Fakes honour the real contract.** When production code starts calling a new method, the fake
+**Fakes honor the real contract.** When production code starts calling a new method, the fake
 grows it too. A fake that has silently diverged tests a shape that does not exist — and the
 symptom is often an exception inside a worker thread rather than a clean failure.
 
@@ -238,7 +238,7 @@ request context and take what you need from the generator directly.
 a desk size, read the screenshots, and only then call the change done.
 
 **Prove a comment-only change with the AST.** Parse each file before and after, strip the
-docstrings, and compare `ast.dump`. Equal dumps mean no behaviour changed.
+docstrings, and compare `ast.dump`. Equal dumps mean no behavior changed.
 
 ## Tooling
 
@@ -261,7 +261,7 @@ must be extracted rather than absorbed. Raise it deliberately, never to silence 
 
 **Exempt tests where the rule does not fit.** In test code the literals often *are* the expected
 values, `assert` is the mechanism, and fixtures are unused by design. Exempting those is honest;
-it is not licence to leave every literal bare, because a number that is a *threshold* rather than
+it is not license to leave every literal bare, because a number that is a *threshold* rather than
 an expected value still wants a name.
 
 **Every `noqa` carries its reason.** A bare code records only that someone silenced it.

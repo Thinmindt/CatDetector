@@ -327,11 +327,11 @@ def test_a_regroup_refused_exits_non_zero_and_says_why(
     [
         ["--label", "not_cat", "--reason", "x"],
         ["--labeled-before", "2026-09-20"],
-        ["--stage", "--reason", "every labelled event"],
+        ["--stage", "--reason", "every labeled event"],
     ],
 )
 def test_staging_options_need_stage_and_stage_needs_a_filter(argv: list[str]) -> None:
     """Without --stage the options were ignored and the detector started; with
-    no filter, --stage staged every labelled event."""
+    no filter, --stage staged every labeled event."""
     with pytest.raises(SystemExit):
         main.parse_args(argv)

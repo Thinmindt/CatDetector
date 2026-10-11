@@ -55,8 +55,8 @@ class RecordingFrames(ClipFrames):
 
 @pytest.fixture
 def queue(db: Any, tmp_path: Path) -> list[Any]:
-    """Four visits, the first of two clips; the second labelled, the third
-    labelled and staged. Returns the events in time order."""
+    """Four visits, the first of two clips; the second labeled, the third
+    labeled and staged. Returns the events in time order."""
     directory = tmp_path / "captures"
     for start, *offsets in ((0, 40), (500,), (1000,), (1500,)):
         visit(directory, start, *offsets)
@@ -74,7 +74,7 @@ def clip_ids(*events: Any) -> list[int]:
     return [clip.id for event in events for clip in event.clips]
 
 
-def test_builds_the_queue_in_order_skipping_labelled_and_built_clips(
+def test_builds_the_queue_in_order_skipping_labeled_and_built_clips(
     db: Any, tmp_path: Path, queue: list[Any]
 ) -> None:
     frames = RecordingFrames(tmp_path / "cache", db)

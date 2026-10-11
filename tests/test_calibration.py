@@ -492,8 +492,8 @@ def test_the_proposal_needs_coverage_for_most_visits_and_says_when_none_does() -
 def test_several_short_passes_through_a_box_are_not_a_stay() -> None:
     passes = Peaks()
     for _ in range(3):  # 4 s in box 3, then 4 s in box 1, three times
-        for centre in (BOX_X[2],) * 4 * FPS + (BOX_X[0],) * 4 * FPS:
-            passes.add(1000, 600, centre)
+        for center in (BOX_X[2],) * 4 * FPS + (BOX_X[0],) * 4 * FPS:
+            passes.add(1000, 600, center)
     assert stayed_in(passes, 300) == {}
 
     sitting = Peaks()
@@ -571,7 +571,7 @@ def test_calibrate_reports_and_stages_each_doubt_once(
     assert "Environment=MOTION_THRESHOLD=500" in second
 
 
-def test_ask_skips_unlabelled_and_staged_events_and_asks_once(
+def test_ask_skips_unlabeled_and_staged_events_and_asks_once(
     db: CaptureDB, tmp_path: Path
 ) -> None:
     directory = tmp_path / "captures"
