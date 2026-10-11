@@ -1,6 +1,6 @@
 # Roadmap: cat detection and identification
 
-Current as of 2026-09-27. This file holds the plan as it stands: what is decided, what is next,
+Current as of 2026-09-28. This file holds the plan as it stands: what is decided, what is next,
 and what is still open. Finished items and the history behind decisions move to
 `ROADMAP_ARCHIVE.md`, under the same section letters, so a citation such as "A.2" finds the plan
 here and its history there.
@@ -268,29 +268,29 @@ Next:
 
 Non-goals for v1: multi-user, accounts, editing bounding boxes by hand.
 
-## B.4 Notifications
+## B.4 Alerts
 
-Purpose is to close the loop: a capture happens, you get a push, one tap lands on the
-labeling page for that event. Labeling that rides on notifications actually gets done.
+Only a change in a cat's habits reaches the owner: visits per day, or time in the box, moving out of
+that cat's usual range, including a cat that stops visiting. There is no push per visit. Visits are
+labelled in sittings, not as they happen, so a push per visit would be noise (archive, B.4).
 
-**ntfy** is the recommended transport — a single HTTP POST, no account, free app, and
-self-hostable later if you want nothing leaving the LAN. Alternatives: Pushover (paid, polished),
-Telegram bot, SMTP, Home Assistant webhook.
+The rule runs on a schedule over `captures.db`, off the capture path. A gap in the record (the
+service down, the Pi off, the light out) looks exactly like a cat visiting less, so the rule must
+count only the hours the camera was recording and say how many it had. Only the optional metrics
+CSV records those hours today, so the detector must keep its own record of them. The transport is optional, as the capture
+heartbeat is: the project runs without it and names no service. **ntfy** suits it, one HTTP POST
+with no account; Pushover, a Telegram bot, SMTP or a Home Assistant webhook would do as well.
 
-**Send from a worker thread, never from the capture thread.** Every frame consumer runs
-synchronously on `CameraManager`'s capture loop, so a blocking HTTP call to a network service
-would stall frame distribution for every consumer. Queue and fire elsewhere.
-
-One push per visit, not per clip or per frame. A visit is an event, and an event is only closed
-`EVENT_GAP_SECONDS` after its last clip, so the push waits that long. A digest option for quiet
-review can come later.
-
-- [ ] **One push per visit, with a thumbnail and a deep link** to the event's review page (the
-      URL route in B.3).
-      **Done means** a visit sends one push to a configurable ntfy topic within a minute of its
-      event closing, with a thumbnail and a link that opens that event's review page; a test with
-      a send that hangs leaves the frame loop at full rate; a burst of clips from one visit sends
-      one push; and the README says how to subscribe.
+- [ ] **Alert on a change in a cat's habits.** Litter box usage is the health signal, and catching
+      bowel or urinary trouble is the goal. A stated rule, for example a cat's visits per day or
+      median visit length outside its trailing four-week range two days running, with each day
+      scaled by the hours recorded. The alert names the cat and the change and links to the
+      timeline filtered to that cat (B.6).
+      **Done means** the detector records the hours it received frames in `captures.db`, with or
+      without `METRICS_CSV`; the rule runs daily over `captures.db`; a test over a seeded history fires on
+      an injected rise, an injected drop and a cat that stops visiting, and not on normal variation
+      or on a day the camera was down; a firing reaches a configured URL; and with no URL set,
+      nothing is sent and nothing fails.
 
 ## B.5 Train the classifier
 
@@ -365,24 +365,38 @@ the urinary side of the goal rests on visit frequency and duration per cat (B.6)
       with a stage button, and "stage everything shown, with this reason" for the set. The first
       use is the 110 `not_cat` labels made before 2026-09-20, which cover those made before the
       whole-clip tiles.
-      **Done means** the page lists every event newest first with those columns, each filter
-      returns exactly the events a query on `label` returns (a test per filter), rows link to the
-      event's review URL (B.3), the stage actions write staging rows, and `check_page.py`
-      screenshots the timeline at both sizes.
-- [ ] Litter box usage is a health signal, and catching bowel or urinary trouble is the goal.
-      Alert on changes in how often a cat visits and how long it stays.
-      That should shape what gets logged from the start (duration in box, time of day), because
-      those are cheap now and unrecoverable later.
-      **Done means** a stated rule (for example, a cat's visits per day or median duration outside
-      its trailing four-week range two days running) runs daily over `captures.db`, a test over a
-      seeded history fires on an injected change and not on normal variation, and a firing reaches
-      the owner through B.4's transport.
+      *The page:* a third tab, `/timeline`. Above the list, the filter:
+      - a **date strip**, a bar per day of the events the other filters let through, coloured by
+        label, with a brush (two handles, and the span between them dragged to move it) that
+        selects a date range;
+      - an **hour-of-day strip**, 24 bars with a brush of its own; a range may wrap midnight
+        (22:00 to 06:00);
+      - **label chips**, one per label value, toggled on and off;
+      - an optional **labelled-before** date.
+      Filtering happens once, on the server: `GET /api/timeline` takes the filter as parameters
+      and returns the rows, plus each strip's counts under every filter but its own, so a strip
+      shows what its brush can select. The page asks when a handle is released and highlights
+      the bars under a moving one meanwhile. The filter lives in the address, as the review
+      walk does. The box is the third of the frame holding the first clip's trigger, as A.2
+      counts it (C.3 makes boxes configuration). "Stage everything shown" sends the ids on
+      screen to `POST /api/review/stage`, so exactly what was seen is staged.
+      *Built with:* the page script split into modules the browser loads with no build step,
+      one per tab and one shared; d3 for the brush, scales and axes, pinned in `package.json`
+      and committed as one file under `src/static/vendor/`, with a gate that fails if that file
+      differs from the pinned package. The same branch shows readable times on the review page
+      and adds "back for review" with a reason to its sheet.
+      **Done means** the page lists every event newest first with those columns; the API returns
+      exactly the events a query on the database returns for each filter and for combinations,
+      including an hour range across midnight (a test each); each strip's counts leave out its
+      own filter (a test); rows link to the event's review URL (B.3); both stage actions write
+      staging rows (a test); a reload keeps the filter; `check_page.py` screenshots the timeline
+      at both sizes with a range brushed; and the owner drags a brush by touch on the phone.
 - [ ] Human-in-the-loop: the model labels, low-confidence events are staged into the review
-      queue (B.3) with `source=model`, corrections feed the next training round. Pushes then say
-      *"Cat A used the litter box"* and only ask for a label when the model is unsure (B.4).
+      queue (B.3) with `source=model`, corrections feed the next training round.
       **Done means** the model's predictions are stored beside the human labels (B.2's key),
       predictions below a confidence threshold are staged with `source=model`, a confident one
-      sends a push naming the cat, and a human correction is in the next training set's export.
+      labels its event with no human step, and a human correction is in the next training set's
+      export.
 
 ---
 

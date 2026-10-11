@@ -119,10 +119,18 @@ filter. The address names the event and the walk (`/review/<event>?filter=multi`
 Back or a shared link returns to the same event. `main.py` serves it beside the live feed, so it is available whenever the detector is
 running.
 
+The Timeline tab (`/timeline`) lists every event newest first, with its time, label, box, length
+and clip count. Label chips choose which labels show, so one cat's rows are that cat's visit log;
+drag across the day strip or the hour-of-day strip to take a slice of time ("outside the range"
+turns 06:00 to 22:00 into the night); and "labelled before" picks out old labels to recheck. The
+filter is kept in the address. Each row can be sent back for review, or everything shown at once,
+with a reason.
+
 ## Test, lint, format, type-check
 
 ```
 npm install                  # once per checkout, for the JavaScript lint (needs node)
+npm run vendor               # after changing d3's version in package.json
 bash scripts/check.sh        # every gate, stopping at the first failure
 uv run pytest                # unit tests (no camera or picamera2 needed; ffmpeg is)
 uv run ruff check --fix .    # lint + autofix
@@ -130,7 +138,8 @@ uv run ruff format .         # format
 ```
 
 `check.sh` runs, in order: the privacy check (`scripts/check_private.sh`; see CLAUDE.md),
-shellcheck, codespell, ruff, the format check, mypy, eslint and pytest.
+shellcheck, codespell, ruff, the format check, mypy, eslint, a check that the committed d3 in
+`src/static/vendor/` is the version `package.json` pins, and pytest.
 
 GitHub Actions runs the same script on every push (`.github/workflows/check.yml`).
 

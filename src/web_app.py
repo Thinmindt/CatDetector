@@ -36,6 +36,7 @@ def create_app(streamer: WebStreamer | None, review: Review | None) -> Flask:
     app.add_url_rule("/", "index", page)
     app.add_url_rule("/review", "review_page", page)
     app.add_url_rule("/review/<int:event_id>", "review_event", page)
+    app.add_url_rule("/timeline", "timeline_page", page)
     if streamer is not None:
         app.register_blueprint(streamer.blueprint())
     else:
