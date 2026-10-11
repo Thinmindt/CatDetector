@@ -4,7 +4,7 @@
 #   sudo systemctl edit catdetector
 [Unit]
 Description=Cat detector: litter-box camera, motion recorder and web UI
-# Wants, not Requires: recording runs without the share. See docs/DESIGN.md, Process.
+# Wants, not Requires: recording runs without the share. See docs/design/service.md.
 Wants=@SHARE_MOUNT@
 After=@SHARE_MOUNT@ time-sync.target
 

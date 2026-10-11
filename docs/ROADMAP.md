@@ -1,7 +1,6 @@
 # Roadmap: cat detection and identification
 
-Current as of 2026-09-28. This file holds the plan as it stands: what is decided, what is next,
-and what is still open. Finished items and the history behind decisions move to
+This file holds the plan as it stands: what is decided, what is next, and what is still open. Finished items and the history behind decisions move to
 `ROADMAP_ARCHIVE.md`, under the same section letters, so a citation such as "A.2" finds the plan
 here and its history there.
 
@@ -14,13 +13,44 @@ Two workstreams, in dependency order, and a third that runs alongside both:
 - **Part A — trigger reliably.** A cat entering the frame always starts a recording.
   Recall is the priority: a missed visit is a failure, an extra clip is an annoyance.
 - **Part B — identify the cat.** Collect and label enough images to train a per-cat
-  classifier, which needs a labeling workflow before it needs a model.
+  classifier, which needs a labelling workflow before it needs a model.
 - **Part C — any installation.** Someone else's cats, boxes, camera, Pi and storage should work
   as well as the ones this was built on, with the hardware behind interfaces and nothing about
   one home written into the code.
 
 Part B depends on Part A's bounding box: the box that decides "this is cat-sized" is the
 same box that crops training images. Do not build the crop pipeline twice.
+
+## Where things stand
+
+As of 2026-10-05. **Built:** recording on motion, with the seconds before it, shipped to the
+share and kept going through its outages; a restart, and an optional alert, when the camera
+stalls (A.6); clips grouped into visits, with split and join (A.4); the review page with the
+cats' names, peeks, cleanings and the review queue (B.3); the timeline (B.6); and `--calibrate`,
+which counts a data run and proposes its settings (A.2). **Under way:** the data run that gives
+the first calibrated threshold (A.2).
+
+What the open items wait on, as their entries below state it (an arrow points at the item that
+needs it):
+
+```mermaid
+flowchart LR
+  A2["A.2<br>finish the<br>data run"] --> A3h["A.3<br>start and hold<br>thresholds"]
+  A5["A.5<br>freeze a<br>labelled set"] -->|gates| A3h
+  A3h --> A3b["A.3<br>size band"]
+  A3b --> A3p["A.3<br>persist<br>N frames"]
+  A3b --> B1["B.1<br>crops"]
+  B1 --> B3c["B.3<br>crop beside<br>the frame"]
+  B1 --> B5m["B.5<br>a model"]
+  B5a["B.5<br>coat-colour<br>baseline"] -->|"not enough?"| B5m
+  B5m --> B6m["B.6<br>the model<br>in the loop"]
+  A6["A.6<br>a summary<br>per minute"] --> B4["B.4<br>habit alerts"]
+  B3i["B.3<br>ingest on<br>a schedule"] --> B4
+```
+
+Waiting on nothing: A.3's locked exposure; A.4's grouping thresholds and boxes where the cat
+stayed; B.2's cache pruning, database backup and SD wear; B.5b's counts beside visits; B.6's
+touch test of the timeline; every item in Part C; and retention (Risks).
 
 **What every installation needs.** A fixed camera mounted overhead, pointing straight down at
 the litter boxes, and **the boxes lit around the clock**: the camera sees nothing in the dark, and
@@ -100,19 +130,8 @@ condition below holds.
 | **several days of varied weather, one overcast**, unless the boxes' own light swamps daylight | lighting changes are a daytime false trigger (A.1) |
 | **the weakest visit has stopped getting weaker over the last ~20 visits** | the band's lower edge follows the weakest visit |
 
-How each is counted, from `captures.db` and the metrics CSV: a visit is an event labelled with a
-cat's name and not marked as a peek (B.3: a cat that looks in and uses no box), whose first clip
-started on or after the run's start, and one visit split into two events, the same cat seconds
-apart, is joined before counting, or it counts twice and the second half starts on a sitting cat's
-twitch; night is an event starting between 20:00 and 06:00; a box is used in a visit when the
-cleaned blob, at least half the weakest visit's peak, stays 10 s in the box's third of the 640-px
-lores width (from its first sighting there to its last before it shows in another box, since a
-still cat fades from view), until C.3 makes boxes configuration; the weather comes from whoever
-runs the installation or a weather record, because the metrics CSV's brightness cannot show it (the
-camera's auto-exposure holds it level through the day); a visit's strength is the largest
-`clean_area` in the CSV's rows from its first clip's start to its last clip's end; and the weakest
-visit has stopped getting weaker when none of the last 20 visits is weaker than the weakest of the
-visits before them. False positives are measurable from hours rather than visits, and any candidate
+How each condition is counted is `--calibrate`'s, in `docs/design/calibration.md`.
+False positives are measurable from hours rather than visits, and any candidate
 rule can be replayed against the metrics CSV without re-recording. Storage is not the constraint
 (the metrics CSV grows by roughly 150 MB a day). **Labelling is**: each day's events have to be
 kept up with, or the backlog outlives the run. `main.py --calibrate` counts the conditions, stages
@@ -177,7 +196,7 @@ as agreed is in the archive.
       centroid distance, replace it with a fixed rectangle per box in lores coordinates.
       **Done means** both are set from measured distributions (gaps between clips inside
       single-cat events against gaps between consecutive events; centroid distances within and
-      between boxes), the numbers are in DESIGN.md's Events section, `--regroup` has run, a walk
+      between boxes), the numbers are in `docs/design/events.md`, `--regroup` has run, a walk
       of `?filter=multi` finds no event merging two visits, and a walk of one day's events in
       order finds no visit split in two. The first data (2026-10-03): the twelve joins reviewers
       made had gaps of 0 to 141 s, mostly 17 s or less, and centroid distances of 185 to 295 px,
@@ -256,8 +275,8 @@ review side takes full frames from the clip itself. What is missing is the crops
 **Model the data as events, not frames.** One visit = one event = one or more clips (A.4) and
 many crops. This is the single most important structural decision in Part B, for two reasons:
 
-- **Labeling cost.** A human labels the *event* once ("that's Cat A"), and the label
-  propagates to every crop from it. Labeling frame-by-frame is 50x the work for the same
+- **Labelling cost.** A human labels the *event* once ("that's Cat A"), and the label
+  propagates to every crop from it. Labelling frame-by-frame is 50x the work for the same
   information.
 - **Honest evaluation.** Crops from one event are near-duplicates. Splitting train/val
   randomly *by crop* leaks the same cat-in-the-same-pose into both sides and inflates
@@ -285,14 +304,14 @@ key is the event, so an event holds one label: model predictions (B.6) need a ke
 - [ ] The DB is the only thing that is hard to recreate, so it is the thing to back up.
       **Done means** the service writes a consistent copy of `captures.db` (SQLite's backup API,
       not a file copy) to a configurable destination on a schedule, a test restores one and reads
-      back its labels, and the README's Configuration section says where the copy goes and how to
+      back its labels, and the README's Settings section says where the copy goes and how to
       restore it. A finished copy on the share is fine; the live database never is.
 - [ ] Watch SD-card wear: many small writes. Batch inserts per event rather than per frame.
       **Done means** the bytes written to the SD card in 24 h of normal running are measured
-      (`/sys/block/mmcblk0/stat`), the main writers are named in DESIGN.md, and anything over a
+      (`/sys/block/mmcblk0/stat`), the main writers are named in the design documents, and anything over a
       stated daily budget has an item of its own.
 
-## B.3 Labeling UI
+## B.3 Labelling UI
 
 The Review tab labels at event level with one keystroke or one tap: the cats by name (a digit key
 each, from `CAT_NAMES`), `cat` when which one is not decided, `multiple`, `not_cat`, `unsure` and
@@ -301,13 +320,28 @@ and the walk, whole-clip tiles built before they are asked for, split and join, 
 layout, a review queue that labelled events can be staged back into with a reason, and a peek
 mark for a cat that looks in and uses no box. **The
 only requirement that really matters is speed:** hundreds of events reviewed by one person means
-labeling must be a single action, or it will not happen and the classifier never gets its data.
+labelling must be a single action, or it will not happen and the classifier never gets its data.
 
 Next:
 
 - [ ] **Show the crop *and* the full frame** — a crop alone is often ambiguous. Needs A.3 and B.1.
       **Done means** the review page shows each event's crops beside a full frame from its clip,
       and `check_page.py` screenshots at both sizes show them without horizontal scroll.
+- [ ] **New clips reach the review queue on their own.** The share is read only at startup and
+      when someone presses "rescan clip directory", so a visit recorded while the page is open
+      never appears and its strips are not built ahead. B.4's daily rule reads `captures.db`, so
+      it needs the same. Ingest on a schedule from one thread of its own, every minute by default
+      (`INGEST_INTERVAL_SECONDS`): `ClipTransfer` ships a finished clip within a minute, and
+      globbing and statting 1,013 clips over CIFS took 0.22–0.29 s (three runs, 2026-10-05; it
+      grows with the archive, and a new clip's sidecar is the only other read). A scan stalled
+      on the share holds no lock today (`clip_scan` runs unlocked), and must not let a second
+      scan start behind it.
+      **Done means** a clip that lands on the share reaches the review queue within one interval,
+      with no rescan and no restart, and has its strip built ahead; a test with a short interval
+      shows that, and shows a stalled scan neither blocking review requests nor letting a second
+      scan start; a Review tab showing an empty queue picks up the new event without a reload;
+      and the interval is in the README's settings table, whose "New clips appear after a
+      rescan" says instead when they appear.
 
 Non-goals for v1: multi-user, accounts, editing bounding boxes by hand.
 
@@ -352,12 +386,12 @@ visits is 5 examples. Split by event or day, never by crop (B.1). Expect **heavy
 the majority cat dominate. "Not a cat" negatives come free from false triggers; keep them, they
 are real data.
 
-- [ ] **Baseline first:** before any neural net, check whether mean coat color inside the mask
+- [ ] **Baseline first:** before any neural net, check whether mean coat colour inside the mask
       separates the cats. A top-down view preserves a coat's pattern and colour best; if colour
       alone separates the cats, that is a few lines of OpenCV and no training loop.
       **Done means** a script reports, for the labelled single-cat events, how well mean coat
       colour inside the mask separates the cats (a confusion matrix on events held out by day),
-      and the result, with the decision it drives, is in DESIGN.md.
+      and the result, with the decision it drives, is in the design documents.
 - [ ] **Otherwise, a model:** transfer learning on a small backbone (MobileNetV3 /
       EfficientNet-lite) over the crops, trained off the Pi. Decide where inference runs once
       there is a model to measure: on the training machine for accuracy headroom, or exported
@@ -365,7 +399,7 @@ are real data.
       A small classifier on one crop per event is cheap either way.
       **Done means** a model trained in the separate project, from the crops and labels on the
       share, classifies events held out by day at a stated per-cat accuracy, and where inference
-      runs is decided from a measurement of it, recorded in DESIGN.md.
+      runs is decided from a measurement of it, recorded in the design documents.
 
 ## B.5b Ground truth at cleaning time: the hand signal
 
@@ -379,16 +413,7 @@ cleaning gives the bowel signal statistically — a cat whose visits hold steady
 fall is the case worth flagging. Counts cannot be reconstructed from old footage, so every
 cleaning should carry one.
 
-The convention, so the record stays readable:
-
-- One signal **per box**, held **over that box**, palm toward the camera.
-- **A closed fist means zero.** Absence of a signal must mean "forgot", not "none", or the data
-  silently gains zeros.
-- Hold for **about three seconds**. The review strip samples one frame a second, so a brief flash
-  can fall between samples; three seconds guarantees a frame and lets the reviewer pick a clear one.
-- Signal **while the scooping clip is still recording** (during or right after the scoop of that
-  box), so it is inside a clip rather than in the gap after the motion timeout.
-- More than five: hold up a hand twice, or use both hands.
+The convention, with the reason for each rule, is in the README (Labelling visits, Cleanings).
 
 - [ ] A view over time of counts per box, beside visit frequency per cat (B.6).
       **Done means** B.6's timeline filtered to `clean` shows each cleaning's counts per box, a
@@ -400,41 +425,11 @@ the urinary side of the goal rests on visit frequency and duration per cat (B.6)
 
 ## B.6 The payoff
 
-- [ ] **A timeline of every event**, newest first, one row each with its time, label, box,
-      duration and clip count, linking to the event's review page. One filter per label value
-      (the same set the review walk uses, the cats' names included), so one cat's rows read as
-      that cat's visit log and the `clean` rows as the cleaning log. Dates readable, relative
-      time on hover (C.6). It is also the **selection surface for the review queue** (B.3):
-      filters by label value, date range, time of day and labelled-before-a-timestamp, each row
-      with a stage button, and "stage everything shown, with this reason" for the set. Its use is
-      re-auditing labels made before a change to the review page, such as `not_cat` labels made
-      before the whole-clip tiles.
-      *The page:* a third tab, `/timeline`. Above the list, the filter:
-      - a **date strip**, a bar per day of the events the other filters let through, coloured by
-        label, with a brush (two handles, and the span between them dragged to move it) that
-        selects a date range;
-      - an **hour-of-day strip**, 24 bars with a brush of its own; a range may wrap midnight
-        (22:00 to 06:00);
-      - **label chips**, one per label value, toggled on and off;
-      - an optional **labelled-before** date.
-      Filtering happens once, on the server: `GET /api/timeline` takes the filter as parameters
-      and returns the rows, plus each strip's counts under every filter but its own, so a strip
-      shows what its brush can select. The page asks when a handle is released and highlights
-      the bars under a moving one meanwhile. The filter lives in the address, as the review
-      walk does. The box is the third of the frame holding the first clip's trigger, until A.4
-      records where the cat stayed (C.3 makes boxes configuration). "Stage everything shown"
-      sends the ids on screen to `POST /api/review/stage`, so exactly what was seen is staged.
-      *Built with:* the page script split into modules the browser loads with no build step,
-      one per tab and one shared; d3 for the brush, scales and axes, pinned in `package.json`
-      and committed as one file under `src/static/vendor/`, with a gate that fails if that file
-      differs from the pinned package. The same branch shows readable times on the review page
-      and adds "back for review" with a reason to its sheet.
-      **Done means** the page lists every event newest first with those columns; the API returns
-      exactly the events a query on the database returns for each filter and for combinations,
-      including an hour range across midnight (a test each); each strip's counts leave out its
-      own filter (a test); rows link to the event's review URL (B.3); both stage actions write
-      staging rows (a test); a reload keeps the filter; `check_page.py` screenshots the timeline
-      at both sizes with a range brushed; and a reviewer drags a brush by touch on a phone.
+- [ ] **A timeline of every event**, filtered by label, day, hour and labelled-before, that
+      stages what it shows for review. Built: the Timeline tab (DESIGN.md, The review page);
+      its spec is in the archive.
+      **Done means** a reviewer drags a brush by touch on a phone, the one condition of the
+      spec not yet met.
 - [ ] Human-in-the-loop: the model labels, low-confidence events are staged into the review
       queue (B.3) with `source=model`, corrections feed the next training round.
       **Done means** the model's predictions are stored beside the human labels (B.2's key),
@@ -493,7 +488,7 @@ Nothing open; finished items are in the archive.
 
 ## C.4 Calibration per installation
 
-- [ ] **The pixel numbers are one mount's.** `MOTION_THRESHOLD`, `EVENT_BOX_DISTANCE_PX`, the
+- [ ] **The pixel numbers are one installation's.** `MOTION_THRESHOLD`, `EVENT_BOX_DISTANCE_PX`, the
       blob kernels and A.3's future size band all depend on mounting height, resolution and the
       size of the cats. Label every default as "from one installation". `--calibrate` (A.2)
       proposes the threshold and the band; `EVENT_BOX_DISTANCE_PX`, `EVENT_GAP_SECONDS` and the
@@ -546,6 +541,21 @@ Each works for the setup it was built on and would bite someone else:
       **Done means** digits match `e.code` (`Digit1`…, `Numpad1`…), a tenth cat has a key or a
       picker, the help text says so, eslint passes, and the keys were pressed by hand with an
       AZERTY layout selected.
+- [ ] **`tests/manual/check_page.py` needs one installation's data.** It serves a copy of the
+      live review database and the live frame cache, so it runs only where a `captures.db` has
+      been filled, and every screenshot it takes shows real footage and the real cats' names.
+      That keeps any picture of the page out of the README. Give it a synthetic installation: a
+      script that builds a few clips with ffmpeg (a drawn floor, three boxes and a cat-sized dark
+      shape that walks in, sits and leaves), their sidecars, and a database holding an event of
+      each kind (cats named Ada and Bea, `multiple`, a peek, a cleaning with counts, `not_cat`, a
+      visit split over two clips, a staged event), and a `--fixture` option that serves it from a
+      scratch directory.
+      **Done means** `check_page.py --fixture` runs in a fresh clone with only ffmpeg and
+      chromium installed; one command takes the Review tab at phone size and the Timeline at
+      laptop size from it, and those screenshots are committed and shown in the README (outside
+      `docs/`, which ignores everything but its four documents); and a pytest test builds the
+      fixture and ingests it, so a schema change that breaks it fails the gate rather than the
+      next screenshot.
 - [ ] `tests/manual/check_page.py` looks for `chromium` by that name; accept the other names
       Chromium and Chrome install under.
       **Done means** the script tries `chromium`, `chromium-browser`, `google-chrome` and
@@ -565,7 +575,7 @@ that, so the space a month takes is about 75 MB times the minutes recorded in it
 `clip.size_bytes` in `captures.db` gives what an installation has used so far.
 
 - [ ] Set a retention policy before space runs short. Full clips are the bulk and are the least
-      valuable once an event is labeled and cropped.
+      valuable once an event is labelled and cropped.
       **Done means** a stated policy (which clips go, and when) is enforced by the service and
       configurable, never deletes a clip of an unlabelled event, a test over a seeded share shows
       only eligible clips removed, and the README says what it deletes. Until B.1's crops exist it

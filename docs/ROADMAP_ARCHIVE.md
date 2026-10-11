@@ -229,6 +229,24 @@ Moved 2026-10-03: done.
       300 s limit; and the proposal also keeps the visits recorded under 80 % within 5 % of the
       run's own count, or says that no threshold qualifies.
 
+
+Moved 2026-10-05: how each condition was to be counted, as the plan stated it before
+`--calibrate` was built. DESIGN.md (Calibration) states what the command counts.
+
+How each is counted, from `captures.db` and the metrics CSV: a visit is an event labelled with a
+cat's name and not marked as a peek (B.3: a cat that looks in and uses no box), whose first clip
+started on or after the run's start, and one visit split into two events, the same cat seconds
+apart, is joined before counting, or it counts twice and the second half starts on a sitting cat's
+twitch; night is an event starting between 20:00 and 06:00; a box is used in a visit when the
+cleaned blob, at least half the weakest visit's peak, stays 10 s in the box's third of the 640-px
+lores width (from its first sighting there to its last before it shows in another box, since a
+still cat fades from view), until C.3 makes boxes configuration; the weather comes from whoever
+runs the installation or a weather record, because the metrics CSV's brightness cannot show it (the
+camera's auto-exposure holds it level through the day); a visit's strength is the largest
+`clean_area` in the CSV's rows from its first clip's start to its last clip's end; and the weakest
+visit has stopped getting weaker when none of the last 20 visits is weaker than the weakest of the
+visits before them.
+
 ## A.3 Detect a cat-sized thing
 
 Moved 2026-09-26. The split landed as `src/capture/motion_detector.py` (5adcc87, 2026-09-20). The
@@ -410,7 +428,7 @@ Moved 2026-09-26: folded into B.1's crops, with the box per crop added.
 
 - [ ] A `crop` table for B.1: event, path on the share, when it was captured.
 
-## B.3 Labeling UI
+## B.3 Labelling UI
 
 Moved 2026-09-26: everything built up to then.
 
@@ -536,7 +554,7 @@ Moved 2026-09-26: done.
       the staging table does not exist yet, so it joins the default walk with the staging item.
       Driving it in headless Chromium showed Back on a 14-clip event waiting 60 s behind that
       event's strip builds, so leaving an event now cancels its pending strips (DESIGN.md,
-      Review UI).
+      Showing a clip).
 
 Moved 2026-09-27: done.
 
@@ -697,6 +715,46 @@ Moved 2026-09-28: to B.4, reworded, as its one item.
       seeded history fires on an injected change and not on normal variation, and a firing reaches
       a person through B.4's transport.
 
+
+Moved 2026-10-05: the timeline's spec, now that the page is built. The item stays open in
+the roadmap until its last condition, a brush dragged by touch on a phone, is met.
+
+- [ ] **A timeline of every event**, newest first, one row each with its time, label, box,
+      duration and clip count, linking to the event's review page. One filter per label value
+      (the same set the review walk uses, the cats' names included), so one cat's rows read as
+      that cat's visit log and the `clean` rows as the cleaning log. Dates readable, relative
+      time on hover (C.6). It is also the **selection surface for the review queue** (B.3):
+      filters by label value, date range, time of day and labelled-before-a-timestamp, each row
+      with a stage button, and "stage everything shown, with this reason" for the set. Its use is
+      re-auditing labels made before a change to the review page, such as `not_cat` labels made
+      before the whole-clip tiles.
+      *The page:* a third tab, `/timeline`. Above the list, the filter:
+      - a **date strip**, a bar per day of the events the other filters let through, coloured by
+        label, with a brush (two handles, and the span between them dragged to move it) that
+        selects a date range;
+      - an **hour-of-day strip**, 24 bars with a brush of its own; a range may wrap midnight
+        (22:00 to 06:00);
+      - **label chips**, one per label value, toggled on and off;
+      - an optional **labelled-before** date.
+      Filtering happens once, on the server: `GET /api/timeline` takes the filter as parameters
+      and returns the rows, plus each strip's counts under every filter but its own, so a strip
+      shows what its brush can select. The page asks when a handle is released and highlights
+      the bars under a moving one meanwhile. The filter lives in the address, as the review
+      walk does. The box is the third of the frame holding the first clip's trigger, until A.4
+      records where the cat stayed (C.3 makes boxes configuration). "Stage everything shown"
+      sends the ids on screen to `POST /api/review/stage`, so exactly what was seen is staged.
+      *Built with:* the page script split into modules the browser loads with no build step,
+      one per tab and one shared; d3 for the brush, scales and axes, pinned in `package.json`
+      and committed as one file under `src/static/vendor/`, with a gate that fails if that file
+      differs from the pinned package. The same branch shows readable times on the review page
+      and adds "back for review" with a reason to its sheet.
+      **Done means** the page lists every event newest first with those columns; the API returns
+      exactly the events a query on the database returns for each filter and for combinations,
+      including an hour range across midnight (a test each); each strip's counts leave out its
+      own filter (a test); rows link to the event's review URL (B.3); both stage actions write
+      staging rows (a test); a reload keeps the filter; `check_page.py` screenshots the timeline
+      at both sizes with a range brushed; and a reviewer drags a brush by touch on a phone.
+
 ---
 
 # Part C — any installation
@@ -751,7 +809,7 @@ cats without any neural network.
 Moved 2026-09-26: done 2026-09-14. Retention carries on under the roadmap's storage risk.
 
 **Done 2026-09-14:** `deploy/catdetector.service.in`, installed with `deploy/install-service.sh`. The
-reasoning for each setting is in DESIGN.md (Process). Two items below changed on the way in: the
+reasoning for each setting is in DESIGN.md (Running as a service). Two items below changed on the way in: the
 clock wait is bounded instead of enabling `systemd-time-wait-sync.service`, and the share is
 wanted rather than required.
 

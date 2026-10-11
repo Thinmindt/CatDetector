@@ -17,10 +17,11 @@ __pycache__/
 # Test files
 test_images/
 
-# docs/ is private by default; these four are tracked.
+# docs/ is private by default; these are tracked.
 docs/*
 !docs/STYLE.md
 !docs/DESIGN.md
+!docs/design/
 !docs/ROADMAP.md
 !docs/ROADMAP_ARCHIVE.md
 
