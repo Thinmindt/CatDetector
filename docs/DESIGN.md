@@ -7,7 +7,7 @@ Entries cite `ROADMAP.md` by section (A.2, A.4, B.5b, …).
 ## Goal
 
 **The point of the project is catching bowel or urinary trouble in a cat.** Knowing which cat
-made a visit is how we get there, not the goal itself. Three things follow from it:
+made a visit is the way there, not the goal itself. Three things follow from it:
 
 - **Recall comes first.** A missed visit leaves a gap in a cat's record. A gap can look like the very
   change the project exists to flag, so losing a visit can lead to wrongly flagging a healthy cat. An
@@ -67,10 +67,10 @@ survives an outage of the share entirely: clips accumulate locally and ship when
 where an in-memory buffer would fill and start dropping footage.
 
 Sizing: clip data arrives at `H264_BITRATE / 8` bytes a second, 1.25 MB/s at the constant's value
-of 10 Mbit/s, so the 300 s `max_clip_seconds` ceiling is 375 MB. 200 GB of free local disk holds
-roughly 11,000 clips of the average size implied below, so `_has_room`'s 1 GB floor is a guard
-against a months-long outage, not a routine constraint. SD wear is not a concern at this volume:
-~20 clips a day is ~134 GB a year, well under one full-card write.
+of 10 Mbit/s, so the 300 s `max_clip_seconds` ceiling is 375 MB. Clips have averaged ~18 MB, so
+every 100 GB of free local disk holds roughly 5,500 of them, and `_has_room`'s 1 GB floor is a
+guard against a months-long outage, not a routine constraint. SD wear is not a concern at this
+volume: 20 such clips a day is ~134 GB a year, a fraction of a card's write endurance.
 
 **Two names, and only one means "done".** The recorder writes `<clip>.h264.part` and renames to
 `<clip>.h264` once the file is closed; `ClipTransfer` copies to `<clip>.h264.part` on the share
@@ -113,7 +113,7 @@ the `.part` is left for a person to look at.
 gives libcamera no chance to release the sensor, so the next `Picamera2()` fails with "Camera
 __init__ sequence did not complete" until the kernel reclaims it. Constructing the camera is the
 first thing `main.py` does, so this is a startup failure, not a recording one. The service's
-`RestartSec` waits out that window; see Process. Measured on the Pi 5, 2026-09-12.
+`RestartSec` waits out that window; see Process. Measured on a Pi 5, 2026-09-12.
 
 **Nothing may raise out of the thread that writes clip bytes** (2026-09-26). Which thread that is
 depends on the encoder picamera2 picks, and `H264Encoder` is a different class per platform
@@ -292,8 +292,8 @@ SIGTERM, so a second one cannot interrupt that cleanup.
 
 **It runs as a systemd service** (`deploy/catdetector.service.in`, 2026-09-14), so it starts at boot
 and comes back after a crash. A detector started by hand stays down after a power cut until a
-person notices; one such gap cost four and a half hours of recording. Most of the unit's settings
-favour recall over tidiness:
+person notices, and every hour of that is a gap in the record. Most of the unit's settings favour
+recall over tidiness:
 
 - **It wants the share's mount but does not require it.** `RequiresMountsFor=/mnt/nas` would stop
   the detector from starting whenever the share is down at boot. Recording does not need the share:
@@ -305,20 +305,20 @@ favour recall over tidiness:
   metrics with the wrong time. `systemd-time-wait-sync.service` would do the waiting, but its
   `TimeoutStartSec` is `infinity`, so with the internet down the detector would never start. The
   unit runs the same helper as an `ExecStartPre` under `timeout 90` and ignores its failure. The
-  helper works unprivileged (checked on the Pi 5, 2026-09-14).
+  helper works unprivileged (checked on a Pi 5, 2026-09-14).
 - **`RestartSec=20`**, because the camera stays busy for 10–15 s after an unclean exit (see
   Recording), and a faster restart would crash-loop on "Camera __init__ sequence did not complete".
 - **`Restart=on-failure`.** SIGTERM takes the clean-shutdown path and exits 0, so a
   `systemctl stop` is not undone.
 
-**A capture stall ends the process** (roadmap A.6). On 2026-09-26 libcamera logged "Camera
-frontend has timed out" and `capture_arrays()` blocked for 3 h 46 min without raising, while the
-process, its web server and the Pi's heartbeat all looked healthy; only a restart brought frames
+**A capture stall ends the process** (roadmap A.6). Once (2026-09-26) libcamera logged "Camera
+frontend has timed out" and `capture_arrays()` blocked for hours without raising, while the
+process and its web server looked healthy and nothing alerted; only a restart brought frames
 back. So `monitor()` checks, once a second, how long ago the capture loop last got a frame, and
 past `CAPTURE_STALL_SECONDS` it leaves through the same cleanup as SIGTERM and exits 1, which
 `Restart=on-failure` turns into a restart. The limit is 10 s because, across twelve days of the
 metrics CSV, the longest gap between frames that was not a restart or a power-off was 1.95 s.
-The cleanup did not need a working camera on 2026-09-26: that restart stopped the wedged process
+The cleanup did not need a working camera in that stall: the restart stopped the wedged process
 in 5 s, the frame thread's bounded join included. The gap a stall now costs is the limit, that
 cleanup, `RestartSec` and startup, about 35 s.
 
@@ -339,11 +339,11 @@ process, would need a second `Picamera2` while the first may be stuck in libcame
 single-instance rule and the recorder's hold on the encoder make that the less tested path.
 
 **The detector has a heartbeat of its own** (roadmap A.6). A restart ends a stall but tells nobody,
-and a camera that stays dead restarts every ~35 s forever. The Pi's own heartbeat (pi-tools'
-`pi-heartbeat`, a separate project) kept pinging through the whole 2026-09-26 stall, because it
-proves the Pi is up, not the camera. So `CaptureHeartbeat` GETs `CAPTURE_HEARTBEAT_URL` once a
-minute, but only when the last frame is newer than `CAPTURE_STALL_SECONDS`: a stall, a restart
-loop and a stopped service all go quiet the same way, and the watcher alerts on silence.
+and a camera that stays dead restarts every ~35 s forever. A heartbeat from the Pi itself keeps
+pinging through a stall, because it proves the Pi is up, not the camera. So `CaptureHeartbeat`
+GETs `CAPTURE_HEARTBEAT_URL` once a minute, but only when the last frame is newer than
+`CAPTURE_STALL_SECONDS`: a stall, a restart loop and a stopped service all go quiet the same way,
+and the watcher alerts on silence.
 
 - **The interface is a URL and a GET**, nothing more. Healthchecks.io, a self-hosted Healthchecks,
   an Uptime Kuma push monitor and most dead man's switches accept exactly that, so no service is
@@ -373,7 +373,7 @@ loop and a stopped service all go quiet the same way, and the watcher alerts on 
 - **It runs the venv's Python, not `uv run`**, which can sync the environment at startup, and so
   change or fail it at boot.
 
-The detection settings of the current data run live in a systemd drop-in
+Per-run detection settings live in a systemd drop-in
 (`systemctl edit catdetector`), not in `.env` and not in the tracked unit. Putting `METRICS_CSV`
 in `.env` would make the test suite's `build_recorder` calls open the real metrics file, and a
 run's settings in the tracked unit would be one machine's experiment published as the default.
@@ -381,7 +381,7 @@ The tracked file is a template: `install-service.sh` fills in the user, the chec
 share's mount unit, so the unit is not tied to one account or directory.
 
 **Logging root at WARNING, application loggers at INFO.** A blanket INFO root turns on every
-third-party logger; picamera2 narrates every state change and buries our output.
+third-party logger; picamera2 narrates every state change and buries the application's own.
 
 **The web stream binds `0.0.0.0` with no authentication.** Deliberate — it is meant to be
 reachable from other devices on the LAN. Do not forward the port. See the README's Security
@@ -417,7 +417,7 @@ which joins the pieces MOG2 splits one cat into. A.3's trigger is planned on the
 after cleanup, so logging it during the A.2 run gives the size band the same numbers the trigger
 sees. The raw blob is logged too, so other kernel sizes can be judged from the same data.
 Brightness is the mean grey level of the analysis frame. It makes lighting changes easy to pick
-out, and they are the main source of non-cat clips. Measured alone on the Pi 5's CPU with a
+out, and they are the main source of non-cat clips. Measured alone on a Pi 5's CPU with a
 synthetic mask (2026-09-11), cleanup plus contours cost about 1.7 ms a frame and brightness
 0.03 ms; the 2.4 ms above is the whole per-frame measurement that contains them.
 
@@ -458,12 +458,25 @@ takes an event out of it either way. Staging exists because the queue was implic
 back into it was to erase a label, which loses the judgement being checked. A staged event keeps
 its label, so confirming it is the same keystroke that made it; the page shows the reason beside
 the label. A staging row names who staged it (`human`, `agent`, `model`), so the same queue serves
-an owner's re-audit, an agent's finding and, later, a model's low-confidence prediction.
+a reviewer's re-audit, an agent's finding and, later, a model's low-confidence prediction.
 
 **A staging row hangs off a clip, as poop counts do** (2026-09-27). It is written against the event's
 first clip and read back across all of its clips, so a `regroup` keeps it with the footage it was
 about; keyed by event id it would have landed on whatever event took that id. If a merge brings two
 staged clips together, the event shows the earlier staging, and a label clears both.
+
+**A peek is a mark beside the label, not a label** (2026-10-03, ROADMAP B.3). A cat that looks
+in and uses no box is still that cat, which is what the classifier learns from, but it is not a
+visit, and visits are what the data run counts and what a habit alert compares. A label of its
+own would lose which cat it was, so the label keeps the cat and a `peek` row marks the event. The
+row is written on **every** clip of the event, not the first as staging is, and an event is a
+peek only while all its clips carry it: a join with a real visit, or a new clip grouped in at
+ingest, makes the whole a visit, while a split leaves both halves peeks. A merged event that
+might hold a visit is therefore counted as one, which is the error recall prefers. The rows of
+an event that is no longer a peek are deleted, so a later split cannot revive the mark, and when
+ingest or a regroup caused it rather than the reviewer, the event is staged (source `grouping`)
+so someone looks at the clip that changed it. A label that is not a cat clears the mark. The `p`
+key toggles the mark and stays on the event, so a peek is `p` and then the cat's digit.
 
 **`--regroup` refuses while another process has the database** (2026-09-27). A regroup renumbers
 events, and the review page holds event ids: a label posted during a regroup, or after it by a page
@@ -491,14 +504,14 @@ join or regroup, and a browser that had cached it showed the previous clip's til
 never change, so a URL that names the clip is safe to cache for good.
 
 **A database from before grouping is refused, not migrated.** The only database that predated
-grouping held nine test events and was carried across once by hand (2026-09-12). Migration code
-for one machine's nine rows would outlive its purpose; a clear error at startup is enough.
+grouping held a handful of test events and was carried across once by hand (2026-09-12).
+Migration code for them would outlive its purpose; a clear error at startup is enough.
 
 ## Review UI
 
 **ffmpeg, not cv2.VideoCapture.** VideoCapture cannot handle the raw elementary streams the
 recorder writes: on a real clip it reported a garbage frame count, failed its first read, and
-could not seek. ffmpeg decodes the same files cleanly (~0.4 s for one full frame on the Pi 5,
+could not seek. ffmpeg decodes the same files cleanly (~0.4 s for one full frame on a Pi 5,
 2026-08-26; strip costs are under keyframes below), so extraction shells out. Results are cached on local disk keyed by
 clip id — clips are immutable once closed, so the cache never needs invalidating.
 
@@ -537,7 +550,7 @@ largest clip, 2026-09-18). The
 frames are published before the strip, so the strip's existence means the set is complete, and
 `frame()` answers from the cache alone: a slot with no file is out of range.
 
-**Extraction decodes keyframes only** (2026-09-17). Decoding all of a 96 s clip takes 9.5 s on the
+**Extraction decodes keyframes only** (2026-09-17). Decoding all of a 96 s clip takes 9.5 s on a
 Pi 5 (~320 fps); with `-skip_frame nokey` it takes 1.7 s, and a five-minute clip fits comfortably
 inside the 60 s ffmpeg timeout even when read from the share. That works because the recorder's
 encoder writes a keyframe every `CAMERA_FPS` frames, which is one a second only while the camera
@@ -572,8 +585,8 @@ in a row. Each was a silent write to the training set. The handler returns on an
 autorepeat before matching a key.
 
 **The label buttons are a bar fixed to the bottom of the screen** (2026-09-22, ROADMAP B.3).
-The page is used from a phone, and the buttons sat under the tiles, so every label meant a scroll
-to the bottom and a small target. A bar fixed to the bottom keeps them in the thumb zone from
+On a phone the buttons sat under the tiles, so every label meant a scroll to the bottom and a
+small target. A bar fixed to the bottom keeps them in the thumb zone from
 anywhere on the page, which is the pattern Zooniverse's mobile classifier and Material's docked
 toolbar use for the same job; every target is 48 px, the minimum Android's accessibility guidance
 gives. The actions used a few times a sitting (plain `cat`, join, next, rescan) sit behind
@@ -596,11 +609,11 @@ load `<script type="module">` directly, so the script is split by tab (`live.js`
 `timeline.js`), with `common.js` for fetching, escaping and times and `app.js` for the tabs,
 and each tab's state is private to its module. A framework was not adopted: React, Vue or Svelte
 each need a bundler, a build on the Pi before every restart and generated files kept in step with
-the source, for a page with one user. The template passes its settings as one JSON block (`<script
-type="application/json" id="config">`, written by Jinja's `tojson`, which escapes `<`, so a cat's
-name cannot close the tag) rather than as page-wide constants, and buttons name their action in
-`data-action`, dispatched by one listener per tab, rather than calling globals from `onclick`,
-which modules do not expose.
+the source, for one small page served on a LAN. The template passes its settings as one JSON
+block (`<script type="application/json" id="config">`, written by Jinja's `tojson`, which escapes
+`<`, so a cat's name cannot close the tag) rather than as page-wide constants, and buttons name
+their action in `data-action`, dispatched by one listener per tab, rather than calling globals
+from `onclick`, which modules do not expose.
 
 **d3 is vendored from a pinned package** (2026-09-28). The timeline's strips need a brush that
 drags by mouse and by touch, time scales and axes; d3 does all three, and hand-written dragging
@@ -614,9 +627,9 @@ directory.
 
 **Page changes are checked by screenshot** (2026-09-22). `tests/manual/check_page.py` serves the
 app with no camera from a copy of the review database and shoots `/review` with headless
-chromium at a Pixel 9's portrait size and a laptop size; `--path` shoots any address, such as a
-filtered timeline. It exists because the phone layout's
-one shipped bug, a sheet visible on load, passed every gate; only a rendered page shows a layout.
+chromium at a phone's portrait size (412 x 915) and a laptop size; `--path` shoots any address,
+such as a filtered timeline. It exists because the phone layout's one shipped bug, a sheet visible
+on load, passed every gate; only a rendered page shows a layout.
 It copies the database so it never writes the live one, and reuses the live frame cache, whose
 entries are published atomically, so it can run beside the service.
 
@@ -639,15 +652,14 @@ event is always next. Undo stays in page state; the address holds position, not 
 
 **Leaving an event cancels its strips** (2026-09-26). A strip not yet built holds a connection while
 ffmpeg decodes its clip, and a browser opens only six to one host, so an event with six or more
-uncached clips held up every other request to the server until the builds ended. On the 14-clip
-event from the unlit night of 2026-09-14, whose builds each run into the 60 s ffmpeg timeout, a
-fetch took 60 s with the strips pending and 4 ms after cancelling them (headless Chromium,
-2026-09-26). So every action that moves to another event removes the pending strips' sources before
-sending its own request, and the page does the same on `beforeunload`: Chrome sends a reload's
-request before the old document unloads, so `pagehide` comes too late. When the page stays on the
-event after all (a failed label, a Back and Forward before the fetch returned, a return from the
-back/forward cache), it requests the strips again. The build itself runs on to the end on the
-server.
+uncached clips held up every other request to the server until the builds ended. On a 14-clip
+event whose builds each ran into the 60 s ffmpeg timeout, a fetch took 60 s with the strips
+pending and 4 ms after cancelling them (headless Chromium, 2026-09-26). So every action that moves
+to another event removes the pending strips' sources before sending its own request, and the
+page does the same on `beforeunload`: Chrome sends a reload's request before the old document
+unloads, so `pagehide` comes too late. When the page stays on the event after all (a failed
+label, a Back and Forward before the fetch returned, a return from the back/forward cache), it
+requests the strips again. The build itself runs on to the end on the server.
 
 **Strips are built before the page asks** (2026-09-27, ROADMAP B.3). On its first request a strip
 costs a read of the whole clip and a keyframe decode, 1.7 s for a 96 s clip, and a multi-clip event
@@ -668,9 +680,10 @@ a 3-clip event's three strips were served in 16 ms together (2026-09-27).
 
 **An empty walk names itself and points at the queue** (2026-09-28). A phone restored an old
 `/review?filter=cat` tab, a walk that no longer holds anything because every cat visit is labelled
-by name, and the page said "Nothing left to review here" while 73 events waited in the queue; the
-only way back was a small link at the end of the counts line. An empty walk now says which walk it
-is and offers the queue as a full-size button with the number waiting (unlabelled plus staged).
+by name, and the page said "Nothing left to review here" while dozens of events waited in the
+queue; the only way back was a small link at the end of the counts line. An empty walk now says
+which walk it is and offers the queue as a full-size button with the number waiting (unlabelled
+plus staged).
 
 **The timeline filters once, on the server** (2026-09-28, ROADMAP B.6). `GET /api/timeline` takes
 the filter (label chips, a day range, an hour range, labelled-before) as its query string, which
@@ -763,12 +776,17 @@ reviewer is looking at — falls through to the first entry, and the audit silen
 oldest event instead of advancing.
 
 **Split and join are overrides on clips, not edits to events.** A split marks the clip that begins
-the new visit (`boundary = 'split'`); a join marks the first clip of the later event with the path
-of the clip it continues (`boundary = 'join'`, `joins = <path>`). Both then re-run the ordinary
-placement, so the rule and the overrides always agree and `regroup` reproduces the reviewer's
-decisions. The split's later half starts unlabeled, because it is a visit the reviewer has not
-judged; the first half keeps its id and label. A join names its target clip rather than "the
-previous event" so that interleaved boxes cannot make it land on the wrong visit.
+the new visit (`boundary = 'split'`); a join marks every clip of the two events but the earliest
+with the path of the clip before it in time (`boundary = 'join'`, `joins = <path>`). Both then
+re-run the ordinary placement, so the rule and the overrides always agree and `regroup` reproduces
+the reviewer's decisions. The split's later half starts unlabeled, because it is a visit the
+reviewer has not judged; the first half keeps its id and label. A join names its target clip
+rather than "the previous event" so that interleaved boxes cannot make it land on the wrong visit.
+It marks every clip, not only the later event's first, because placement runs in time order and
+honours a join only to a clip already placed: when two events' clips interleave (two cats, two
+boxes, at once), the later event's first clip starts before the earlier event's last, and the
+single mark it used to write was silently ignored (2026-10-03). A join that grouping still keeps
+apart is refused and rolled back rather than reported as done.
 
 **A join that touches an undated clip is refused** (2026-09-27). Grouping places only clips with a
 start time; one whose name did not parse stands alone whatever its overrides say. A join onto one
@@ -776,8 +794,9 @@ recorded an override that grouping then ignored, and the page showed a merge tha
 The API answers 409 with the reason instead.
 
 **Video is remuxed on demand, in the review server, never on the capture path.** `-c copy` into
-MP4 costs ~0.7 s for an 18 MB clip on the Pi 5 (2026-09-12) and no CPU worth mentioning; the result is cached
-like the strips. Doing it at clip close would put ffmpeg on the Pi's capture side for every clip
-whether or not anyone ever watches it. The `<video>` element uses `preload="none"` so opening an
-event does not fetch every clip. Flask's `send_file` honours `Range`, which is what lets the
-player seek; the test asserts a 206, since `Accept-Ranges` is advertised either way.
+MP4 costs ~0.7 s for an 18 MB clip on a Pi 5 (2026-09-12) and no CPU worth mentioning; the
+result is cached like the strips. Doing it at clip close would put ffmpeg on the Pi's capture
+side for every clip whether or not anyone ever watches it. The `<video>` element uses
+`preload="none"` so opening an event does not fetch every clip. Flask's `send_file` honours
+`Range`, which is what lets the player seek; the test asserts a 206, since `Accept-Ranges` is
+advertised either way.

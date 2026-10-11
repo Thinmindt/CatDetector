@@ -392,12 +392,55 @@ def test_staging_needs_a_reason_a_known_source_and_an_event(
     assert walk(client, "") == [ids[1], ids[2]]
 
 
+def test_a_peek_is_marked_shown_and_cleared_without_leaving_the_queue(
+    walks: tuple[Any, list[int]],
+) -> None:
+    client, ids = walks
+    marked = client.post(f"/api/review/{ids[1]}/peek", json={"peek": True})
+    assert marked.status_code == 200
+    assert marked.get_json()["event"]["peek"] is True
+    assert walk(client, "") == [ids[1], ids[2]]
+    rows = client.get("/api/timeline").get_json()["rows"]
+    assert {row["id"] for row in rows if row["peek"]} == {ids[1]}
+
+    client.post(f"/api/review/{ids[1]}/label", json={"value": "Ada"})
+    shown = client.get(f"/api/review/event/{ids[1]}").get_json()["event"]
+    assert (shown["label"], shown["peek"]) == ("Ada", True)
+
+    cleared = client.post(f"/api/review/{ids[1]}/peek", json={"peek": False})
+    assert cleared.get_json()["event"]["peek"] is False
+
+
+def test_a_label_that_is_not_a_cat_clears_the_peek(
+    walks: tuple[Any, list[int]],
+) -> None:
+    client, ids = walks
+    for value, kept in (("Ada", True), ("multiple", True), ("not_cat", False)):
+        client.post(f"/api/review/{ids[1]}/peek", json={"peek": True})
+        client.post(f"/api/review/{ids[1]}/label", json={"value": value})
+        shown = client.get(f"/api/review/event/{ids[1]}").get_json()["event"]
+        assert shown["peek"] is kept, value
+
+
+def test_a_peek_needs_true_or_false_and_an_event(
+    walks: tuple[Any, list[int]],
+) -> None:
+    client, ids = walks
+    for body in ({}, {"peek": "yes"}, {"peek": 1}, ["peek"]):
+        response = client.post(f"/api/review/{ids[0]}/peek", json=body)
+        assert response.status_code == 400, body
+    assert client.post("/api/review/999/peek", json={"peek": True}).status_code == 404
+    assert (
+        client.get(f"/api/review/event/{ids[0]}").get_json()["event"]["peek"] is False
+    )
+
+
 def test_a_cat_may_not_be_called_staged(db: Any, tmp_path: Path) -> None:
     with pytest.raises(ValueError, match="CAT_NAMES"):
         Review(db, ClipFrames(tmp_path / "cache"), tmp_path / "captures", ("staged",))
 
 
-# --- review API: findings from the 2026-09-21 review ------------------------
+# --- review API: findings from a code review -------------------------------
 
 
 def test_media_urls_name_the_clip_so_a_split_cannot_change_what_they_serve(

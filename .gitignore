@@ -24,7 +24,7 @@ docs/*
 !docs/ROADMAP.md
 !docs/ROADMAP_ARCHIVE.md
 
-# Agent notes about this particular Pi and its owner
+# Agent notes about this particular Pi and the person who runs it
 CLAUDE.local.md
 
 # Local agent files (skills, per-Pi state) -- never publish to the public repo

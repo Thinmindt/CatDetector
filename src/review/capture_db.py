@@ -2,6 +2,7 @@
 
 import datetime
 import fcntl
+import itertools
 import logging
 import sqlite3
 import threading
@@ -63,7 +64,23 @@ CREATE TABLE IF NOT EXISTS staged (
     staged_at TEXT NOT NULL,
     source    TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS peek (
+    clip_id  INTEGER PRIMARY KEY REFERENCES clip(id),
+    noted_at TEXT NOT NULL
+);
 """
+
+# An event is a peek while every one of its clips carries the mark.
+EVENT_IS_PEEK = (
+    "NOT EXISTS (SELECT 1 FROM clip k LEFT JOIN peek p ON p.clip_id = k.id"
+    " WHERE k.event_id = {event} AND p.clip_id IS NULL)"
+)
+EVENTS_PARTLY_PEEK = (
+    "SELECT k.event_id FROM clip k LEFT JOIN peek p ON p.clip_id = k.id"
+    " WHERE k.event_id IS NOT NULL GROUP BY k.event_id"
+    " HAVING COUNT(p.clip_id) > 0 AND COUNT(p.clip_id) < COUNT(*)"
+)
+PEEK_GREW = "a clip was grouped into this peek: is it a visit now?"
 
 # Events oldest first; those with no dated clip last.
 EVENTS_IN_ORDER = (
@@ -80,11 +97,12 @@ SELECT e.id, MIN(c.started_at) AS started_at, MAX(c.ended_at) AS ended_at,
        (SELECT f.trigger_cx FROM clip f WHERE f.event_id = e.id
         ORDER BY f.started_at IS NULL, f.started_at, f.id LIMIT 1) AS trigger_cx,
        EXISTS (SELECT 1 FROM staged s JOIN clip k ON k.id = s.clip_id
-               WHERE k.event_id = e.id) AS staged
+               WHERE k.event_id = e.id) AS staged,
+       {peek} AS peek
 FROM event e JOIN clip c ON c.event_id = e.id
 LEFT JOIN label l ON l.event_id = e.id
 GROUP BY e.id
-"""
+""".replace("{peek}", EVENT_IS_PEEK.format(event="e.id"))
 EVENTS_WITH_SEVERAL_CLIPS = (
     "SELECT event_id FROM clip WHERE event_id IS NOT NULL"
     " GROUP BY event_id HAVING COUNT(*) > 1"
@@ -146,6 +164,8 @@ class Event:
     # Poops found per box at a cleaning, from the reviewer's hand signal.
     poops: dict[int, int] = field(default_factory=dict)
     staged: Staging | None = None
+    # A cat looked in and used no box: not a visit, though it keeps its label.
+    peek: bool = False
 
     @property
     def started_at(self) -> datetime.datetime | None:
@@ -281,7 +301,7 @@ class CaptureDB:
         now = datetime.datetime.now().isoformat()
         added = sum(self._insert_new(clip, now) for clip in found)
         if added:
-            self._place_clips(keep_events=True)
+            self._place_clips(keep_events=True, by_reviewer=False)
         self._conn.commit()
         return added
 
@@ -320,7 +340,7 @@ class CaptureDB:
                 f"{self.path} is open in another process; stop it before regrouping"
             ) from None
         try:
-            self._place_clips(keep_events=False)
+            self._place_clips(keep_events=False, by_reviewer=False)
             self._conn.commit()
         finally:
             fcntl.flock(self._holder, fcntl.LOCK_SH)
@@ -339,7 +359,7 @@ class CaptureDB:
             "UPDATE clip SET boundary = ?, joins = NULL WHERE id = ?",
             (Boundary.SPLIT.value, clip_id),
         )
-        self._place_clips(keep_events=True)
+        self._place_clips(keep_events=True, by_reviewer=True)
         moved = self._conn.execute(
             "SELECT event_id FROM clip WHERE id = ?", (clip_id,)
         ).fetchone()
@@ -363,19 +383,41 @@ class CaptureDB:
         this, following = self.get(event_id), self.get(next_id)
         if this is None or following is None:
             return None
+        joined = self._merge(this, following)
+        self._conn.commit()
+        return joined
+
+    def _merge(self, this: Event, following: Event) -> Event:
+        """Make each clip continue the one before it in time, then place them.
+
+        The events' clips can interleave, and an override naming a later clip is
+        never honoured, so the first clip of the later event is not enough.
+        Raises JoinRefusedError, with nothing changed, if they cannot be grouped.
+        """
         for event in (this, following):
             if event.started_at is None:
                 raise JoinRefusedError(
                     f"#{event.id} has a clip with no start time, so it cannot be"
                     " grouped with another"
                 )
-        self._conn.execute(
-            "UPDATE clip SET boundary = ?, joins = ? WHERE id = ?",
-            (Boundary.JOIN.value, this.clips[-1].path, following.clips[0].id),
+        merged = sorted(
+            (*this.clips, *following.clips), key=lambda c: (c.started_at, c.path)
         )
-        self._place_clips(keep_events=True)
-        self._conn.commit()
-        return self.get(min(event_id, next_id))
+        self._conn.executemany(
+            "UPDATE clip SET boundary = ?, joins = ? WHERE id = ?",
+            [
+                (Boundary.JOIN.value, earlier.path, clip.id)
+                for earlier, clip in itertools.pairwise(merged)
+            ],
+        )
+        self._place_clips(keep_events=True, by_reviewer=True)
+        joined = self.get(min(this.id, following.id))
+        if joined is None or len(joined.clips) != len(merged):
+            self._conn.rollback()
+            raise JoinRefusedError(
+                f"#{this.id} and #{following.id} could not be grouped"
+            )
+        return joined
 
     @serialized
     def next_multi(self, after_id: int | None) -> Event | None:
@@ -426,7 +468,7 @@ class CaptureDB:
     def _event_ids_in_order(self) -> list[int]:
         return [int(row["id"]) for row in self._conn.execute(EVENTS_IN_ORDER)]
 
-    def _place_clips(self, keep_events: bool) -> None:
+    def _place_clips(self, keep_events: bool, *, by_reviewer: bool) -> None:
         remembered = self._labels_by_clip()
         if not keep_events:
             self._conn.execute("UPDATE clip SET event_id = NULL")
@@ -440,6 +482,22 @@ class CaptureDB:
             )
         self._drop_empty_events()
         self._relabel(remembered)
+        self._settle_peeks(stage=not by_reviewer)
+
+    def _settle_peeks(self, *, stage: bool) -> None:
+        """Clear the mark from events that gained an unmarked clip, so a later
+        split cannot revive it; staged unless the reviewer made the change."""
+        partly = [
+            int(row["event_id"]) for row in self._conn.execute(EVENTS_PARTLY_PEEK)
+        ]
+        for event_id in partly:
+            clip_ids = self._clip_ids(event_id)
+            self._conn.execute(
+                f"DELETE FROM peek WHERE clip_id IN ({self._marks(clip_ids)})",  # noqa: S608 -- placeholders, not values
+                clip_ids,
+            )
+            if stage and event_id in self._labeled_event_ids(None):
+                self._stage(event_id, Staging(PEEK_GREW, self._now(), "grouping"))
 
     def _grouped_paths(self) -> list[list[str]]:
         """Clip paths grouped by the rule. Clips with no start time stand alone."""
@@ -579,6 +637,7 @@ class CaptureDB:
             clips=clips,
             poops=self._poop_counts(clip_ids),
             staged=self._staging(clip_ids),
+            peek=self._is_peek(event_id),
         )
 
     @serialized
@@ -647,6 +706,7 @@ class CaptureDB:
                 labeled_at=_when(row["labeled_at"]),
                 trigger_cx=row["trigger_cx"],
                 staged=bool(row["staged"]),
+                peek=bool(row["peek"]),
             )
             for row in self._conn.execute(TIMELINE_ROWS)
         ]
@@ -689,6 +749,37 @@ class CaptureDB:
             clip_ids,
         ).fetchone()
         return None if row is None else Staging(*row)
+
+    @serialized
+    def set_peek(self, event_id: int, peek: bool) -> bool:
+        """Mark an event as a peek, or clear the mark. Returns False if there is
+        no such event.
+
+        Written on every clip, so the event is a peek only while all its clips are.
+        """
+        clip_ids = self._clip_ids(event_id)
+        if not clip_ids:
+            return False
+        if peek:
+            noted_at = self._now()
+            self._conn.executemany(
+                "INSERT OR IGNORE INTO peek (clip_id, noted_at) VALUES (?, ?)",
+                [(clip_id, noted_at) for clip_id in clip_ids],
+            )
+        else:
+            self._conn.execute(
+                f"DELETE FROM peek WHERE clip_id IN ({self._marks(clip_ids)})",  # noqa: S608 -- placeholders, not values
+                clip_ids,
+            )
+        self._conn.commit()
+        return True
+
+    def _is_peek(self, event_id: int) -> bool:
+        if not self._clip_ids(event_id):
+            return False
+        query = f"SELECT {EVENT_IS_PEEK.format(event='?')} AS peek"
+        row = self._conn.execute(query, (event_id,)).fetchone()
+        return bool(row["peek"])
 
     @staticmethod
     def _now() -> str:

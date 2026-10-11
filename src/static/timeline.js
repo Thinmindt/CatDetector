@@ -273,7 +273,8 @@ function rowHtml(row) {
   }
   return `<tr><td><a href="/review/${row.id}">${timeTag(row.started_at)}</a></td>` +
     `<td><span class="swatch" style="background:${colour(chip)}"></span>` +
-    `${escaped(chip.replace('_', ' '))}</td><td>${row.box ?? '?'}</td>` +
+    `${escaped(chip.replace('_', ' '))}${row.peek ? '<br><span class="note">peek</span>' : ''}</td>` +
+    `<td>${row.box ?? '?'}</td>` +
     `<td>${length(row.seconds)}</td><td>${row.clips}</td><td>${stage}</td></tr>`;
 }
 

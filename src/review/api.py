@@ -79,6 +79,11 @@ class Review:
             return FIXED_LABELS
         return (*FIXED_LABELS, *self.cat_names, MULTIPLE)
 
+    @property
+    def cat_labels(self) -> tuple[str, ...]:
+        """The labels that say a cat was there: only these may be a peek."""
+        return ("cat", *self.cat_names, MULTIPLE) if self.cat_names else ("cat",)
+
     def queue_changed(self) -> None:
         """Ready the strips of whatever the queue now holds next."""
         if self.ahead is not None:
@@ -158,6 +163,7 @@ def timeline_payload(timeline: Timeline) -> dict[str, Any]:
                 "label": row.label,
                 "box": row.box,
                 "staged": row.staged,
+                "peek": row.peek,
             }
             for row in timeline.rows[:TIMELINE_ROWS_SENT]
         ],
@@ -219,9 +225,12 @@ class ReviewPages:
         value = request_body().get("value")
         if value not in self.labels:
             return error(f"value must be one of {self.labels}", 400)
-        if self.db.get(event_id) is None:
+        event = self.db.get(event_id)
+        if event is None:
             return no_such_event()
         self.db.set_label(event_id, value)
+        if event.peek and value not in self.review.cat_labels:
+            self.db.set_peek(event_id, False)
         self.review.queue_changed()
         return jsonify({"ok": True, "counts": self.db.counts()})
 
@@ -276,6 +285,15 @@ class ReviewPages:
         if counts is None:
             return error(f"counts must be {{box: n}} for {BOXES}", 400)
         self.db.set_poop_counts(event_id, counts)
+        return self._event_payload(self.db.get(event_id))
+
+    def set_peek(self, event_id: int) -> ResponseReturnValue:
+        """Mark the event as a peek, or clear the mark."""
+        peek = request_body().get("peek")
+        if not isinstance(peek, bool):
+            return error("peek must be true or false", 400)
+        if not self.db.set_peek(event_id, peek):
+            return no_such_event()
         return self._event_payload(self.db.get(event_id))
 
     def split(self, event_id: int) -> ResponseReturnValue:
@@ -346,6 +364,7 @@ class ReviewPages:
                 "label": event.label,
                 "poops": event.poops,
                 "staged": event.staged._asdict() if event.staged else None,
+                "peek": event.peek,
                 "clips": [
                     {
                         "id": clip.id,
@@ -371,6 +390,7 @@ def create_review_blueprint(review: Review) -> Blueprint:
         ("label", pages.set_label),
         ("stage", pages.stage),
         ("counts", pages.set_counts),
+        ("peek", pages.set_peek),
         ("split", pages.split),
         ("join", pages.join),
     ):

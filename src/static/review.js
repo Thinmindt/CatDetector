@@ -82,12 +82,22 @@ function show(data) {
     showDone(data.counts);
     return;
   }
+  showMeta();
+  document.getElementById('clips').innerHTML =
+    current.clips.map((c, i) => clipBlock(c, i ? current.clips[i - 1] : null)).join('');
+  restoreTiles();
+  padForBar();
+}
+
+// The line above the clips, and the sheet's buttons that depend on the event.
+function showMeta() {
   const poops = Object.entries(current.poops || {});
   const found = poops.length
     ? ` <span class="label">poops ${poops.map(([b, n]) => `box${b}: ${n}`).join(', ')}</span>`
     : '';
   const badge = current.label
     ? ` <span class="label">${escaped(current.label)}</span>${found}` : '';
+  const peek = current.peek ? ' <span class="label">peek, not a visit</span>' : '';
   const staged = current.staged
     ? ` <span class="warn">back for review (${escaped(current.staged.source)}):` +
       ` ${escaped(current.staged.reason)}</span>` : '';
@@ -96,12 +106,10 @@ function show(data) {
     ? ` <span class="warn">${n} clips grouped as one visit</span>` : '';
   document.getElementById('meta').innerHTML =
     `#${current.id} &mdash; ${timeTag(current.started_at)} &rarr; ` +
-    `${hms(current.ended_at)}${badge}${staged}${grouped}`;
-  document.getElementById('clips').innerHTML =
-    current.clips.map((c, i) => clipBlock(c, i ? current.clips[i - 1] : null)).join('');
+    `${hms(current.ended_at)}${badge}${peek}${staged}${grouped}`;
   document.getElementById('restage').hidden = !current.label;
-  restoreTiles();
-  padForBar();
+  document.getElementById('peektext').textContent = current.peek
+    ? 'a visit after all, not a peek' : 'a peek: looked in, used no box';
 }
 
 // An empty walk says which walk it is and how many events wait in the queue.
@@ -335,6 +343,28 @@ async function restage() {
   }
 }
 
+// A peek keeps its label but is not a visit. The page stays on the event, its
+// tiles and any video untouched, while the reviewer picks the cat.
+async function togglePeek() {
+  if (!current || busy) return;
+  closeSheet();
+  setBusy(true);
+  const id = current.id;
+  try {
+    const data = await post(`/api/review/${id}/peek`, {peek: !current.peek});
+    if (!data.event) {
+      alert(data.error || 'Could not mark this event.');
+      return;
+    }
+    if (current?.id !== id) return;  // the page moved on meanwhile
+    current = data.event;
+    showMeta();
+    snack(`#${id}: ${current.peek ? 'a peek, not a visit' : 'a visit'}`);
+  } finally {
+    setBusy(false);
+  }
+}
+
 function watch(index) {
   const video = document.getElementById(`v${index}`);
   if (!video.src) video.src = clipUrl(current.clips[index], 'video.mp4');
@@ -369,6 +399,7 @@ function onKey(e) {
   else if (e.key === 'm' && CONFIG.cats.length) label('multiple');
   else if (e.key === 'l') startClean();
   else if (e.key === 'n') label('not_cat');
+  else if (e.key === 'p') togglePeek();
   else if (e.key === 'u') label('unsure');
   else if (e.key === 'z') undo();
   else if (e.key === 'ArrowRight' && WALKING) load();
@@ -392,6 +423,7 @@ export function initReview() {
     undo,
     join,
     restage,
+    peek: togglePeek,
     next: load,
     rescan,
     more: openSheet,
