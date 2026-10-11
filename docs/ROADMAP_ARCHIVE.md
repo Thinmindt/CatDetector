@@ -966,6 +966,20 @@ Moved 2026-10-08: the three finished items.
       - each figure a summary quotes from the code is built from the constant
         behind it.
 
+Moved 2026-10-11: the install job passed its first run on GitHub that day.
+
+- [x] **The README's install runs on a clean machine.** CI's own setup was not
+  the README's: it
+      installed `libgl1` and never ran the README's commands, so a missing
+      package or step passed unnoticed (whether `libcap-dev` is needed has been
+      open since 2026-09-26). `.github/workflows/install.yml` now runs them; its
+      first run on GitHub is what remains. **Done means** a CI job on a clean
+      Debian trixie, as an ordinary user with `sudo`, runs the README's install
+      commands as written, less only what needs a Pi (the camera package) and
+      the clone CI has already made, then runs the tests; a script extracts the
+      commands from the README, with a test, so a README change is what the job
+      runs; and the job has passed on GitHub.
+
 ---
 
 # Risks and open questions

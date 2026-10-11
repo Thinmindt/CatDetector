@@ -26,7 +26,7 @@ pipeline twice.
 
 ## Where things stand
 
-As of 2026-10-08.
+As of 2026-10-11.
 
 **Built:**
 
@@ -39,13 +39,12 @@ As of 2026-10-08.
 - the timeline (B.6);
 - `--calibrate`, which counts a data run and proposes its settings (A.2);
 - checks that hold the documents to the code: links, citations, settings and the
-  figures they quote (C.8).
+  figures they quote, and a CI job that installs from the README on a clean
+  Debian (C.8).
 
 **Under way:**
 
-- the data run that gives the first calibrated threshold (A.2);
-- a CI job that installs from the README on a clean Debian, waiting for its
-  first run on GitHub (C.8).
+- the data run that gives the first calibrated threshold (A.2).
 
 What the open items wait on, as their entries below state it; an arrow points at
 the item that needs it:
@@ -706,17 +705,6 @@ contributor exists yet, so stand-ins play the stranger: a clean Debian container
 installs from the README, and an agent started with no memory of the project
 reads the documents cold.
 
-- [ ] **The README's install runs on a clean machine.** CI's own setup was not
-  the README's: it
-      installed `libgl1` and never ran the README's commands, so a missing
-      package or step passed unnoticed (whether `libcap-dev` is needed has been
-      open since 2026-09-26). `.github/workflows/install.yml` now runs them; its
-      first run on GitHub is what remains. **Done means** a CI job on a clean
-      Debian trixie, as an ordinary user with `sudo`, runs the README's install
-      commands as written, less only what needs a Pi (the camera package) and
-      the clone CI has already made, then runs the tests; a script extracts the
-      commands from the README, with a test, so a README change is what the job
-      runs; and the job has passed on GitHub.
 - [ ] **A first week, as a tutorial.**
       **Done means** a tracked page walks a stranger from a working install to
       the first labeled visit and a look at the timeline, linked from the
