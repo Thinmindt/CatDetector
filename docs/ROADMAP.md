@@ -435,6 +435,12 @@ Next:
       start; a Review tab showing an empty queue picks up the new event without
       a reload; and the interval is in the README's settings table, whose "New
       clips appear after a rescan" says instead when they appear.
+- [ ] **A sidecar that could not be read is read again.** Ingest never reads a
+      known path twice. One failed read from the share leaves a clip
+      `recovered` for good, with a guessed end and no position. **Done means**
+      a clip registered without its sidecar takes the sidecar's facts on a
+      later scan, and a test shows a read that failed once succeeding on the
+      next scan.
 
 Non-goals for v1: multi-user, accounts, editing bounding boxes by hand.
 
