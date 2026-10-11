@@ -47,6 +47,10 @@ class Config:
         name.strip() for name in os.getenv("CAT_NAMES", "").split(",") if name.strip()
     )
 
+    # Optional. A URL the detector GETs once a minute while the camera delivers
+    # frames, for a dead man's switch set up outside this project. Off when unset.
+    CAPTURE_HEARTBEAT_URL = os.getenv("CAPTURE_HEARTBEAT_URL")
+
     # Local disk, never the share: SQLite locking is unreliable over CIFS.
     DB_PATH = os.getenv("DB_PATH", "captures.db")
     REVIEW_CACHE_DIR = os.getenv("REVIEW_CACHE_DIR", ".review_cache")

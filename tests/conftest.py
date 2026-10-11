@@ -12,6 +12,7 @@ import importlib.util
 import subprocess
 import sys
 import threading
+import time
 import types
 from collections.abc import Callable, Iterator
 from pathlib import Path
@@ -54,6 +55,15 @@ needs_real_picamera2 = pytest.mark.skipif(
 
 MAIN_SIZE = (720, 1280)
 LORES_SIZE = (480, 640)
+
+
+def wait_for(predicate: Callable[[], bool], timeout: float = 5.0) -> bool:
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if predicate():
+            return True
+        time.sleep(0.01)
+    return False
 
 
 def make_frame(shape: tuple[int, int] = LORES_SIZE, value: int = 0) -> Frame:
@@ -127,6 +137,9 @@ class FakePicamera2:
         self.stop_recording_calls = 0
         self.capture_array_calls = 0
         self.capture_arrays_calls = 0
+        # Cleared, capture_arrays() blocks as a timed-out camera frontend does.
+        self.delivering = threading.Event()
+        self.delivering.set()
         self._tick = 0
 
     def create_video_configuration(self, **kwargs: Any) -> dict[str, Any]:
@@ -152,6 +165,7 @@ class FakePicamera2:
 
         Returns (arrays, metadata) -- not a bare list.
         """
+        self.delivering.wait(timeout=30)
         self.capture_arrays_calls += 1
         self._tick = (self._tick + 1) % 256
         wanted = names if names is not None else ["main"]

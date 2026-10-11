@@ -73,11 +73,7 @@ class ClipTransfer:
             self._stop.wait(self.scan_interval)
 
     def _share_is_ready(self, waiting: int) -> bool:
-        """Whether the share is mounted, logging only when that changes.
-
-        Writing to an absent mountpoint would put clips on the SD card, where the
-        share hides them the moment it mounts.
-        """
+        """Whether the share is mounted, logging only when that changes."""
         ready = os.path.ismount(self.share_root)
         if ready and not self._share_was_ready:
             log.info("%s is back; shipping %d clip(s)", self.share_root, waiting)

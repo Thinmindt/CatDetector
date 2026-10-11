@@ -55,8 +55,8 @@ class OpenClip:
 class _ResilientCircularOutput(CircularOutput):  # type: ignore[misc]
     """CircularOutput that drops frames instead of raising into picamera2.
 
-    Both methods run on the encoder's poll thread. That thread is the only one
-    that returns camera buffers, so an exception escaping it starves the camera.
+    Both methods run on picamera2's encoder output thread, the camera event loop
+    on a Pi 5; an exception escaping it freezes capture.
     """
 
     def begin(self, path: Path) -> None:

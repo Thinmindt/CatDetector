@@ -1,4 +1,5 @@
 import logging
+import os
 import pathlib
 import signal
 import sys
@@ -8,6 +9,7 @@ from types import FrameType
 
 from config import Config
 from src.capture.camera_manager import CameraManager
+from src.capture.capture_heartbeat import CaptureHeartbeat, http_ping
 from src.capture.clip_transfer import ClipTransfer
 from src.capture.motion_detector import MotionDetector
 from src.capture.motion_metrics import MetricsLog
@@ -21,6 +23,10 @@ from src.web_app import WEB_PORT, create_app, run
 
 log = logging.getLogger(__name__)
 
+CAPTURE_STALL_SECONDS = 10.0
+STALL_EXIT_DEADLINE_SECONDS = 60.0
+EXIT_CAPTURE_STALLED = 1
+
 
 def _exit_on_sigterm(signum: int, frame: FrameType | None) -> None:  # noqa: ARG001 -- signature fixed by signal.signal
     """Leave through monitor()'s cleanup, as Ctrl-C does. Later SIGTERMs are ignored."""
@@ -29,29 +35,78 @@ def _exit_on_sigterm(signum: int, frame: FrameType | None) -> None:  # noqa: ARG
     raise SystemExit(0)
 
 
+def check_capture(camera_manager: CameraManager) -> None:
+    """Exit through monitor()'s cleanup if the capture loop has stopped."""
+    stalled = camera_manager.seconds_since_last_frame()
+    if stalled > CAPTURE_STALL_SECONDS:
+        log.error(
+            "No frame for %.0f s from the capture loop; exiting to be restarted",
+            stalled,
+        )
+        leave_after_stall()
+
+
+def leave_after_stall() -> None:
+    """Exit 1 through the usual cleanup, or without it once the deadline passes."""
+    signal.signal(signal.SIGTERM, signal.SIG_IGN)
+    deadline = threading.Timer(STALL_EXIT_DEADLINE_SECONDS, _force_exit)
+    deadline.daemon = True
+    deadline.start()
+    raise SystemExit(EXIT_CAPTURE_STALLED)
+
+
+def _force_exit() -> None:
+    """End the process now, skipping cleanup that may wait on the camera."""
+    log.error(
+        "Shutdown after the stall took over %.0f s; exiting without it",
+        STALL_EXIT_DEADLINE_SECONDS,
+    )
+    for handler in logging.getLogger().handlers:
+        handler.flush()
+    os._exit(EXIT_CAPTURE_STALLED)
+
+
 def monitor(
     camera_manager: CameraManager,
     motion_recorder: MotionRecorder | None = None,
     clip_transfer: ClipTransfer | None = None,
+    heartbeat: CaptureHeartbeat | None = None,
 ) -> None:
     """Start monitoring by starting frame distribution"""
     log.info("Starting motion monitoring with circular buffer...")
     signal.signal(signal.SIGTERM, _exit_on_sigterm)
     try:
         camera_manager.start_frame_distribution()
-
-        # Keep main thread alive
-        while True:
-            time.sleep(1)
-
+        if heartbeat:
+            heartbeat.start()
+        watch_capture(camera_manager)
     except KeyboardInterrupt:
         log.info("Monitoring stopped by user")
     finally:
-        camera_manager.stop_frame_distribution()
-        if motion_recorder:
-            motion_recorder.cleanup()
-        if clip_transfer:
-            clip_transfer.stop()
+        shut_down(camera_manager, motion_recorder, clip_transfer, heartbeat)
+
+
+def watch_capture(camera_manager: CameraManager) -> None:
+    """Block until a signal, or until check_capture ends the process."""
+    while True:
+        time.sleep(1)
+        check_capture(camera_manager)
+
+
+def shut_down(
+    camera_manager: CameraManager,
+    motion_recorder: MotionRecorder | None,
+    clip_transfer: ClipTransfer | None,
+    heartbeat: CaptureHeartbeat | None,
+) -> None:
+    """Stop the producer first, then everything it feeds."""
+    camera_manager.stop_frame_distribution()
+    if motion_recorder:
+        motion_recorder.cleanup()
+    if clip_transfer:
+        clip_transfer.stop()
+    if heartbeat:
+        heartbeat.stop()
 
 
 def build_metrics() -> MetricsLog | None:
@@ -97,6 +152,26 @@ def build_transfer(local_clips: pathlib.Path, share: pathlib.Path) -> ClipTransf
     )
     transfer.start()
     return transfer
+
+
+def build_heartbeat(
+    camera_manager: CameraManager, recorder: MotionRecorder | None
+) -> CaptureHeartbeat | None:
+    """A heartbeat if CAPTURE_HEARTBEAT_URL is set and usable and clips are
+    being recorded, otherwise None."""
+    if not Config.CAPTURE_HEARTBEAT_URL:
+        return None
+    if recorder is None:
+        log.warning("Capture heartbeat off: the recorder is not running")
+        return None
+    try:
+        send = http_ping(Config.CAPTURE_HEARTBEAT_URL)
+    except ValueError as error:
+        log.warning("Capture heartbeat off: %s", error)
+        return None
+    return CaptureHeartbeat(
+        camera_manager.seconds_since_last_frame, send, CAPTURE_STALL_SECONDS
+    )
 
 
 def open_db() -> CaptureDB:
@@ -164,4 +239,5 @@ if __name__ == "__main__":
     log.info("Starting cat detector with shared camera")
     log.info("Live feed and review at http://<pi-ip>:%d", WEB_PORT)
 
-    monitor(camera_manager, recorder, transfer)
+    heartbeat = build_heartbeat(camera_manager, recorder)
+    monitor(camera_manager, recorder, transfer, heartbeat)

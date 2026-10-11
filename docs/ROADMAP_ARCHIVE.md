@@ -14,11 +14,26 @@ Moved 2026-09-26.
 
 **Hardware/platform facts** (measured 2026-08-24): Raspberry Pi 5, no Hailo accelerator, so any
 *on-Pi* inference would be CPU. Local disk is ext4 with ~210 GB free. `/mnt/nas` is a **CIFS**
-share (~497 GB free) — this matters for storage decisions in B2. Jetson model and JetPack version are not yet recorded; JetPack pins its own Python (3.10 on
+share (~497 GB free) — this matters for storage decisions in B2 [B.2]. Jetson model and JetPack version are not yet recorded; JetPack pins its own Python (3.10 on
 JetPack 6) and PyTorch comes from NVIDIA's wheels, so the training environment is separate from
 this repo's `==3.13.*` pin and should not try to share it.
 
 Status: written 2026-08-24, after fixing clip saving and the startup false trigger.
+
+Moved 2026-09-26: the reasoning behind the hardware split. The roadmap keeps the split as this
+installation's choice; C.7 makes training hardware a choice for any installation.
+
+**Hardware split (decided 2026-08-24).** The **Pi stays the capture box** and the **Jetson does
+training and inference**. The Pi's camera stack is the reason: `picamera2`/`libcamera` are
+Raspberry Pi-specific (the `rpi/pisp` pipeline handler and `rp1-cfe` driver), and Jetson uses
+NVIDIA's Argus stack instead — porting means rewriting `camera_manager.py` and the encoder path
+in `motion_recorder.py`, i.e. every line that touches hardware, and likely a different camera
+module too. Nothing is gained for capture. Everything downstream of a JPEG crop is portable, and
+CUDA turns "fine-tune overnight" into minutes. So crops and labels move to the Jetson; frames
+never do.
+
+Consequence for B.5: training is off-device by design, and the crop/label store must be readable
+from the Jetson — the NAS share is the natural handoff point.
 
 ---
 
@@ -196,6 +211,12 @@ the trigger; that is the size band, still open.
       one blob.
 - [x] `cv2.findContours`, take the largest contour's area instead of a global count.
 
+Moved 2026-09-26: folded into B.1's crops, which carry one box per crop.
+
+- [ ] **Keep the bounding box.** Part B needs it as the training crop. The sidecar already records
+      the trigger and last blobs with their boxes; the crops need one per sampled frame, stored
+      per event (B.1).
+
 ## A.4 One visit, one event, even across several clips
 
 Moved 2026-09-26: the plan as agreed on 2026-09-12. Steps 1–4 are built; step 5 carries on in
@@ -251,9 +272,48 @@ seen as of 2026-09-12, but possible.
 `MOTION_TIMEOUT` (10 s) and `MOG2_HISTORY` (500 frames, ~17 s) still decide where clips split.
 They are environment settings now, so a data run can try other values without code changes.
 
+## A.6 Keep capturing
+
+Moved 2026-09-26. Built as `src/capture/capture_heartbeat.py`, under the name
+`CAPTURE_HEARTBEAT_URL`, a plain GET so that no one service is required; the README says the
+check is set up outside this project.
+
+- [x] **Alert when capture stops.** The Pi's heartbeat proves the Pi is up, not that the camera
+      is: the 3 h 46 min stall pinged every minute. The detector pings its own dead man's switch
+      (an optional `HEALTHCHECK_URL`), from a worker thread, and only while frames are arriving,
+      so a stall, a restart loop or a stopped service each goes quiet.
+      **Done means** a test sees the ping stop when frames stop and resume when they resume,
+      the ping never runs on the capture thread, and the README's Configuration section
+      describes the setting.
+
+Moved 2026-09-27: done.
+
+- [x] **Restart on a capture stall.** When no frame has arrived for 10 s, the detector logs an
+      error, shuts down through the usual cleanup and exits non-zero, so systemd restarts it. A
+      camera that stays dead restarts every ~35 s indefinitely, which is the right failure for
+      recall: it keeps trying and the journal shows every attempt.
+      **Done means** a test with a camera whose capture blocks sees the process exit non-zero
+      through the same cleanup as SIGTERM, a test sees no exit while frames arrive, and the
+      service runs on the Pi for 24 h with no stall restart.
+      Done 2026-09-27: the tests are in `tests/test_main.py`. The service ran this code on the Pi
+      from 2026-09-26 16:50:58 with no restart: in the 30 h to 2026-09-27 22:53 the metrics CSV
+      holds 3.24 million frames at 30.00 fps, the longest gap between them 0.68 s, and the
+      journal has no stall line.
+
 ---
 
 # Part B — knowing which cat
+
+## B.1 Capture the right data
+
+Moved 2026-09-26. The metadata was already kept: the sidecar and the `clip` table hold each clip's
+times, path, and trigger and last blobs with their boxes; per-crop boxes go with the crops. The
+full frame was dropped: the review side already takes full frames from the clip, so capturing one
+at record time would duplicate it.
+
+- [x] Metadata per event: start/end time, clip path, frame count, contour area, bbox.
+- [ ] One **full frame** per event for context, so a human reviewing an ambiguous crop can
+      see what was actually going on. (Dropped.)
 
 ## B.2 Storage
 
@@ -310,6 +370,10 @@ without one overwriting the other — which is what makes B.6's review-the-model
 
 Since 2026-09-11 a visit may span several clips, so the clip is its own table and `event` is the
 grouping; the full plan is in A.4.
+
+Moved 2026-09-26: folded into B.1's crops, with the box per crop added.
+
+- [ ] A `crop` table for B.1: event, path on the NAS, when it was captured.
 
 ## B.3 Labeling UI
 
@@ -432,6 +496,38 @@ like everything else until the boxes are lit.
 - [x] A per-box count on that event: three small number fields, `Enter` saves and moves on. Done
       2026-09-16; stored against a clip, so a regroup cannot strand them (see DESIGN.md).
 
+## B.6 The payoff
+
+Moved 2026-09-26: not a task. The goal paragraph and B.5b already say it.
+
+- [ ] Maybe later: tell poop from pee. It looks hard and unreliable, so no alert should depend on
+      it.
+
+---
+
+# Part C — any installation
+
+## C.2 What every installation needs
+
+Moved 2026-09-26.
+
+- [x] **Light around the clock is a requirement**, stated in the README. Done 2026-09-26.
+- [x] **pi-tools is suggested in the README** for what the project cannot do itself: logging
+      power and heat, bringing a Pi 5 back after a power-off, and alerting when the Pi goes
+      quiet. Done 2026-09-26.
+
+## C.7 Choices to make options, flagged for the next developer
+
+Moved 2026-09-26.
+
+- [x] The README's list of gates leaves out node and the JavaScript lint. Done 2026-09-26.
+
+Moved 2026-09-26: not a task; it is now prose in B.5.
+
+- [ ] Training hardware is a choice: the plan names the Jetson (B.5), but any machine with a GPU,
+      a Hailo accelerator, or a CPU for a small model will do. Keep the handoff (crops and labels
+      on the share) the only contract.
+
 ---
 
 # Risks and open questions
@@ -451,7 +547,7 @@ cats without any neural network.
   is identified by name, and the number is not the app's to know. `CAT_NAMES` is a list of any
   length, set per installation (B.3); the code never assumes a count.
 - Is the floor around the box plain, or patterned/reflective in ways that fight background
-  subtraction?
+  subtraction? (still open, see the roadmap)
 - Consistent lighting, or does daylight sweep across it?
 
 ---
@@ -484,7 +580,7 @@ wanted rather than required.
   main.py sets the root to WARNING and only this application's loggers to INFO; keep it that
   way, since a blanket INFO root makes picamera2 narrate every state change.
   For the unit, consider `StandardOutput=journal` and dropping the timestamp from the format,
-  since journald adds its own.
+  since journald adds its own. (carried to the roadmap 2026-09-26)
 - **SIGTERM runs the same cleanup as Ctrl-C** (done 2026-09-11, verified on hardware 2026-09-12).
   `kill -TERM` mid-clip logged "Received SIGTERM", stopped saving, promoted the clip to its final
   name and flushed the metrics.

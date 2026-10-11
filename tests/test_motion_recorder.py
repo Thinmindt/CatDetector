@@ -205,8 +205,8 @@ def test_cleanup_closes_an_open_clip(recorder: Any) -> None:
 def test_draining_a_clip_does_not_block_the_caller(recorder: Any) -> None:
     """Regression: CircularOutput.stop() drains the whole ring buffer to disk.
 
-    Inline on the capture thread that stalls frame distribution -- and
-    picamera2's event loop with it -- for a multi-megabyte network write.
+    Inline on the capture thread that stalls frame distribution for the
+    length of the write.
     """
     recorder._start_saving()
     drained = threading.Event()
@@ -313,9 +313,9 @@ def test_timeout_survives_a_wall_clock_step(
 def test_storage_errors_never_escape_to_picamera2() -> None:
     """Regression, exercised against the real class rather than the fake.
 
-    Clip bytes are written on the encoder's poll thread, the only one that
-    returns camera buffers. The base CircularOutput only catches connection
-    errors, so an OSError from the share would kill it and freeze every capture.
+    Clip bytes are written on picamera2's encoder output thread. The base
+    CircularOutput only catches connection errors, so an OSError from the disk
+    would kill that thread and freeze every capture.
     """
 
     class ExplodingFile:
@@ -499,8 +499,8 @@ def test_each_way_a_clip_can_close_is_named(recorder: Any) -> None:
 def test_outputframe_survives_the_ring_draining_mid_frame() -> None:
     """stop() can empty the ring between a frame's append and its popleft.
 
-    The exception would otherwise kill the encoder's poll thread, which is the
-    only one that returns camera buffers.
+    The exception would otherwise kill picamera2's encoder output thread and
+    freeze every capture.
     """
 
     class DrainedRing:
