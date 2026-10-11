@@ -1,10 +1,10 @@
 """Screenshot the review page at phone and desktop sizes, with no camera.
 
-Run by hand -- `uv run python tests/manual/check_page.py [--filter multi]`. It
-serves the app from a copy of the review database on a spare port, shoots it
-with headless chromium, and writes test_images/page-<size>.png. It does not
-touch the camera or the live database, so it runs beside the service. Named
-check_*.py so pytest never collects it.
+Run by hand -- `uv run python tests/manual/check_page.py [--filter multi]
+[--event 42]`. It serves the app from a copy of the review database on a spare
+port, shoots it with headless chromium, and writes test_images/page-<size>.png.
+It does not touch the camera or the live database, so it runs beside the
+service. Named check_*.py so pytest never collects it.
 
 This one keeps print() rather than logging: it is a standalone script whose
 output is the point, not a component of the running application.
@@ -86,15 +86,18 @@ def screenshot(url: str, size: str, output: Path) -> None:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--filter", help="a ?filter= value, e.g. multi or labeled")
+    parser.add_argument("--event", type=int, help="open this event, as a link would")
     args = parser.parse_args()
     query = f"?filter={args.filter}" if args.filter else ""
+    path = f"/review/{args.event}" if args.event else "/review"
 
     with tempfile.TemporaryDirectory() as scratch:
         db_copy = Path(scratch) / "captures.db"
         shutil.copy(Config.DB_PATH, db_copy)
         threading.Thread(target=serve, args=(db_copy,), daemon=True).start()
-        url = f"http://127.0.0.1:{PORT}/review{query}"
+        url = f"http://127.0.0.1:{PORT}{path}{query}"
         wait_for(url)
+        print(f"address: {path}{query}")
         OUTPUT_DIR.mkdir(exist_ok=True)
         for name, size in SIZES.items():
             output = OUTPUT_DIR / f"page-{name}.png"

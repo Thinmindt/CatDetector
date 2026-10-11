@@ -91,6 +91,9 @@ uv run python tests/manual/check_page.py     # screenshot the review page, phone
 METRICS_CSV=$HOME/metrics.csv uv run python main.py          # + per-frame detection metrics
 
 uv run python main.py --regroup              # rebuild every event from the current thresholds, then exit
+                                             # (refused while the service has the database: stop it first)
+uv run python main.py --stage --label not_cat --labeled-before 2026-09-20 --reason "..."
+                                             # put labelled events back in the review queue; runs beside the service
 ```
 
 The web UI is **one Flask app on one port** ([src/web_app.py](src/web_app.py)): a page with a
@@ -110,17 +113,26 @@ rebuilds every event from the current thresholds: ids change, labels follow thei
 The review page shows every clip of an event and lets the reviewer split an event at a clip or
 join it with the next; those are stored as overrides on the clips (`boundary`, `joins`) and
 survive a `regroup`. `/review?filter=multi` walks the multi-clip events; `?filter=labeled` or
-`?filter=<label>` walks the events already labelled, for auditing and relabelling. Each clip is
-shown as a grid of tiles spanning the whole file, cut client-side from its cached strip image:
-one per second up to `MAX_TILES`, sparser beyond that (`tile_seconds`), the offset drawn into
-each tile. The stride is derived from the clip's keyframe count, **not** from the sidecar: the
+`?filter=<label>` walks the events already labelled, for auditing and relabelling. The default
+walk is the **review queue**: every unlabelled event plus every **staged** one, a labelled event put
+back with a reason (`main.py --stage`, or `POST /api/review/<event>/stage` from an agent) that
+keeps its label until a label press confirms or replaces it. A staging row is stored against the
+event's first clip, like the poop counts, so it survives a `regroup`. The address
+carries the event and the walk (`/review/<event id>?filter=<walk>`), so a reload, Back or a pasted
+link lands on the same event, and one route, `/api/review/next?filter=&after=`, serves every
+walk. Each clip is shown as a grid of tiles spanning the whole file, cut client-side from its
+cached strip image: one per second up to `MAX_TILES`, sparser beyond that (`tile_seconds`), the
+offset drawn into each tile. The stride is derived from the clip's keyframe count, **not** from the sidecar: the
 file starts up to `buffer_seconds` before the sidecar's `started_at` (the ring-buffer pre-roll).
 Extraction decodes **keyframes only**, and the recorder pins one keyframe per second
 (`iperiod=CAMERA_FPS`): change either and the tiles land on the wrong seconds. One decode
 yields the strip and the full frames behind its tiles; the strip is published last, so its
-presence means the set is complete. "Watch" remuxes the clip to MP4 on demand into
+presence means the set is complete. `StripsAhead` builds the strips of the next 30 queued
+events on one reniced thread after every change to the queue and every ten minutes, so the page's
+request is normally a cache hit; a request for a strip being built waits for that build. "Watch" remuxes the clip to MP4 on demand into
 `.review_cache`; that cache is keyed by **clip** id (`clip<id>*`), never by event id, because
-event ids change on a regroup. Labels include `clean`, which records a litter cleaning and the
+event ids change on a regroup; the media URLs name the clip for the same reason
+(`/review/clip/<clip id>/...`). Labels include `clean`, which records a litter cleaning and the
 poop count per box (`poop_count` table, roadmap B.5b).
 
 `METRICS_CSV` turns on the instrumentation for roadmap A.2. Point it at **local disk**, never at
@@ -132,7 +144,11 @@ dropped rows is reported at shutdown.
 under an `RLock` (`@serialized`). Anything that touches the share must stay **outside** that
 lock: a stalled CIFS mount would otherwise freeze every review request behind it. The glob and
 the sidecar reads live in `src/review/clip_scan.py`, which has no lock to hold; `ingest` calls it
-unlocked and takes the lock only to insert what it found. Keep share I/O in that module.
+unlocked and takes the lock only to insert what it found. Keep share I/O in that module. Every
+`CaptureDB` also holds a shared `flock` on `<database>.lock` while it is open, and `regroup` needs
+it exclusive, so `--regroup` refuses to run beside the service rather than renumber events under a
+page that holds their ids. Never open the database file itself for a lock: closing any descriptor
+of it drops SQLite's own POSIX locks.
 
 **Every gate must pass before every commit**: the privacy check, shellcheck, codespell, lint,
 format check, type check, the JavaScript lint, tests. `scripts/check.sh` runs them, and
@@ -159,8 +175,9 @@ one bug the phone layout shipped with (a sheet that showed on load, because a `d
 rule beat the `hidden` attribute) was invisible to every gate. `tests/manual/check_page.py`
 serves the app from a copy of the review database, with no camera, and screenshots `/review` at
 a Pixel 9 portrait (412 x 915) and a laptop size into `test_images/`; `--filter multi` and the
-other walks work too. Run it and read the images before calling a page change done. Flask caches
-templates once rendered, so a server started before an edit serves the old page: restart it.
+other walks work too, and `--event <id>` opens one event as a link would. Run it and read the
+images before calling a page change done. Flask caches templates once rendered, so a server
+started before an edit serves the old page: restart it.
 
 `uv run` targets the project venv directly, so activating it is unnecessary.
 
@@ -344,7 +361,7 @@ problem rather than a venv problem. Rebuild with the two-line recovery above.
 | package | holds | may import |
 |---|---|---|
 | `src/capture/` | everything that touches the camera: `camera_manager`, `motion_detector`, `motion_recorder`, `motion_metrics`, `clip_transfer`, `capture_heartbeat`, `web_streamer` | `picamera2`, `src.clips` |
-| `src/review/` | everything that reads the share and serves the labeler: `clip_scan`, `capture_db`, `event_grouping`, `clip_frames`, `api` | `src.clips`, never `picamera2` |
+| `src/review/` | everything that reads the share and serves the labeler: `clip_scan`, `capture_db`, `event_grouping`, `clip_frames`, `strips_ahead`, `api` | `src.clips`, never `picamera2` |
 | `src/clips/` | what both sides agree a clip is: `format` (suffixes, `partial_name()`, `CAMERA_FPS`, `H264_BITRATE`), `sidecar`, `blob`, `frame` | the standard library and numpy only |
 
 `src/web_app.py` assembles the one Flask app from both sides and `src/logging_setup.py` configures

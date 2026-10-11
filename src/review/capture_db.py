@@ -1,9 +1,11 @@
 """SQLite store for clips, the events that group them, and review labels."""
 
 import datetime
+import fcntl
 import logging
 import sqlite3
 import threading
+import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from functools import wraps
@@ -15,6 +17,9 @@ from src.review.clip_scan import FoundClip, scan_clips
 from src.review.event_grouping import Boundary, ClipRow, group_clips
 
 log = logging.getLogger(__name__)
+
+HOLD_WAIT_SECONDS = 60
+HOLD_POLL_SECONDS = 0.5
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS event (
@@ -50,12 +55,22 @@ CREATE TABLE IF NOT EXISTS poop_count (
     noted_at TEXT NOT NULL,
     PRIMARY KEY (clip_id, box)
 );
+CREATE TABLE IF NOT EXISTS staged (
+    clip_id   INTEGER PRIMARY KEY REFERENCES clip(id),
+    reason    TEXT NOT NULL,
+    staged_at TEXT NOT NULL,
+    source    TEXT NOT NULL
+);
 """
 
 # Events oldest first; those with no dated clip last.
 EVENTS_IN_ORDER = (
     "SELECT e.id FROM event e JOIN clip c ON c.event_id = e.id GROUP BY e.id"
     " ORDER BY MIN(c.started_at) IS NULL, MIN(c.started_at), e.id"
+)
+STAGED_EVENTS = (
+    "SELECT DISTINCT c.event_id FROM staged s JOIN clip c ON c.id = s.clip_id"
+    " WHERE c.event_id IS NOT NULL"
 )
 EVENTS_WITH_SEVERAL_CLIPS = (
     "SELECT event_id FROM clip WHERE event_id IS NOT NULL"
@@ -81,6 +96,22 @@ class Label(NamedTuple):
     source: str
 
 
+class Staging(NamedTuple):
+    """Why a labelled event is back in the review queue, since when, and by whom."""
+
+    reason: str
+    staged_at: str
+    source: str
+
+
+class DatabaseInUseError(RuntimeError):
+    """Another process holds the database, and the operation renumbers events."""
+
+
+class JoinRefusedError(ValueError):
+    """A join the grouping could not honour."""
+
+
 @dataclass(frozen=True)
 class Clip:
     id: int
@@ -101,6 +132,7 @@ class Event:
     clips: tuple[Clip, ...]
     # Poops found per box at a cleaning, from the reviewer's hand signal.
     poops: dict[int, int] = field(default_factory=dict)
+    staged: Staging | None = None
 
     @property
     def started_at(self) -> datetime.datetime | None:
@@ -147,18 +179,27 @@ def _centroid(cx: int | None, cy: int | None) -> tuple[int, int] | None:
 class CaptureDB:
     """Local-disk SQLite database of clips, events and labels.
 
-    Media stays on the share; this holds paths and labels only. Not safe for
-    concurrent writers.
+    Media stays on the share; this holds paths and labels only. Every instance
+    holds a shared lock on a file beside the database for as long as it is open,
+    so an operation that renumbers events can tell when another process has it.
     """
 
     def __init__(
-        self, path: str | Path, *, gap_seconds: float, box_distance_px: float
+        self,
+        path: str | Path,
+        *,
+        gap_seconds: float,
+        box_distance_px: float,
+        hold_wait_seconds: float = HOLD_WAIT_SECONDS,
     ) -> None:
         self.path = Path(path)
         self.gap_seconds = gap_seconds
         self.box_distance_px = box_distance_px
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self._lock = threading.RLock()
+        self._holder = self._hold(
+            self.path.with_name(self.path.name + ".lock"), hold_wait_seconds
+        )
         self._conn = sqlite3.connect(self.path, check_same_thread=False)
         self._conn.row_factory = sqlite3.Row
         self._refuse_old_layout()
@@ -168,6 +209,26 @@ class CaptureDB:
     @serialized
     def close(self) -> None:
         self._conn.close()
+        self._holder.close()
+
+    @staticmethod
+    def _hold(lock_path: Path, wait_seconds: float) -> Any:
+        """The lock file, opened and held shared. Waits for a regroup that holds
+        it exclusively, and raises DatabaseInUseError if it outlasts the wait."""
+        holder = lock_path.open("a")
+        deadline = time.monotonic() + wait_seconds
+        while True:
+            try:
+                fcntl.flock(holder, fcntl.LOCK_SH | fcntl.LOCK_NB)
+            except BlockingIOError:
+                if time.monotonic() >= deadline:
+                    holder.close()
+                    raise DatabaseInUseError(
+                        f"{lock_path} is still held by a regroup"
+                    ) from None
+                time.sleep(HOLD_POLL_SECONDS)
+            else:
+                return holder
 
     def _refuse_old_layout(self) -> None:
         columns = {
@@ -234,9 +295,22 @@ class CaptureDB:
 
     @serialized
     def regroup(self) -> None:
-        """Rebuild every event from the rule. Event ids change; labels follow clips."""
-        self._place_clips(keep_events=False)
-        self._conn.commit()
+        """Rebuild every event from the rule. Event ids change; labels follow clips.
+
+        Raises DatabaseInUseError if another process has the database open.
+        """
+        try:
+            fcntl.flock(self._holder, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            fcntl.flock(self._holder, fcntl.LOCK_SH)  # a refused upgrade drops it
+            raise DatabaseInUseError(
+                f"{self.path} is open in another process; stop it before regrouping"
+            ) from None
+        try:
+            self._place_clips(keep_events=False)
+            self._conn.commit()
+        finally:
+            fcntl.flock(self._holder, fcntl.LOCK_SH)
 
     # --- reviewer overrides -------------------------------------------------
 
@@ -264,7 +338,11 @@ class CaptureDB:
 
     @serialized
     def join(self, event_id: int) -> Event | None:
-        """Merge this event with the next one in time. Returns the merged event."""
+        """Merge this event with the next one in time. Returns the merged event,
+        or None if there is no later event.
+
+        Raises JoinRefusedError if either side has a clip with no start time.
+        """
         ordered = self._event_ids_in_order()
         if event_id not in ordered or ordered.index(event_id) + 1 >= len(ordered):
             return None
@@ -272,6 +350,12 @@ class CaptureDB:
         this, following = self.get(event_id), self.get(next_id)
         if this is None or following is None:
             return None
+        for event in (this, following):
+            if event.started_at is None:
+                raise JoinRefusedError(
+                    f"#{event.id} has a clip with no start time, so it cannot be"
+                    " grouped with another"
+                )
         self._conn.execute(
             "UPDATE clip SET boundary = ?, joins = ? WHERE id = ?",
             (Boundary.JOIN.value, this.clips[-1].path, following.clips[0].id),
@@ -315,6 +399,9 @@ class CaptureDB:
     def _multi_clip_event_ids(self) -> set[int]:
         rows = self._conn.execute(EVENTS_WITH_SEVERAL_CLIPS)
         return {int(row["event_id"]) for row in rows}
+
+    def _staged_event_ids(self) -> set[int]:
+        return {int(row["event_id"]) for row in self._conn.execute(STAGED_EVENTS)}
 
     def _unlabeled_event_ids(self) -> set[int]:
         rows = self._conn.execute(
@@ -426,9 +513,36 @@ class CaptureDB:
     # --- review -------------------------------------------------------------
 
     @serialized
-    def next_unlabeled(self) -> Event | None:
-        """Oldest event with no label yet."""
-        return self._next_in_order(None, self._unlabeled_event_ids())
+    def next_to_review(self, after_id: int | None = None) -> Event | None:
+        """The next event in the review queue, in time order; the oldest by default.
+
+        The queue is every event with no label yet and every staged one.
+        """
+        return self._next_in_order(after_id, self._queued_event_ids())
+
+    def _queued_event_ids(self) -> set[int]:
+        return self._unlabeled_event_ids() | self._staged_event_ids()
+
+    @serialized
+    def clips_ahead(self, events: int) -> list[Clip]:
+        """The clips of the first few events in the review queue, in order."""
+        queued = self._queued_event_ids()
+        order = [
+            event_id for event_id in self._event_ids_in_order() if event_id in queued
+        ]
+        clips: list[Clip] = []
+        for event_id in order[:events]:
+            event = self.get(event_id)
+            if event is not None:
+                clips.extend(event.clips)
+        return clips
+
+    @serialized
+    def clip(self, clip_id: int) -> Clip | None:
+        row = self._conn.execute(
+            "SELECT * FROM clip WHERE id = ?", (clip_id,)
+        ).fetchone()
+        return None if row is None else self._to_clip(row)
 
     @serialized
     def get(self, event_id: int) -> Event | None:
@@ -445,20 +559,102 @@ class CaptureDB:
             (event_id,),
         )
         clips = tuple(self._to_clip(row) for row in rows)
+        clip_ids = [clip.id for clip in clips]
         return Event(
             id=int(row["id"]),
             label=row["label"],
             clips=clips,
-            poops=self._poop_counts([clip.id for clip in clips]),
+            poops=self._poop_counts(clip_ids),
+            staged=self._staging(clip_ids),
         )
 
     @serialized
     def set_label(self, event_id: int, value: str, source: str = "human") -> None:
-        """Write or overwrite the label for one event."""
+        """Write or overwrite one event's label, which takes it out of the queue."""
         self._write_label(
             event_id, Label(value, datetime.datetime.now().isoformat(), source)
         )
+        self._unstage(event_id)
         self._conn.commit()
+
+    @serialized
+    def stage(self, event_id: int, reason: str, source: str) -> bool:
+        """Put an event back in the review queue, keeping its label.
+
+        Stored against the event's first clip. Returns False if there is no
+        such event.
+        """
+        staged = self._stage(event_id, Staging(reason, self._now(), source))
+        self._conn.commit()
+        return staged
+
+    @serialized
+    def stage_labeled(
+        self,
+        reason: str,
+        source: str,
+        *,
+        value: str | None = None,
+        labeled_before: datetime.datetime | None = None,
+    ) -> int:
+        """Stage every labelled event with this value, labelled before this time.
+        Returns how many were staged."""
+        query = "SELECT event_id FROM label WHERE 1 = 1"
+        params: list[str] = []
+        if value is not None:
+            query += " AND value = ?"
+            params.append(value)
+        if labeled_before is not None:
+            query += " AND labeled_at < ?"
+            params.append(labeled_before.isoformat())
+        event_ids = [int(row["event_id"]) for row in self._conn.execute(query, params)]
+        staging = Staging(reason, self._now(), source)
+        staged = sum(self._stage(event_id, staging) for event_id in event_ids)
+        self._conn.commit()
+        return staged
+
+    def _stage(self, event_id: int, staging: Staging) -> bool:
+        clip_ids = self._clip_ids(event_id)
+        if not clip_ids:
+            return False
+        self._unstage(event_id)
+        self._conn.execute(
+            "INSERT INTO staged (clip_id, reason, staged_at, source)"
+            " VALUES (?, ?, ?, ?)",
+            (clip_ids[0], *staging),
+        )
+        return True
+
+    def _unstage(self, event_id: int) -> None:
+        clip_ids = self._clip_ids(event_id)
+        self._conn.execute(
+            f"DELETE FROM staged WHERE clip_id IN ({self._marks(clip_ids)})",  # noqa: S608 -- placeholders, not values
+            clip_ids,
+        )
+
+    def _clip_ids(self, event_id: int) -> list[int]:
+        """The event's clips, oldest first."""
+        rows = self._conn.execute(
+            "SELECT id FROM clip WHERE event_id = ?"
+            " ORDER BY started_at IS NULL, started_at, id",
+            (event_id,),
+        )
+        return [int(row["id"]) for row in rows]
+
+    def _staging(self, clip_ids: list[int]) -> Staging | None:
+        """The event's staging, from whichever of its clips carries it; the
+        earliest if a merge brought two."""
+        marks = self._marks(clip_ids)
+        row = self._conn.execute(
+            f"SELECT reason, staged_at, source FROM staged WHERE clip_id IN ({marks})"  # noqa: S608 -- placeholders, not values
+            " ORDER BY staged_at LIMIT 1",
+            clip_ids,
+        ).fetchone()
+        return None if row is None else Staging(*row)
+
+    @staticmethod
+    def _now() -> str:
+        return datetime.datetime.now().isoformat()
 
     @serialized
     def set_poop_counts(self, event_id: int, counts: dict[int, int]) -> None:
@@ -500,11 +696,15 @@ class CaptureDB:
 
     @serialized
     def counts(self) -> dict[str, int]:
-        """Totals for the progress line: events, labeled, multi-clip, per label."""
+        """Totals for the progress line: events, labeled, multi-clip, staged
+        (when any are), per label."""
         result = {"total": 0, "labeled": 0, "multi_clip": 0}
         row = self._conn.execute("SELECT COUNT(*) AS n FROM event").fetchone()
         result["total"] = int(row["n"])
         result["multi_clip"] = len(self._multi_clip_event_ids())
+        staged = len(self._staged_event_ids())
+        if staged:
+            result["staged"] = staged
         for value_row in self._conn.execute(
             "SELECT value, COUNT(*) AS n FROM label GROUP BY value"
         ):

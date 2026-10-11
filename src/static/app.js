@@ -2,7 +2,7 @@
 // THUMB_WIDTH) are filled by the template before this file loads.
 const FILTERS = ['multi', 'labeled', ...LABELS];
 const asked = new URLSearchParams(location.search).get('filter');
-const FILTER = FILTERS.includes(asked) ? asked : null;  // null = the unlabeled queue
+const FILTER = FILTERS.includes(asked) ? asked : null;  // null = the review queue
 const MULTI = FILTER === 'multi';
 const WALKING = FILTER !== null;
 let current = null;
@@ -10,10 +10,33 @@ const history_ = [];
 let statusTimer = null;
 let busy = false;  // a label request is in flight; the bar and the keys wait
 let snackTimer = null;
+let strips = [];  // the shown event's strip images; empty once cancelled
 
 // --- tabs -------------------------------------------------------------------
 
-function tabFromPath() { return location.pathname === '/review' ? 'review' : 'live'; }
+// The review address is /review/<event id>?filter=<walk>, so a reload, Back or
+// a pasted link lands on the same event in the same walk.
+function tabFromPath() { return location.pathname.startsWith('/review') ? 'review' : 'live'; }
+
+function eventFromPath() {
+  const match = location.pathname.match(/^\/review\/(\d+)$/);
+  return match ? Number(match[1]) : null;
+}
+
+function reviewUrl(id) {
+  const query = FILTER ? `?filter=${encodeURIComponent(FILTER)}` : '';
+  return (id ? `/review/${id}` : '/review') + query;
+}
+
+// A move to another event is a new history entry; the first event shown
+// replaces the bare /review it was reached by.
+function followInAddress(id) {
+  const shown = eventFromPath();
+  if (shown === id) return;
+  const url = reviewUrl(id);
+  if (shown === null) history.replaceState(null, '', url);
+  else history.pushState(null, '', url);
+}
 
 function activate(tab, push) {
   for (const name of ['live', 'review']) {
@@ -30,12 +53,9 @@ function activate(tab, push) {
     feed.removeAttribute('src');  // closes the MJPEG connection
     clearInterval(statusTimer);
     statusTimer = null;
-    if (REVIEW && !current) load();
   }
-  if (push) {
-    const url = tab === 'live' ? '/' : '/review' + (FILTER ? `?filter=${FILTER}` : '');
-    history.pushState(null, '', url);
-  }
+  if (push) history.pushState(null, '', tab === 'live' ? '/' : reviewUrl(current?.id));
+  if (tab === 'review' && REVIEW) showAddressed();
 }
 
 document.querySelectorAll('nav a').forEach(a => a.addEventListener('click', e => {
@@ -65,6 +85,12 @@ async function pollStatus() {
 // --- review -----------------------------------------------------------------
 
 function hms(iso) { return iso ? iso.slice(11, 19) : '?'; }
+function escaped(text) {
+  const span = document.createElement('span');
+  span.textContent = text;
+  return span.innerHTML;
+}
+function clipUrl(clip, file) { return `/review/clip/${clip.id}/${file}`; }
 function secs(a, b) { return Math.round((new Date(b) - new Date(a)) / 1000); }
 
 function clipBlock(c, prev) {
@@ -95,29 +121,53 @@ function show(data) {
   document.getElementById('bar').hidden = !current;
   renderCounts(data.counts);
   showCleanForm(false);
-  if (!current) return;
+  cancelStrips();
+  followInAddress(current ? current.id : null);
+  if (!current) {
+    showDone(data.counts);
+    return;
+  }
   const poops = Object.entries(current.poops || {});
   const found = poops.length
     ? ` <span class="label">poops ${poops.map(([b, n]) => `box${b}: ${n}`).join(', ')}</span>`
     : '';
   const badge = current.label
     ? ` <span class="label">${current.label}</span>${found}` : '';
+  const staged = current.staged
+    ? ` <span class="warn">back for review (${current.staged.source}):` +
+      ` ${escaped(current.staged.reason)}</span>` : '';
   const n = current.clips.length;
   const grouped = n > 1
     ? ` <span class="warn">${n} clips grouped as one visit</span>` : '';
   document.getElementById('meta').innerHTML =
     `#${current.id} &mdash; ${current.started_at || 'unknown time'} &rarr; ` +
-    `${hms(current.ended_at)}${badge}${grouped}`;
+    `${hms(current.ended_at)}${badge}${staged}${grouped}`;
   document.getElementById('clips').innerHTML =
     current.clips.map((c, i) => clipBlock(c, i ? current.clips[i - 1] : null)).join('');
-  current.clips.forEach(c => loadTiles(current.id, c.index));
+  restoreTiles();
   padForBar();
+}
+
+// An empty walk says which walk it is and how many events wait in the queue.
+function walkName() {
+  if (MULTI) return 'multi-clip events';
+  if (FILTER === 'labeled') return 'labelled events';
+  return `events labelled ${FILTER.replace('_', ' ')}`;
+}
+
+function showDone(counts) {
+  const waiting = counts.total - counts.labeled + (counts.staged || 0);
+  document.getElementById('donetext').textContent =
+    WALKING ? `No ${walkName()} left in this walk.` : 'Nothing left to review.';
+  const toQueue = document.getElementById('toqueue');
+  toQueue.textContent = `go to the review queue (${waiting} waiting)`;
+  toQueue.hidden = !WALKING || waiting === 0;
 }
 
 // One frame per tile, cut from the clip's strip image so the tiles wrap to the
 // page instead of running off it. The strip's width says how many frames it holds.
-function loadTiles(eventId, index) {
-  const grid = document.getElementById(`t${index}`);
+function loadTiles(eventId, clip) {
+  const grid = document.getElementById(`t${clip.index}`);
   const strip = new Image();
   strip.onload = () => {
     if (current?.id !== eventId) return;
@@ -129,18 +179,37 @@ function loadTiles(eventId, index) {
       tile.title = 'click for the full frame';
       tile.style.backgroundImage = `url(${strip.src})`;
       tile.style.backgroundPosition = `${slots > 1 ? slot / (slots - 1) * 100 : 0}% 0`;
-      tile.onclick = () => window.open(`/review/${eventId}/clip/${index}/frame/${slot}.jpg`);
+      tile.onclick = () => window.open(clipUrl(clip, `frame/${slot}.jpg`));
       grid.appendChild(tile);
     }
   };
   strip.onerror = () => {
+    if (current?.id !== eventId) return;
     grid.innerHTML = '<span class="note warn">frames unavailable (clip unreadable?)</span>';
   };
-  strip.src = `/review/${eventId}/clip/${index}/strip.jpg`;
+  strip.src = clipUrl(clip, 'strip.jpg');
+  return strip;
+}
+
+// Everything that leaves an event cancels its pending strips first, and
+// restores them if it ends up staying.
+function cancelStrips() {
+  for (const strip of strips) {
+    strip.onload = strip.onerror = null;
+    strip.removeAttribute('src');
+  }
+  strips = [];
+}
+
+function restoreTiles() {
+  if (current && !strips.length && eventFromPath() === current.id) {
+    strips = current.clips.map(c => loadTiles(current.id, c));
+  }
 }
 
 function renderCounts(c) {
-  const link = (filter, text) => `<a href="/review?filter=${filter}">${text}</a>`;
+  const link = (filter, text) =>
+    `<a href="/review?filter=${encodeURIComponent(filter)}">${text}</a>`;
   const parts = Object.entries(c).filter(([k]) => !['total','labeled'].includes(k))
     .map(([k, v]) => k === 'multi_clip' ? link('multi', `${k}: ${v}`)
                    : LABELS.includes(k) ? link(k, `${k}: ${v}`) : `${k}: ${v}`)
@@ -148,7 +217,7 @@ function renderCounts(c) {
   document.getElementById('counts').innerHTML =
     `${link('labeled', `${c.labeled} of ${c.total} labeled`)}` +
     (parts ? ` (${parts})` : '') +
-    (FILTER ? ` &middot; <a href="/review">back to the unlabeled queue</a>` : '');
+    (FILTER ? ` &middot; <a href="/review">back to the review queue</a>` : '');
 }
 
 async function get(url) { return (await fetch(url)).json(); }
@@ -191,30 +260,56 @@ function snack(text) {
 
 // --- actions ----------------------------------------------------------------
 
-// The walk being taken: the unlabeled queue, the multi-clip events, or the
-// labeled ones (all, or one label). A walk resumes after the current event.
-const NEXT_ROUTE = MULTI ? 'multi/next' : WALKING ? 'labeled/next' : 'next';
+// The event the address names, or the walk's next if it names none or one
+// that is gone (a regroup renumbers events).
+async function showAddressed() {
+  const id = eventFromPath();
+  if (id === null) {
+    if (!current) await load();
+    return;
+  }
+  if (current?.id === id) {
+    restoreTiles();
+    return;
+  }
+  cancelStrips();
+  const data = await get(`/api/review/event/${id}`);
+  if (eventFromPath() !== id) return;  // the address moved on while this loaded
+  if (data.event) {
+    show(data);
+  } else {
+    snack(`#${id} no longer exists`);
+    history.replaceState(null, '', reviewUrl(null));
+    await load();
+  }
+}
 
 async function load() {
   closeSheet();
+  cancelStrips();
   const params = new URLSearchParams();
-  if (LABELS.includes(FILTER)) params.set('value', FILTER);
+  if (FILTER) params.set('filter', FILTER);
   if (WALKING && current) params.set('after', current.id);
-  show(await get(`/api/review/${NEXT_ROUTE}?${params}`));
+  const from = location.pathname;
+  const data = await get(`/api/review/next?${params}`);
+  if (location.pathname === from) show(data);  // else Back or Forward moved on
 }
 
 // Records the label, says so, and moves on; nothing else is accepted meanwhile.
 async function label(value) {
   if (!current || busy) return;
   closeSheet();
+  cancelStrips();
   setBusy(true);
+  const id = current.id;
   try {
-    await post(`/api/review/${current.id}/label`, {value});
-    history_.push(current.id);
-    snack(`#${current.id}: ${value.replace('_', ' ')}`);
-    await load();
+    await post(`/api/review/${id}/label`, {value});
+    history_.push(id);
+    snack(`#${id}: ${value.replace('_', ' ')}`);
+    if (eventFromPath() === id) await load();  // else Back or Forward moved on
   } finally {
     setBusy(false);
+    restoreTiles();
   }
 }
 
@@ -232,18 +327,21 @@ async function startClean() {
 
 async function saveCounts() {
   if (!current || busy) return;
+  cancelStrips();
   setBusy(true);
+  const id = current.id;
   try {
     const counts = {};
     for (const box of [1, 2, 3]) {
       counts[box] = Number(document.getElementById(`box${box}`).value) || 0;
     }
-    await post(`/api/review/${current.id}/counts`, {counts});
-    history_.push(current.id);
-    snack(`#${current.id}: clean, ${Object.values(counts).join('/')}`);
-    await load();
+    await post(`/api/review/${id}/counts`, {counts});
+    history_.push(id);
+    snack(`#${id}: clean, ${Object.values(counts).join('/')}`);
+    if (eventFromPath() === id) await load();
   } finally {
     setBusy(false);
+    restoreTiles();
   }
 }
 
@@ -251,6 +349,7 @@ async function undo() {
   const id = history_.pop();
   if (id === undefined) return;
   document.getElementById('snack').classList.add('gone');
+  cancelStrips();
   show(await get(`/api/review/event/${id}`));
 }
 
@@ -263,12 +362,13 @@ async function join() {
   if (!current) return;
   closeSheet();
   const data = await post(`/api/review/${current.id}/join`);
-  if (data.event) show(data); else alert('There is no later event to join.');
+  if (data.event) show(data);
+  else alert(data.error || 'There is no later event to join.');
 }
 
 function watch(index) {
   const video = document.getElementById(`v${index}`);
-  if (!video.src) video.src = `/review/${current.id}/clip/${index}/video.mp4`;
+  if (!video.src) video.src = clipUrl(current.clips[index], 'video.mp4');
   video.hidden = false;
   video.play();
 }
@@ -313,6 +413,8 @@ if (REVIEW) {
     else if (e.key === 'ArrowRight' && WALKING) load();
   });
   window.addEventListener('resize', padForBar);
+  window.addEventListener('beforeunload', cancelStrips);
+  window.addEventListener('pageshow', restoreTiles);
   if (WALKING) {
     document.getElementById('mode').textContent =
       MULTI ? '(multi-clip)' : `(${FILTER.replace('_', ' ')})`;

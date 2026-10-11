@@ -28,8 +28,11 @@ video { width: 100%; margin-top: 8px; }
 .label { display: inline-block; padding: 2px 10px;
          border-radius: 10px; background: #333; }
 .warn { color: #f0b429; }
-button { font-size: 1rem; min-height: 48px; padding: 6px 14px; cursor: pointer;
+button, a.button { font-size: 1rem; min-height: 48px; padding: 6px 14px; cursor: pointer;
          border: 0; border-radius: 8px; background: #333; color: #eee; }
+a.button { display: inline-flex; align-items: center; box-sizing: border-box;
+           text-decoration: none; }
+button.primary, a.button.primary { background: #2f4f6f; }
 button:disabled { opacity: 0.5; cursor: default; }
 kbd { background: #444; border-radius: 3px; padding: 1px 5px; font-size: 0.85em; }
 @media (hover: none) { kbd { display: none; } }
@@ -48,7 +51,6 @@ kbd { background: #444; border-radius: 3px; padding: 1px 5px; font-size: 0.85em;
 #bar .row:last-child { margin-bottom: 0; }
 #bar .row button { flex: 1; padding: 6px 4px; }
 #bar.busy { pointer-events: none; opacity: 0.6; }
-#bar .primary { background: #2f4f6f; }
 #snack { position: fixed; left: 50%; transform: translateX(-50%); z-index: 3;
          display: flex; align-items: center; gap: 16px; padding: 4px 4px 4px 16px;
          background: #333; border-radius: 8px; box-shadow: 0 2px 8px #000a;
@@ -92,7 +94,8 @@ kbd { background: #444; border-radius: 3px; padding: 1px 5px; font-size: 0.85em;
     </div>
   </div>
 </div>
-<div id="done" hidden><p>Nothing left to review here.</p>
+<div id="done" hidden><p id="donetext">Nothing left to review.</p>
+  <p><a id="toqueue" class="button primary" href="/review" hidden></a></p>
   <button onclick="rescan()">rescan clip directory</button></div>
 <div id="counts"></div>
 

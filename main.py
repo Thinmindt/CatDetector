@@ -1,3 +1,5 @@
+import argparse
+import datetime
 import logging
 import os
 import pathlib
@@ -16,9 +18,10 @@ from src.capture.motion_metrics import MetricsLog
 from src.capture.motion_recorder import MotionRecorder
 from src.capture.web_streamer import WebStreamer
 from src.logging_setup import configure_logging
-from src.review.api import Review
-from src.review.capture_db import CaptureDB
+from src.review.api import STAGING_SOURCES, Review
+from src.review.capture_db import CaptureDB, DatabaseInUseError
 from src.review.clip_frames import ClipFrames
+from src.review.strips_ahead import StripsAhead
 from src.web_app import WEB_PORT, create_app, run
 
 log = logging.getLogger(__name__)
@@ -187,15 +190,18 @@ def ingest(review: Review) -> None:
         log.info("Ingest found %d new clip(s)", review.db.ingest(review.captures_dir))
     except Exception:
         log.exception("Startup ingest failed; rescan from the review page")
+    review.queue_changed()
 
 
 def open_review() -> Review:
     """The capture database and its extractor. The share is scanned on its own
     thread, so a stalled mount cannot hold up the camera."""
     captures = pathlib.Path(Config.CAPTURES_DIR)
-    review = Review(
-        open_db(), ClipFrames(Config.REVIEW_CACHE_DIR), captures, Config.CAT_NAMES
-    )
+    db = open_db()
+    frames = ClipFrames(Config.REVIEW_CACHE_DIR)
+    ahead = StripsAhead(db, frames)
+    ahead.start()
+    review = Review(db, frames, captures, Config.CAT_NAMES, ahead)
     threading.Thread(
         target=ingest, args=(review,), name="startup-ingest", daemon=True
     ).start()
@@ -212,7 +218,10 @@ def build_review() -> Review | None:
 
 
 def regroup_events() -> dict[str, int]:
-    """Rebuild every event from the current thresholds. Event ids change."""
+    """Rebuild every event from the current thresholds. Event ids change.
+
+    Raises DatabaseInUseError while the service has the database open.
+    """
     db = open_db()
     try:
         db.regroup()
@@ -221,11 +230,84 @@ def regroup_events() -> dict[str, int]:
         db.close()
 
 
+def stage_events(args: argparse.Namespace) -> int:
+    """Put the labelled events the arguments select back in the review queue.
+    Safe beside the service: staging renumbers nothing."""
+    db = open_db()
+    try:
+        return db.stage_labeled(
+            args.reason,
+            args.source,
+            value=args.label,
+            labeled_before=args.labeled_before,
+        )
+    finally:
+        db.close()
+
+
+def parse_args(argv: list[str]) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="The cat detector and its review page."
+    )
+    command = parser.add_mutually_exclusive_group()
+    command.add_argument(
+        "--regroup",
+        action="store_true",
+        help="rebuild every event from the current thresholds, then exit",
+    )
+    command.add_argument(
+        "--stage",
+        action="store_true",
+        help="put labelled events back in the review queue, then exit",
+    )
+    staging = parser.add_argument_group("staging, with --stage")
+    staging.add_argument("--label", help="only events with this label")
+    staging.add_argument(
+        "--labeled-before",
+        type=datetime.datetime.fromisoformat,
+        metavar="TIME",
+        help="only events labelled before this ISO time",
+    )
+    staging.add_argument("--reason", help="shown with each event; required")
+    staging.add_argument("--source", choices=STAGING_SOURCES, default="human")
+    args = parser.parse_args(argv)
+    if args.stage:
+        _check_staging(parser, args)
+    elif _any_staging_option(args):
+        parser.error("--label, --labeled-before, --reason and --source need --stage")
+    return args
+
+
+def _any_staging_option(args: argparse.Namespace) -> bool:
+    chosen = (args.label, args.labeled_before, args.reason)
+    return any(value is not None for value in chosen) or args.source != "human"
+
+
+def _check_staging(parser: argparse.ArgumentParser, args: argparse.Namespace) -> None:
+    if not (args.reason and args.reason.strip()):
+        parser.error("--stage needs a --reason")
+    if args.label is None and args.labeled_before is None:
+        parser.error("--stage needs --label, --labeled-before or both")
+
+
+def run_command(args: argparse.Namespace) -> int:
+    """Run --regroup or --stage. Returns the exit status."""
+    try:
+        if args.regroup:
+            log.info("Regrouped: %s", regroup_events())
+        else:
+            log.info("Staged %d event(s) for review", stage_events(args))
+    except DatabaseInUseError as refused:
+        log.error("%s", refused)  # noqa: TRY400 -- the message is the whole story
+        return 1
+    return 0
+
+
 if __name__ == "__main__":
     configure_logging(__name__)
-    if "--regroup" in sys.argv[1:]:
-        log.info("Regrouped: %s", regroup_events())
-        sys.exit(0)
+    arguments = parse_args(sys.argv[1:])
+    if arguments.regroup or arguments.stage:
+        sys.exit(run_command(arguments))
     share = pathlib.Path(Config.NETWORK_SHARE_DIR)
     local_clips = pathlib.Path(Config.LOCAL_CLIP_DIR)
 
