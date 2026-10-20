@@ -61,7 +61,7 @@ def defaults(monkeypatch: pytest.MonkeyPatch) -> Any:
 def test_env_var_overrides_dotenv(monkeypatch: pytest.MonkeyPatch) -> None:
     """.env sets NETWORK_SHARE_DIR=/mnt/nas; load_dotenv must not override it.
 
-    This is what lets a test run point recordings somewhere other than the NAS.
+    This is what lets a test run point recordings somewhere other than the share.
     """
     monkeypatch.setenv("NETWORK_SHARE_DIR", "/tmp/somewhere-else")
     import config

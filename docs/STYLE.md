@@ -177,6 +177,13 @@ extend-select = ["TID251"]
 "src/capture/picamera2_camera.py" = ["TID251"]
 ```
 
+**An outside service is optional and spoken to in a plain protocol.** A heartbeat monitor, an
+alerting service or a remote store is configured by a setting, usually a URL, and reached
+through the plainest protocol that does the job (an HTTP GET, SMTP), so any service that speaks
+it will do. With the setting empty the feature is off and the program runs as before. The docs
+say that the service is set up outside the project, and name one only as an example, never as a
+requirement.
+
 ## Errors and exceptions
 
 Catch what you can act on. A bare `except Exception` is defensible at a process boundary or in a
@@ -200,6 +207,12 @@ output, the state, or the side effect.
 
 **Mutation-check a regression test once.** Reintroduce the bug and confirm the test fails. A
 regression test that never failed has not been shown to work.
+
+**An invariant a document states gets a test.** "Never logged", "never on the capture thread",
+"refused at startup": a sentence in a README or a design document is a promise, and without a
+test that fails when it breaks, the code drifts from it unnoticed. Write the test when you write
+the sentence, and cover every case the sentence names, not only the one in front of you: a README
+that lists three URL formats has promised all three.
 
 **Fakes honour the real contract.** When production code starts calling a new method, the fake
 grows it too. A fake that has silently diverged tests a shape that does not exist — and the

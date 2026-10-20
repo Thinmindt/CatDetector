@@ -1,4 +1,4 @@
-"""Shared logging configuration for the entry-point scripts."""
+"""Logging configuration for main.py."""
 
 import logging
 

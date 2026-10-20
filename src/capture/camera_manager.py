@@ -35,6 +35,7 @@ class CameraManager:
         self._running = False
         self._frame_thread: threading.Thread | None = None
         self._frame_lock = threading.Lock()
+        self._last_frame_at = time.monotonic()
 
     def add_consumer(self, consumer_func: FrameConsumer) -> None:
         """Add a function that will receive frames"""
@@ -46,6 +47,7 @@ class CameraManager:
             return
 
         self._running = True
+        self._last_frame_at = time.monotonic()
         self._frame_thread = threading.Thread(
             target=self._distribute_frames, daemon=True
         )
@@ -78,7 +80,12 @@ class CameraManager:
         """Both streams from one libcamera request. Blocks until the next frame."""
         with self._frame_lock:
             arrays, _ = self._picam2.capture_arrays(["main", "lores"])
+        self._last_frame_at = time.monotonic()
         return arrays[0], arrays[1]
+
+    def seconds_since_last_frame(self) -> float:
+        """Seconds since the last capture, or since distribution started."""
+        return time.monotonic() - self._last_frame_at
 
     def _dispatch(self, main_frame: Frame, lores_frame: Frame) -> None:
         """Call each consumer in order, outside the capture lock.

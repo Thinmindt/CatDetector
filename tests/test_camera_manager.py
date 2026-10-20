@@ -4,11 +4,10 @@ from __future__ import annotations
 
 import threading
 import time
-from collections.abc import Callable
 from typing import Any
 
 import pytest
-from conftest import LORES_SIZE, MAIN_SIZE, FakePicamera2
+from conftest import LORES_SIZE, MAIN_SIZE, FakePicamera2, wait_for
 
 from src.clips.frame import Frame
 
@@ -16,15 +15,6 @@ from src.clips.frame import Frame
 # timeout, which the test shortens.
 JOIN_TIMEOUT_SECONDS = 0.2
 SHUTDOWN_BUDGET_SECONDS = 2
-
-
-def wait_for(predicate: Callable[[], bool], timeout: float = 5.0) -> bool:
-    deadline = time.monotonic() + timeout
-    while time.monotonic() < deadline:
-        if predicate():
-            return True
-        time.sleep(0.01)
-    return False
 
 
 def test_configures_both_streams_and_starts(
@@ -148,3 +138,16 @@ def test_a_wedged_consumer_cannot_hang_shutdown(
 
     assert elapsed < SHUTDOWN_BUDGET_SECONDS
     release.set()
+
+
+def test_the_frame_clock_starts_with_distribution(
+    fake_camera: FakePicamera2, camera_manager: Any
+) -> None:
+    """Startup work between the camera opening and the first capture is not a stall."""
+    camera_manager._last_frame_at -= 60
+    fake_camera.delivering.clear()
+    try:
+        camera_manager.start_frame_distribution()
+        assert camera_manager.seconds_since_last_frame() < 1
+    finally:
+        fake_camera.delivering.set()

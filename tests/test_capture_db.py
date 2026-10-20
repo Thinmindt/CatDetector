@@ -229,7 +229,7 @@ def test_a_bridge_between_disagreeing_labels_drops_the_label(
 def test_a_late_clip_that_bridges_two_events_merges_them(
     db: Any, tmp_path: Path
 ) -> None:
-    """A clip held back by a NAS outage can arrive after its neighbours."""
+    """A clip held back by an outage of the share can arrive after its neighbours."""
     directory = tmp_path / "captures"
     make_clip_with_facts(directory, at(0), seconds=20)
     make_clip_with_facts(directory, at(100), seconds=10)

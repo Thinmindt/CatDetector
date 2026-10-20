@@ -101,6 +101,7 @@ max-complexity = 5
 # without it, so it can run on a machine that has no camera.
 [tool.ruff.lint.flake8-tidy-imports.banned-api]
 "picamera2".msg = "only src/capture may import the camera stack"
+"libcamera".msg = "only src/capture may import the camera stack"
 
 [tool.ruff.lint.per-file-ignores]
 "src/capture/**" = ["TID251"]
