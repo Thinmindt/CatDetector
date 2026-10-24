@@ -281,3 +281,57 @@ def test_startup_ingest_does_not_hold_up_startup(
         assert not worker.is_alive()
     assert "Ingest found 3 new clip(s)" in caplog.text
     review.db.close()
+
+
+# --- commands ---------------------------------------------------------------
+
+
+def test_stage_puts_matching_labels_back_in_the_queue_beside_the_service(
+    db: CaptureDB, clip_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    db.ingest(clip_dir)
+    first = db.next_to_review()
+    assert first is not None
+    db.set_label(first.id, "not_cat")
+    monkeypatch.setattr("main.Config.DB_PATH", str(db.path))
+
+    args = main.parse_args(
+        ["--stage", "--label", "not_cat", "--reason", "early", "--source", "agent"]
+    )
+    assert main.run_command(args) == 0
+
+    staged = db.get(first.id)
+    assert staged is not None
+    assert staged.label == "not_cat"
+    assert staged.staged is not None
+    assert (staged.staged.reason, staged.staged.source) == ("early", "agent")
+
+
+def test_stage_needs_a_reason(capsys: pytest.CaptureFixture[str]) -> None:
+    for argv in (["--stage"], ["--stage", "--reason", " "]):
+        with pytest.raises(SystemExit):
+            main.parse_args(argv)
+    assert "--reason" in capsys.readouterr().err
+
+
+def test_a_regroup_refused_exits_non_zero_and_says_why(
+    db: CaptureDB, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    monkeypatch.setattr("main.Config.DB_PATH", str(db.path))
+    assert main.run_command(main.parse_args(["--regroup"])) == 1
+    assert "stop it before regrouping" in caplog.text
+
+
+@pytest.mark.parametrize(
+    "argv",
+    [
+        ["--label", "not_cat", "--reason", "x"],
+        ["--labeled-before", "2026-09-20"],
+        ["--stage", "--reason", "every labelled event"],
+    ],
+)
+def test_staging_options_need_stage_and_stage_needs_a_filter(argv: list[str]) -> None:
+    """Without --stage the options were ignored and the detector started; with
+    no filter, --stage staged every labelled event."""
+    with pytest.raises(SystemExit):
+        main.parse_args(argv)

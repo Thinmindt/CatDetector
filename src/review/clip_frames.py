@@ -2,9 +2,11 @@
 
 import logging
 import math
+import re
 import shutil
 import subprocess
 import tempfile
+import threading
 from pathlib import Path
 from typing import cast
 from uuid import uuid4
@@ -22,6 +24,8 @@ THUMB_WIDTH = 320
 FFMPEG_TIMEOUT_SECONDS = 60
 STAGING_SUFFIX = ".part"
 JPEG_QUALITY = 3  # ffmpeg qscale, 2 (best) to 31
+
+STRIP_NAME = re.compile(r"clip(\d+)_strip\d+s\.jpg")
 
 CAPTION_FONT = cv2.FONT_HERSHEY_SIMPLEX
 CAPTION_SCALE = 0.45
@@ -72,13 +76,34 @@ class ClipFrames:
         self._ffmpeg = shutil.which("ffmpeg")
         if self._ffmpeg is None:
             log.warning("ffmpeg not found; frame extraction is disabled")
+        self._builds: dict[int, threading.Lock] = {}
+        self._builds_guard = threading.Lock()
 
     def strip(self, clip_id: int, clip_path: str | Path) -> Path | None:
-        """A montage spanning the clip, each tile captioned with its offset."""
-        cached = next(self.cache_dir.glob(f"clip{clip_id}_strip*s.jpg"), None)
+        """A montage spanning the clip, each tile captioned with its offset.
+
+        A second caller for a clip being built waits for that build.
+        """
+        cached = self.cached_strip(clip_id)
         if cached is not None:
             return cached
-        return self._build_strip(clip_id, Path(clip_path))
+        with self._build_lock(clip_id):
+            return self.cached_strip(clip_id) or self._build_strip(
+                clip_id, Path(clip_path)
+            )
+
+    def cached_strip(self, clip_id: int) -> Path | None:
+        """The clip's strip if it has been built, without building it."""
+        return next(self.cache_dir.glob(f"clip{clip_id}_strip*s.jpg"), None)
+
+    def built_strips(self) -> set[int]:
+        """The ids of every clip whose strip is built, from one read of the cache."""
+        names = (STRIP_NAME.fullmatch(entry.name) for entry in self.cache_dir.iterdir())
+        return {int(match[1]) for match in names if match}
+
+    def _build_lock(self, clip_id: int) -> threading.Lock:
+        with self._builds_guard:
+            return self._builds.setdefault(clip_id, threading.Lock())
 
     def frame(self, clip_id: int, clip_path: str | Path, slot: int) -> Path | None:
         """The full-resolution frame behind one strip slot."""

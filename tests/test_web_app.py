@@ -31,10 +31,10 @@ def streamer(camera_manager: Any) -> Any:
     )
 
 
-def test_both_routes_serve_the_tabbed_page(review_parts: Any) -> None:
+def test_every_page_route_serves_the_tabbed_page(review_parts: Any) -> None:
     client = create_app(None, review_parts).test_client()
 
-    for path in ("/", "/review"):
+    for path in ("/", "/review", "/review/7"):
         response = client.get(path)
         assert response.status_code == 200, path
         assert b'data-tab="live"' in response.data
@@ -128,7 +128,7 @@ def test_media_is_served_from_a_relative_cache_dir(
         review = Review(db, frames, tmp_path / "captures")
         client = create_app(None, review).test_client()
 
-        response = client.get("/review/1/clip/0/strip.jpg")
+        response = client.get("/review/clip/1/strip.jpg")
 
         assert response.status_code == 200
         assert response.data[:2] == b"\xff\xd8"  # a JPEG

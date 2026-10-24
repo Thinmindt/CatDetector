@@ -29,6 +29,7 @@ log = logging.getLogger(__name__)
 
 CLIP_FLUSH_TIMEOUT_SECONDS = 30
 DISK_CHECK_INTERVAL_SECONDS = 5
+OPEN_FAILURE_LOG_INTERVAL_SECONDS = 60
 
 
 def _has_content(writing: Path) -> bool:
@@ -126,6 +127,7 @@ class MotionRecorder:
         self._clip: OpenClip | None = None
         self._disk_checked_at: float | None = None
         self._had_room = True
+        self._open_failure_logged_at: float | None = None
 
         self.buffer_seconds = buffer_seconds
         self.circular_output: Any = None
@@ -226,10 +228,7 @@ class MotionRecorder:
             started_at=started,
             trigger_blob=self.detector.last_blob,
         )
-        try:
-            self.circular_output.begin(clip.writing)
-        except Exception:
-            log.exception("Failed to start saving to %s", clip.path)
+        if not self._open(clip):
             return None
 
         self._clip = clip
@@ -239,6 +238,28 @@ class MotionRecorder:
             self.last_motion_pixels,
         )
         return clip.path
+
+    def _open(self, clip: OpenClip) -> bool:
+        """Divert the ring to the clip's file. Motion retries a failure on every
+        frame; a traceback is logged at most once a minute while they go on."""
+        try:
+            self.circular_output.begin(clip.writing)
+        except Exception:
+            if self._open_failure_log_is_due():
+                log.exception("Failed to start saving to %s", clip.path)
+                self._open_failure_logged_at = time.monotonic()
+            return False
+        if self._open_failure_logged_at is not None:
+            log.info("Saving works again, to %s", clip.path)
+            self._open_failure_logged_at = None
+        return True
+
+    def _open_failure_log_is_due(self) -> bool:
+        logged_at = self._open_failure_logged_at
+        return (
+            logged_at is None
+            or time.monotonic() - logged_at >= OPEN_FAILURE_LOG_INTERVAL_SECONDS
+        )
 
     def _stop_saving(self, reason: CloseReason) -> Path | None:
         """Stop writing to the file and fall back to buffering only.

@@ -102,7 +102,12 @@ sudo systemctl edit catdetector      # opens an override; add Environment= lines
 
 ```
 uv run python main.py --regroup      # rebuild events from the current thresholds, then exit
+uv run python main.py --stage --label not_cat --labeled-before 2026-09-20 --reason "recheck"
 ```
+
+`--regroup` renumbers events, so it refuses to run while the detector has the database open: stop
+the service first. `--stage` puts labelled events back in the review queue with a reason, keeping
+their labels, and runs beside the service; `--label` and `--labeled-before` choose the events.
 
 The Review tab of the web UI (`http://<pi-ip>:5000/review`) scans the captures directory into
 a local database and serves a keyboard-driven labeler — `c` cat, `n` not a cat, `u` unsure, `z`
@@ -110,7 +115,8 @@ undo, `l` a litter cleaning (enter the poops found per box, `Enter` saves), clic
 the full frame, "watch" to play the clip. With `CAT_NAMES` set, each cat gets a digit key in the
 configured order and `m` marks an event with more than one cat; `c` then means "a cat, which one
 not decided", and `/review?filter=cat` walks those to name them; `→` moves on while walking a
-filter. `main.py` serves it beside the live feed, so it is available whenever the detector is
+filter. The address names the event and the walk (`/review/<event>?filter=multi`), so a reload,
+Back or a shared link returns to the same event. `main.py` serves it beside the live feed, so it is available whenever the detector is
 running.
 
 ## Test, lint, format, type-check
