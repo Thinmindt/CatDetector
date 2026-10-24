@@ -3,6 +3,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Cat Detector</title><style>
 [hidden] { display: none !important; }
+:root { color-scheme: dark; }
 body { font-family: system-ui, sans-serif; margin: 16px;
        background: #141414; color: #eee; }
 h1 { font-size: 1.2rem; display: inline-block; margin-right: 24px; }
@@ -63,15 +64,47 @@ kbd { background: #444; border-radius: 3px; padding: 1px 5px; font-size: 0.85em;
                 background: #1e1e1e; border-radius: 12px 12px 0 0;
                 padding: 12px 8px calc(12px + env(safe-area-inset-bottom)); }
 #sheet .panel button { display: block; width: 100%; margin-bottom: 8px; text-align: left; }
+
+/* The timeline: two brushable strips, label chips, then the rows. */
+.strip { margin: 8px 0 12px; }
+.striplabel { color: #aaa; margin-bottom: 4px; display: flex; gap: 12px;
+              align-items: center; }
+.strip svg { display: block; width: 100%; height: 72px; touch-action: none; }
+.strip .slot.out { opacity: 0.25; }
+#hours.outside .slot.out { opacity: 1; }
+#hours.outside .slot:not(.out) { opacity: 0.25; }
+.strip .axis text { fill: #aaa; font-size: 11px; }
+.strip .axis path, .strip .axis line { stroke: #555; }
+.strip .selection { fill: #7cc4ff; fill-opacity: 0.15; stroke: #7cc4ff; }
+.strip .handle { fill: #7cc4ff; fill-opacity: 0.35; }
+#hours.outside .selection { fill: #000; fill-opacity: 0.4; stroke: #555; }
+#chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0; }
+.chip { min-height: 40px; padding: 4px 12px; opacity: 0.55; }
+.chip.on { opacity: 1; outline: 2px solid #7cc4ff; }
+#chips.all .chip { opacity: 1; }
+.swatch { display: inline-block; width: 10px; height: 10px; border-radius: 2px;
+          margin-right: 6px; }
+.filters { display: flex; flex-wrap: wrap; gap: 12px; align-items: center;
+           margin: 8px 0; color: #aaa; }
+.filters input { font-size: 1rem; min-height: 40px; margin-left: 6px; }
+button.small { min-height: 40px; font-size: 0.9rem; padding: 4px 12px; }
+button.small.on { background: #2f4f6f; }
+#rows { width: 100%; border-collapse: collapse; }
+#rows th { text-align: left; color: #aaa; font-weight: normal; }
+#rows td, #rows th { padding: 4px 6px; border-bottom: 1px solid #262626;
+                     white-space: nowrap; }
+#rows a { color: #7cc4ff; text-decoration: none; }
 @media (max-width: 600px) {
   .tiles { grid-template-columns: 1fr 1fr; }
   .clip { padding: 6px; }
+  #rows td, #rows th { padding: 4px 3px; font-size: 0.9rem; }
 }
 </style></head><body>
 <h1>Cat Detector</h1>
 <nav>
   <a href="/" data-tab="live">Live</a>
   <a href="/review" data-tab="review">Review <span id="mode"></span></a>
+  <a href="/timeline" data-tab="timeline">Timeline</a>
 </nav>
 
 <section id="live" hidden>
@@ -96,28 +129,29 @@ kbd { background: #444; border-radius: 3px; padding: 1px 5px; font-size: 0.85em;
 </div>
 <div id="done" hidden><p id="donetext">Nothing left to review.</p>
   <p><a id="toqueue" class="button primary" href="/review" hidden></a></p>
-  <button onclick="rescan()">rescan clip directory</button></div>
+  <button data-action="rescan">rescan clip directory</button></div>
 <div id="counts"></div>
 
 <div id="snack" class="gone"><span id="snacktext"></span>
-  <button onclick="undo()">undo <kbd>z</kbd></button></div>
+  <button data-action="undo">undo <kbd>z</kbd></button></div>
 <div id="bar" hidden>
   <div class="row" id="cats"></div>
   <div class="row">
-    <button onclick="label('not_cat')">not a cat <kbd>n</kbd></button>
-    <button onclick="label('unsure')">unsure <kbd>u</kbd></button>
-    <button id="cleaning" onclick="startClean()">cleaning <kbd>l</kbd></button>
-    <button id="save" class="primary" onclick="saveCounts()" hidden>save counts <kbd>Enter</kbd></button>
-    <button onclick="openSheet()">more &hellip;</button>
+    <button data-action="label" data-value="not_cat">not a cat <kbd>n</kbd></button>
+    <button data-action="label" data-value="unsure">unsure <kbd>u</kbd></button>
+    <button id="cleaning" data-action="clean">cleaning <kbd>l</kbd></button>
+    <button id="save" class="primary" data-action="save" hidden>save counts <kbd>Enter</kbd></button>
+    <button data-action="more">more &hellip;</button>
   </div>
 </div>
-<div id="sheet" hidden onclick="if (event.target === this) closeSheet()">
+<div id="sheet" hidden data-action="backdrop">
   <div class="panel">
-    <button id="plaincat" onclick="label('cat')">cat, which one not decided <kbd>c</kbd></button>
-    <button onclick="join()">same visit as the next event</button>
-    <button id="skip" onclick="load()" hidden>next <kbd>&rarr;</kbd></button>
-    <button onclick="rescan()">rescan clip directory</button>
-    <button onclick="closeSheet()">close</button>
+    <button id="plaincat" data-action="label" data-value="cat">cat, which one not decided <kbd>c</kbd></button>
+    <button data-action="join">same visit as the next event</button>
+    <button id="restage" data-action="restage" hidden>back for review, keeping the label &hellip;</button>
+    <button id="skip" data-action="next" hidden>next <kbd>&rarr;</kbd></button>
+    <button data-action="rescan">rescan clip directory</button>
+    <button data-action="close">close</button>
   </div>
 </div>
 {% else %}
@@ -126,10 +160,28 @@ kbd { background: #444; border-radius: 3px; padding: 1px 5px; font-size: 0.85em;
 {% endif %}
 </section>
 
-<script>
-const REVIEW = {{ 'true' if review_available else 'false' }};
-const LABELS = {{ labels | tojson }};
-const CATS = {{ cats | tojson }};  // digit keys 1.., in this order; then m = multiple
-const THUMB_WIDTH = {{ thumb_width }};
-</script>
-<script src="{{ url_for('static', filename='app.js') }}"></script></body></html>
+<section id="timeline" hidden>
+{% if review_available %}
+<div class="strip"><div class="striplabel">days</div><svg id="days"></svg></div>
+<div class="strip"><div class="striplabel">hours of the day
+  <button id="outside" class="small" data-action="outside">outside the range</button></div>
+  <svg id="hours"></svg></div>
+<div id="chips"></div>
+<div class="filters">
+  <label>labelled before <input id="labeledbefore" type="date"></label>
+  <button class="small" data-action="clear">clear the filter</button>
+</div>
+<div class="filters"><span id="summary"></span>
+  <button id="stageshown" class="small" data-action="stage-shown">back for review &hellip;</button></div>
+<table id="rows"><thead><tr><th>when</th><th>label</th><th>box</th><th>length</th>
+  <th>clips</th><th></th></tr></thead><tbody></tbody></table>
+{% else %}
+<p class="warn">The timeline is unavailable: the capture database could not be opened.</p>
+{% endif %}
+</section>
+
+{# cats: digit keys 1.., in this order; then m = multiple #}
+<script type="application/json" id="config">{{ {"review": review_available,
+  "labels": labels, "cats": cats, "thumbWidth": thumb_width} | tojson }}</script>
+<script src="{{ url_for('static', filename='vendor/d3.min.js') }}"></script>
+<script type="module" src="{{ url_for('static', filename='app.js') }}"></script></body></html>

@@ -439,7 +439,7 @@ and letting `INSERT OR IGNORE` discard the known ones costs one CIFS round trip 
 archive on every rescan, and the archive only grows: the startup ingest, and every rescan from the
 review page, would take longer each day. `ingest` selects the known paths once and skips them.
 
-**Event ids are stable across rescans.** Deep links (B.4 notifications) and the UI's undo history
+**Event ids are stable across rescans.** Links into the page (an address, a bookmark) and the undo history
 hold event ids, so `ingest` may extend an event or create one but never renumbers.
 Each group keeps the lowest event id already among its clips. A clip that arrives late, held back
 by an outage of the share, can bridge two existing events; they merge under the lower id. Only `regroup`
@@ -588,14 +588,34 @@ rule exists because the sheet's own `display: flex` beat the attribute and showe
 **The page's script is a static file** (2026-09-22). Inline in the template it was invisible to
 every gate: syntax errors and undefined names reached the browser. As `src/static/app.js` it is
 linted by eslint as the fifth gate, with eslint pinned by `package-lock.json` so the gate means
-the same on every machine. The template keeps only the four constants it fills
-(`REVIEW`, `LABELS`, `CATS`, `THUMB_WIDTH`), declared inline before the script loads, and the
-lint config lists them as globals; the functions the template calls from `onclick` attributes are
-exempt from the unused-variable rule by name.
+the same on every machine.
+
+**The page is modules with no build step** (2026-09-28, ROADMAP B.6). One 424-line script served
+both tabs through eleven page-wide variables, and the timeline would have doubled it. Browsers
+load `<script type="module">` directly, so the script is split by tab (`live.js`, `review.js`,
+`timeline.js`), with `common.js` for fetching, escaping and times and `app.js` for the tabs,
+and each tab's state is private to its module. A framework was not adopted: React, Vue or Svelte
+each need a bundler, a build on the Pi before every restart and generated files kept in step with
+the source, for a page with one user. The template passes its settings as one JSON block (`<script
+type="application/json" id="config">`, written by Jinja's `tojson`, which escapes `<`, so a cat's
+name cannot close the tag) rather than as page-wide constants, and buttons name their action in
+`data-action`, dispatched by one listener per tab, rather than calling globals from `onclick`,
+which modules do not expose.
+
+**d3 is vendored from a pinned package** (2026-09-28). The timeline's strips need a brush that
+drags by mouse and by touch, time scales and axes; d3 does all three, and hand-written dragging
+is where touch handling goes wrong. `package.json` pins d3 exactly, `npm run vendor` copies its
+bundle and licence to `src/static/vendor/`, and the copy is committed, so the Pi serves it with no
+build and no network. A gate (`npm run vendor:check`) fails if the copy differs from the pinned
+package, so an upgrade is a version bump plus `npm run vendor`. The whole bundle (280 KB, cached)
+is served rather than the few d3 modules used: those import one another by bare name, which a
+browser cannot resolve without a bundler or an import map. codespell and eslint skip the vendor
+directory.
 
 **Page changes are checked by screenshot** (2026-09-22). `tests/manual/check_page.py` serves the
 app with no camera from a copy of the review database and shoots `/review` with headless
-chromium at a Pixel 9's portrait size and a laptop size. It exists because the phone layout's
+chromium at a Pixel 9's portrait size and a laptop size; `--path` shoots any address, such as a
+filtered timeline. It exists because the phone layout's
 one shipped bug, a sheet visible on load, passed every gate; only a rendered page shows a layout.
 It copies the database so it never writes the live one, and reuses the live frame cache, whose
 entries are published atomically, so it can run beside the service.
@@ -651,6 +671,41 @@ a 3-clip event's three strips were served in 16 ms together (2026-09-27).
 by name, and the page said "Nothing left to review here" while 73 events waited in the queue; the
 only way back was a small link at the end of the counts line. An empty walk now says which walk it
 is and offers the queue as a full-size button with the number waiting (unlabelled plus staged).
+
+**The timeline filters once, on the server** (2026-09-28, ROADMAP B.6). `GET /api/timeline` takes
+the filter (label chips, a day range, an hour range, labelled-before) as its query string, which
+is also the page's address, and `timeline.build_timeline` applies it to one row per event, so
+pytest checks the only implementation. Filtering in the browser as a handle moves would have meant
+a second implementation in JavaScript with no test; instead the page asks when a handle is
+released, which on the LAN answers in milliseconds, and meanwhile only dims the bars outside the
+brush. Each strip's counts are computed under every filter but its own (crossfilter's rule), so a
+strip always shows what its brush could select rather than only what it already has. A brush
+cannot wrap, so an hour range across midnight is a brushed range plus an "outside the range"
+toggle, which sends it reversed (`hours=22-6`). A drag whose two ends round to the same boundary
+selects the one day or hour it touched. Stage-everything sends ids, not the filter, so exactly
+what the reviewer saw is staged, and it waits while a newer filter is loading. Only labelled events
+not already staged are taken, by the server as well as the page: an unlabelled event is in the
+queue already, and restaging would overwrite the reason and source an event was staged with. A
+response carries the first 500 rows, the total, and the ids stageable among all of them, so the
+page stays small as the archive grows without narrowing what staging can reach. An address the
+server would refuse, hand-edited or stale, is read as no filter rather than drawn as an error.
+The box is the third of the analysis frame (`ANALYSIS_SIZE`, the coordinate frame of a sidecar's
+blobs) holding the first clip's trigger, as A.2 counts it; C.3 makes boxes configuration.
+
+**The timeline query uses an index on `clip(event_id)`** (2026-09-28). Two correlated subqueries
+per event, the first clip's trigger and whether any clip is staged, each scanned every clip
+without it: 39 ms for 375 events, growing with the square of the archive, under the lock every
+review request waits on. With the index, 2.5 ms (2026-09-28). A test reads the query plan.
+
+**The strips are drawn for a thumb** (2026-09-28). The brush's grab zone is 28 px, and the axes
+leave 22 px at each end so the first and last labels fit. Day ticks are every nth day counted from
+the first: d3's own day ticks restart at each month, which crowds the ticks either side of it.
+d3's brush ignores a touch that moves only a few pixels, so a slice is a drag, not a tap.
+
+**Times are shown in the browser's locale** (2026-09-28). The review header and the timeline show
+`Sun 27 Sep, 22:59` with the relative time on hover, from `toLocaleString` and
+`Intl.RelativeTimeFormat`. Stored times carry no zone and are the Pi's local time, which a browser
+on the same network shares, so they are read as local; C.6 makes that explicit.
 
 **The label table is separate from event** (per the roadmap): model predictions and human labels
 can later coexist via the `source` column without overwriting each other.

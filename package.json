@@ -1,11 +1,14 @@
 {
   "name": "catdetector",
   "private": true,
-  "description": "JavaScript tooling for the review page; the application is Python",
+  "description": "JavaScript tooling for the review page, and d3, which the page loads from src/static/vendor; the application is Python",
   "scripts": {
-    "lint": "eslint src/static"
+    "lint": "eslint src/static",
+    "vendor": "cp node_modules/d3/dist/d3.min.js src/static/vendor/d3.min.js && cp node_modules/d3/LICENSE src/static/vendor/d3.LICENSE",
+    "vendor:check": "cmp src/static/vendor/d3.min.js node_modules/d3/dist/d3.min.js && cmp src/static/vendor/d3.LICENSE node_modules/d3/LICENSE"
   },
   "devDependencies": {
+    "d3": "7.9.0",
     "eslint": "^10.0.0"
   }
 }

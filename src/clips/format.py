@@ -5,6 +5,10 @@ from pathlib import Path
 CAMERA_FPS = 30
 H264_BITRATE = 10_000_000
 
+# The analysis frame, (width, height) in pixels: a sidecar's blob coordinates
+# are measured in it.
+ANALYSIS_SIZE = (640, 480)
+
 CLIP_SUFFIX = ".h264"  # raw elementary stream, not a container
 PARTIAL_SUFFIX = ".part"
 

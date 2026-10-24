@@ -7,9 +7,10 @@ files() { git ls-files -z --cached --others --exclude-standard "$@"; }
 
 bash scripts/check_private.sh
 files '*.sh' | xargs -0 uv run shellcheck
-files | xargs -0 uv run codespell
+files ':!src/static/vendor/' | xargs -0 uv run codespell
 uv run ruff check .
 uv run ruff format --check .
 uv run mypy .
 npm run --silent lint
+npm run --silent vendor:check
 uv run pytest "$@"

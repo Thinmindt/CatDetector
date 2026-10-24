@@ -14,6 +14,14 @@ from src.clips.sidecar import iso
 from src.review.capture_db import CaptureDB, Clip, Event, JoinRefusedError
 from src.review.clip_frames import ClipFrames
 from src.review.strips_ahead import StripsAhead
+from src.review.timeline import (
+    BOXES,
+    HOURS_IN_DAY,
+    UNLABELED,
+    Timeline,
+    TimelineFilter,
+    build_timeline,
+)
 
 log = logging.getLogger(__name__)
 
@@ -32,6 +40,10 @@ STAGED = "staged"
 # Who may put an event back in the queue.
 STAGING_SOURCES = ("human", "agent", "model")
 
+# The timeline rows one response carries; the rest are counted, and their ids
+# sent for staging.
+TIMELINE_ROWS_SENT = 500
+
 
 @dataclass(frozen=True)
 class Review:
@@ -46,7 +58,14 @@ class Review:
     ahead: StripsAhead | None = None
 
     def __post_init__(self) -> None:
-        reserved = {*FIXED_LABELS, MULTIPLE, MULTI_WALK, LABELED_WALK, STAGED}
+        reserved = {
+            *FIXED_LABELS,
+            MULTIPLE,
+            MULTI_WALK,
+            LABELED_WALK,
+            STAGED,
+            UNLABELED,
+        }
         for name in self.cat_names:
             if not name or name in reserved:
                 raise ValueError(f"CAT_NAMES: {name!r} cannot be a cat's name")
@@ -66,10 +85,6 @@ class Review:
             self.ahead.wanted()
 
 
-# Litter boxes by position in frame, left to right; the camera knows no more.
-BOXES = (1, 2, 3)
-
-
 def _iso(when: datetime.datetime | None) -> str | None:
     return None if when is None else iso(when)
 
@@ -86,6 +101,75 @@ def request_body() -> dict[str, Any]:
     """The request's JSON object, or an empty one if it sent anything else."""
     body = request.get_json(silent=True)
     return body if isinstance(body, dict) else {}
+
+
+def staging_request(body: dict[str, Any]) -> tuple[str, str]:
+    """The reason and source a staging request names. Raises ValueError."""
+    reason, source = body.get("reason"), body.get("source", "human")
+    if not isinstance(reason, str) or not reason.strip():
+        raise ValueError("reason must be a non-empty string")
+    if source not in STAGING_SOURCES:
+        raise ValueError(f"source must be one of {STAGING_SOURCES}")
+    return reason.strip(), source
+
+
+def timeline_filter(labels: tuple[str, ...]) -> TimelineFilter:
+    """The filter in the request's query string. Raises ValueError."""
+    chips = request.args.getlist("label")
+    unknown = set(chips) - {*labels, UNLABELED}
+    if unknown:
+        raise ValueError(f"label must be one of {(*labels, UNLABELED)}")
+    return TimelineFilter(
+        chips=frozenset(chips) if chips else None,
+        first_day=_parsed(request.args.get("from"), datetime.date.fromisoformat),
+        last_day=_parsed(request.args.get("to"), datetime.date.fromisoformat),
+        hours=_hour_range(request.args.get("hours")),
+        labeled_before=_parsed(
+            request.args.get("labeled_before"), datetime.datetime.fromisoformat
+        ),
+    )
+
+
+def _parsed[T](text: str | None, parse: Callable[[str], T]) -> T | None:
+    return None if not text else parse(text)
+
+
+def _hour_range(text: str | None) -> tuple[int, int] | None:
+    """ "22-6" as (22, 6): from 22:00 up to 06:00."""
+    if not text:
+        return None
+    first, _, last = text.partition("-")
+    hours = (int(first), int(last))
+    if not all(0 <= hour <= HOURS_IN_DAY for hour in hours) or hours[0] == hours[1]:
+        raise ValueError("hours must be two different hours from 0 to 24, as 22-6")
+    return hours
+
+
+def timeline_payload(timeline: Timeline) -> dict[str, Any]:
+    return {
+        "total": len(timeline.rows),
+        "stageable": [row.id for row in timeline.rows if row.stageable],
+        "rows": [
+            {
+                "id": row.id,
+                "started_at": _iso(row.started_at),
+                "seconds": row.seconds,
+                "clips": row.clips,
+                "label": row.label,
+                "box": row.box,
+                "staged": row.staged,
+            }
+            for row in timeline.rows[:TIMELINE_ROWS_SENT]
+        ],
+        "by_day": {day.isoformat(): dict(n) for day, n in timeline.by_day.items()},
+        "by_hour": [dict(n) for n in timeline.by_hour],
+        "first_day": _iso_day(timeline.first_day),
+        "last_day": _iso_day(timeline.last_day),
+    }
+
+
+def _iso_day(day: datetime.date | None) -> str | None:
+    return None if day is None else day.isoformat()
 
 
 def validated_counts(raw: Any) -> dict[int, int] | None:
@@ -143,16 +227,46 @@ class ReviewPages:
 
     def stage(self, event_id: int) -> ResponseReturnValue:
         """Put an event back in the review queue with a reason, keeping its label."""
-        body = request_body()
-        reason, source = body.get("reason"), body.get("source", "human")
-        if not isinstance(reason, str) or not reason.strip():
-            return error("reason must be a non-empty string", 400)
-        if source not in STAGING_SOURCES:
-            return error(f"source must be one of {STAGING_SOURCES}", 400)
-        if not self.db.stage(event_id, reason.strip(), source):
+        try:
+            reason, source = staging_request(request_body())
+        except ValueError as refused:
+            return error(str(refused), 400)
+        event = self.db.get(event_id)
+        if event is None:
             return no_such_event()
+        if event.label is None:
+            return error("an unlabelled event is in the review queue already", 409)
+        self.db.stage(event_id, reason, source)
         self.review.queue_changed()
         return self._event_payload(self.db.get(event_id))
+
+    def stage_many(self) -> ResponseReturnValue:
+        """Stage the events named by id, what the timeline showed, skipping those
+        with no label or already staged."""
+        body = request_body()
+        event_ids = body.get("event_ids")
+        if not isinstance(event_ids, list) or not all(
+            isinstance(event_id, int) for event_id in event_ids
+        ):
+            return error("event_ids must be a list of event ids", 400)
+        try:
+            reason, source = staging_request(body)
+        except ValueError as refused:
+            return error(str(refused), 400)
+        staged = self.db.stage_events(event_ids, reason, source)
+        self.review.queue_changed()
+        return jsonify({"staged": staged})
+
+    def timeline(self) -> ResponseReturnValue:
+        """Every event the filter in the query string admits, newest first,
+        with the counts behind the page's date and hour strips."""
+        try:
+            chosen = timeline_filter(self.labels)
+        except ValueError as refused:
+            return error(str(refused), 400)
+        return jsonify(
+            timeline_payload(build_timeline(self.db.timeline_rows(), chosen))
+        )
 
     def set_counts(self, event_id: int) -> ResponseReturnValue:
         """Poops found per box at a cleaning, signalled by hand in the clip."""
@@ -264,6 +378,8 @@ def create_review_blueprint(review: Review) -> Blueprint:
             f"/api/review/<int:event_id>/{action}", view_func=view, methods=["POST"]
         )
     bp.add_url_rule("/api/review/rescan", view_func=pages.rescan, methods=["POST"])
+    bp.add_url_rule("/api/review/stage", view_func=pages.stage_many, methods=["POST"])
+    bp.add_url_rule("/api/timeline", view_func=pages.timeline)
     media = "/review/clip/<int:clip_id>"
     bp.add_url_rule(f"{media}/strip.jpg", view_func=pages.strip)
     bp.add_url_rule(f"{media}/frame/<int:slot>.jpg", view_func=pages.frame)
