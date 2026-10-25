@@ -1,0 +1,33 @@
+name: install
+
+# The README's install steps, run as written on a clean Debian trixie by an ordinary
+# user with sudo, then the tests. Only what needs a Raspberry Pi is left out: see
+# scripts/readme_install.py.
+on:
+  push:
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  install:
+    runs-on: ubuntu-latest
+    container: debian:trixie
+    env:
+      DEBIAN_FRONTEND: noninteractive
+    steps:
+      # Raspberry Pi OS ships these, and a first user who can sudo; a bare container
+      # has neither. apt's prompts, answered by hand at a terminal, are answered here.
+      - run: apt-get update && apt-get install -y --no-install-recommends ca-certificates curl git python3 sudo
+      - run: |
+          useradd --create-home pi
+          echo 'pi ALL=(ALL) NOPASSWD:ALL' > /etc/sudoers.d/pi
+          echo 'Defaults env_keep += "DEBIAN_FRONTEND"' > /etc/sudoers.d/frontend
+          echo 'APT::Get::Assume-Yes "true";' > /etc/apt/apt.conf.d/90assume-yes
+      - uses: actions/checkout@v4
+      - run: chown -R pi "$GITHUB_WORKSPACE"
+      - run: python3 scripts/readme_install.py README.md | tee /tmp/install.sh
+      - run: su pi -c "cd '$GITHUB_WORKSPACE' && bash -eux /tmp/install.sh"
+      - run: su pi -c "cd '$GITHUB_WORKSPACE' && . \$HOME/.local/bin/env && uv run pytest"

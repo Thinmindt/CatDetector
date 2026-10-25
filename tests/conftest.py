@@ -67,7 +67,7 @@ def wait_for(predicate: Callable[[], bool], timeout: float = 5.0) -> bool:
 
 
 def make_frame(shape: tuple[int, int] = LORES_SIZE, value: int = 0) -> Frame:
-    """A solid-colour frame of the given (height, width)."""
+    """A solid-color frame of the given (height, width)."""
     return np.full((*shape, 3), value, dtype=np.uint8)
 
 
@@ -367,7 +367,7 @@ def clip_dir(tmp_path: Path) -> Path:
 def write_test_video(path: Path, seconds: int = 3) -> Path:
     """A raw H.264 stream like the recorder's: 30 fps, a keyframe every second.
 
-    Frame n is a flat grey of n // 2, so a decoded frame says where it came from.
+    Frame n is a flat gray of n // 2, so a decoded frame says where it came from.
     """
     raw = b"".join(
         np.full((120, 160, 3), n // 2, dtype=np.uint8).tobytes()

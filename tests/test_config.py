@@ -19,7 +19,7 @@ DETECTION_SETTINGS = (
 # Foreground px of a cat walking into the full-sensor view; see docs/design/capture.md.
 WALKING_CAT_PX = 400
 
-# Mean grey level of the brightest frame in the unlit room at night, and of the
+# Mean gray level of the brightest frame in the unlit room at night, and of the
 # dimmest frame with the room lit; see docs/design/capture.md.
 BRIGHTEST_NIGHT_FRAME = 2.7
 DIMMEST_LIT_FRAME = 46.1

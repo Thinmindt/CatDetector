@@ -1,14 +1,14 @@
 // The Timeline tab: every event, newest first, filtered by label chips, a
-// brushed range of days, a brushed range of hours and a labelled-before date.
+// brushed range of days, a brushed range of hours and a labeled-before date.
 // The filter is the address's query string and the API's, unchanged.
 import {CONFIG, escaped, get, onActions, post, timeTag} from './common.js';
 
 const {d3} = window;
 const UNLABELED = 'unlabeled';
 const CHIPS = [...CONFIG.labels, UNLABELED];
-const FIXED_COLOURS = {cat: '#bbbbbb', not_cat: '#5a5a5a', unsure: '#9a8430',
+const FIXED_COLORS = {cat: '#bbbbbb', not_cat: '#5a5a5a', unsure: '#9a8430',
                        clean: '#4a7fa8', multiple: '#8c6bb1', [UNLABELED]: '#e8e8e8'};
-const CAT_COLOURS = ['#e15759', '#59a14f', '#f28e2b', '#76b7b2', '#edc948',
+const CAT_COLORS = ['#e15759', '#59a14f', '#f28e2b', '#76b7b2', '#edc948',
                      '#ff9da7', '#9c755f', '#4e79a7', '#b07aa1', '#d4a6c8'];
 const HOURS_IN_DAY = 24;
 const HOUR_TICKS = [0, 3, 6, 9, 12, 15, 18, 21, 24];
@@ -19,8 +19,8 @@ const EDGE_PX = 22;  // room at each end for the first and last axis labels
 const DAY_TICK_PX = 90;
 const RESIZE_MS = 150;
 
-const colour = (chip) => FIXED_COLOURS[chip]
-  ?? CAT_COLOURS[CONFIG.cats.indexOf(chip) % CAT_COLOURS.length] ?? '#999999';
+const color = (chip) => FIXED_COLORS[chip]
+  ?? CAT_COLORS[CONFIG.cats.indexOf(chip) % CAT_COLORS.length] ?? '#999999';
 
 // chips: the labels shown (empty: all); days: [first, last] inclusive, as
 // YYYY-MM-DD; hours: [first, last) as brushed, and outside: whether the
@@ -139,7 +139,7 @@ function drawStrip(svg, {slots, counts, x, axis, place, slotAt, widen, chosen, s
       if (!n) continue;
       slot.append('rect').attr('x', left).attr('width', Math.max(1, right - left - 1))
         .attr('y', y(base + n)).attr('height', y(base) - y(base + n))
-        .attr('fill', colour(chip));
+        .attr('fill', color(chip));
       base += n;
     }
   });
@@ -242,7 +242,7 @@ function describe() {
     const [first, last] = filter.hours;
     parts.push(filter.outside ? `outside ${first}h to ${last}h` : `${first}h to ${last}h`);
   }
-  if (filter.labeledBefore) parts.push(`labelled before ${filter.labeledBefore}`);
+  if (filter.labeledBefore) parts.push(`labeled before ${filter.labeledBefore}`);
   return parts.join(', ');
 }
 
@@ -252,7 +252,7 @@ function renderChips() {
   chips.innerHTML = CHIPS.map((chip) =>
     `<button class="chip${filter.chips.has(chip) ? ' on' : ''}" data-action="chip"` +
     ` data-value="${escaped(chip)}"><span class="swatch" style="background:` +
-    `${colour(chip)}"></span>${escaped(chip.replace('_', ' '))}</button>`).join('');
+    `${color(chip)}"></span>${escaped(chip.replace('_', ' '))}</button>`).join('');
   document.getElementById('outside').classList.toggle('on', filter.outside);
   document.getElementById('outside').disabled = !filter.hours;
   document.getElementById('labeledbefore').value = filter.labeledBefore;
@@ -272,7 +272,7 @@ function rowHtml(row) {
       ' title="back for review">&#8617;</button>';
   }
   return `<tr><td><a href="/review/${row.id}">${timeTag(row.started_at)}</a></td>` +
-    `<td><span class="swatch" style="background:${colour(chip)}"></span>` +
+    `<td><span class="swatch" style="background:${color(chip)}"></span>` +
     `${escaped(chip.replace('_', ' '))}${row.peek ? '<br><span class="note">peek</span>' : ''}</td>` +
     `<td>${row.box ?? '?'}</td>` +
     `<td>${length(row.seconds)}</td><td>${row.clips}</td><td>${stage}</td></tr>`;
@@ -332,7 +332,7 @@ export function initTimeline() {
     'stage-row': (el) => stage([Number(el.dataset.id)],
       `Why should #${el.dataset.id} come back for review?`),
     'stage-shown': () => stage(data.stageable,
-      `Put the ${data.stageable.length} labelled events shown that are not staged yet` +
+      `Put the ${data.stageable.length} labeled events shown that are not staged yet` +
       ' back in the review queue, keeping their labels? Say why:'),
   });
   document.getElementById('labeledbefore').addEventListener('change', (e) => {

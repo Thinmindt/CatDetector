@@ -84,7 +84,7 @@ CLOCK_T = len("9999-99-99")
 MINUTE = len("9999-99-99T99:99")
 
 # A frame of the CSV: its time as ISO text, foreground pixels, cleaned largest
-# blob, brightness, and that blob's centre across the frame (-1 for none).
+# blob, brightness, and that blob's center across the frame (-1 for none).
 Frame = tuple[str, int, int, float, int]
 FOREGROUND: Final = 1
 CLEAN: Final = 2
@@ -118,8 +118,8 @@ def read_frames(lines: Iterable[str], tally: Tally | None = None) -> Iterator[Fr
 def _frame(cells: list[str], at: list[int]) -> Frame | None:
     try:
         time, fg, clean, bright, x, w = (cells[i] for i in at)
-        centre = int(x) + int(w) // 2 if x else -1
-        frame = (time, int(fg or 0), int(clean or 0), float(bright), centre)
+        center = int(x) + int(w) // 2 if x else -1
+        frame = (time, int(fg or 0), int(clean or 0), float(bright), center)
     except (IndexError, ValueError):
         return None
     shaped = (
@@ -162,18 +162,18 @@ class WindowIndex:
 @dataclass
 class Peaks:
     """What the CSV saw during one event, over its lit frames: the largest
-    foreground count and cleaned blob, and each frame's blob and its centre."""
+    foreground count and cleaned blob, and each frame's blob and its center."""
 
     foreground: int = 0
     clean: int = 0
     cleans: list[int] = field(default_factory=list)
-    centres: list[int] = field(default_factory=list)
+    centers: list[int] = field(default_factory=list)
 
-    def add(self, foreground: int, clean: int, centre: int) -> None:
+    def add(self, foreground: int, clean: int, center: int) -> None:
         self.foreground = max(self.foreground, foreground)
         self.clean = max(self.clean, clean)
         self.cleans.append(clean)
-        self.centres.append(centre)
+        self.centers.append(center)
 
     def stays(self, floor: int) -> dict[int, tuple[int, int]]:
         """Per box, the longest stay of a blob of at least `floor` px, in frames
@@ -182,12 +182,12 @@ class Peaks:
         fades into the background, so its blob can vanish for a long while."""
         found: dict[int, tuple[int, int]] = {}
         box, first = 0, 0
-        for number, (clean, centre) in enumerate(
-            zip(self.cleans, self.centres, strict=True)
+        for number, (clean, center) in enumerate(
+            zip(self.cleans, self.centers, strict=True)
         ):
-            if clean < floor or centre < 0:
+            if clean < floor or center < 0:
                 continue
-            here = box_at(centre)
+            here = box_at(center)
             if here != box:
                 box, first = here, number
             longest, largest = found.get(box, (0, 0))
@@ -200,11 +200,11 @@ def scan_peaks(
 ) -> dict[int, Peaks]:
     """What the CSV saw during each event, over lit frames."""
     peaks: dict[int, Peaks] = {}
-    for time, foreground, clean, brightness, centre in frames:
+    for time, foreground, clean, brightness, center in frames:
         if brightness < dark_brightness:
             continue
         for event_id in windows.holding(time):
-            peaks.setdefault(event_id, Peaks()).add(foreground, clean, centre)
+            peaks.setdefault(event_id, Peaks()).add(foreground, clean, center)
     return peaks
 
 
@@ -648,7 +648,7 @@ def weakest_doubts(visits: list[Visit]) -> list[Doubt]:
 
 
 def not_cat_doubts(others: dict[int, Peaks], visits: list[Visit]) -> list[Doubt]:
-    """Events labelled not_cat that held a visit-sized blob as long as a visit."""
+    """Events labeled not_cat that held a visit-sized blob as long as a visit."""
     peaks = sorted(visit.peaks.clean for visit in visits)
     low, high = peaks[0], peaks[math.floor((len(peaks) - 1) * TYPICAL_PEAK_SHARE)]
 

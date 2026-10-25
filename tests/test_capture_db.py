@@ -231,7 +231,7 @@ def test_a_bridge_between_disagreeing_labels_drops_the_label(
 def test_a_late_clip_that_bridges_two_events_merges_them(
     db: Any, tmp_path: Path
 ) -> None:
-    """A clip held back by an outage of the share can arrive after its neighbours."""
+    """A clip held back by an outage of the share can arrive after its neighbors."""
     directory = tmp_path / "captures"
     make_clip_with_facts(directory, at(0), seconds=20)
     make_clip_with_facts(directory, at(100), seconds=10)
@@ -554,7 +554,7 @@ def test_staging_by_label_and_time_takes_only_what_matches(
     db.set_label(second, "not_cat")
     cutoff = datetime.datetime.now()
     db.set_label(third, "cat")
-    db.set_label(second, "not_cat")  # relabelled after the cutoff
+    db.set_label(second, "not_cat")  # relabeled after the cutoff
 
     assert db.stage_labeled("early", "human", value="cat", labeled_before=cutoff) == 0
     assert (

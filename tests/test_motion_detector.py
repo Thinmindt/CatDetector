@@ -10,10 +10,10 @@ from conftest import LORES_SIZE, make_detector, make_frame
 
 from src.clips.frame import Frame
 
-# Mean grey levels either side of a dark cutoff of 10, as measured at night and by day.
+# Mean gray levels either side of a dark cutoff of 10, as measured at night and by day.
 DARK_CUTOFF = 10
-NIGHT_GREY = 2
-DAY_GREY = 60
+NIGHT_GRAY = 2
+DAY_GRAY = 60
 
 
 @pytest.fixture
@@ -66,8 +66,8 @@ def test_motion_in_a_dark_scene_does_not_trigger(detector: Any) -> None:
     arm(detector)
     detector.background_subtractor.motion_pixels = 10**6
 
-    assert moved(detector, make_frame(LORES_SIZE, NIGHT_GREY)) is False
-    assert moved(detector, make_frame(LORES_SIZE, DAY_GREY)) is True
+    assert moved(detector, make_frame(LORES_SIZE, NIGHT_GRAY)) is False
+    assert moved(detector, make_frame(LORES_SIZE, DAY_GRAY)) is True
 
 
 def test_logs_each_change_between_dark_and_lit(
@@ -77,8 +77,8 @@ def test_logs_each_change_between_dark_and_lit(
     arm(detector)
 
     with caplog.at_level(logging.INFO, logger="src.capture.motion_detector"):
-        for grey in (NIGHT_GREY, NIGHT_GREY, DAY_GREY, DAY_GREY, NIGHT_GREY):
-            moved(detector, make_frame(LORES_SIZE, grey))
+        for gray in (NIGHT_GRAY, NIGHT_GRAY, DAY_GRAY, DAY_GRAY, NIGHT_GRAY):
+            moved(detector, make_frame(LORES_SIZE, gray))
 
     changes = [r.getMessage() for r in caplog.records if "Scene" in r.getMessage()]
     assert changes == [

@@ -1,4 +1,4 @@
-// The Review tab: one event at a time from a walk, labelled with one key or tap.
+// The Review tab: one event at a time from a walk, labeled with one key or tap.
 import {CONFIG, escaped, get, onActions, post, timeTag} from './common.js';
 
 const FILTERS = ['multi', 'labeled', ...CONFIG.labels];
@@ -13,7 +13,7 @@ let current = null;
 const undoable = [];
 let busy = false;  // a label request is in flight; the bar and the keys wait
 let snackTimer = null;
-let strips = [];  // the shown event's strip images; empty once cancelled
+let strips = [];  // the shown event's strip images; empty once canceled
 
 // --- the address ------------------------------------------------------------
 
@@ -115,8 +115,8 @@ function showMeta() {
 // An empty walk says which walk it is and how many events wait in the queue.
 function walkName() {
   if (MULTI) return 'multi-clip events';
-  if (FILTER === 'labeled') return 'labelled events';
-  return `events labelled ${FILTER.replace('_', ' ')}`;
+  if (FILTER === 'labeled') return 'labeled events';
+  return `events labeled ${FILTER.replace('_', ' ')}`;
 }
 
 function showDone(counts) {
@@ -327,7 +327,7 @@ async function join() {
   else alert(data.error || 'There is no later event to join.');
 }
 
-// Puts a labelled event back in the queue with a reason, keeping its label.
+// Puts a labeled event back in the queue with a reason, keeping its label.
 async function restage() {
   if (!current) return;
   closeSheet();

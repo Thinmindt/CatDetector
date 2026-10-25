@@ -66,7 +66,7 @@ def test_rows_are_newest_first_with_undated_rows_last() -> None:
     assert ids(build_timeline(rows, TimelineFilter()).rows) == [2, 4, 1, 3]
 
 
-def test_chips_choose_labels_and_the_unlabelled() -> None:
+def test_chips_choose_labels_and_the_unlabeled() -> None:
     rows = [row(1, 8, "Ada"), row(2, 9, "not_cat"), row(3, 10)]
     only = TimelineFilter(chips=frozenset({"Ada", UNLABELED}))
     assert ids(build_timeline(rows, only).rows) == [3, 1]
@@ -94,7 +94,7 @@ def test_hours_are_half_open_and_may_cross_midnight(
     ) == sorted(expected)
 
 
-def test_labelled_before_takes_only_labels_older_than_it() -> None:
+def test_labeled_before_takes_only_labels_older_than_it() -> None:
     cutoff = datetime.datetime(2026, 9, 20, 12)
     rows = [
         row(1, 8, "not_cat", labeled_at=cutoff - datetime.timedelta(hours=1)),
@@ -143,7 +143,7 @@ def test_the_box_is_the_third_of_the_frame_holding_the_trigger(
 
 @pytest.fixture
 def timeline_client(db: Any, tmp_path: Path) -> tuple[Any, dict[str, int]]:
-    """Visits at 07:00 and 23:30 on two days and one undated clip, labelled.
+    """Visits at 07:00 and 23:30 on two days and one undated clip, labeled.
     Returns the client and the event ids by name."""
     directory = tmp_path / "captures"
     visits = {
@@ -310,10 +310,10 @@ def test_a_visit_of_several_clips_is_one_row_spanning_them(
     assert (only.clips, only.seconds) == (2, 55)
 
 
-def test_stage_many_skips_the_unlabelled_and_keeps_earlier_staging(
+def test_stage_many_skips_the_unlabeled_and_keeps_earlier_staging(
     db: Any, timeline_client: tuple[Any, dict[str, int]]
 ) -> None:
-    """Staging an unlabelled event counted it twice in the queue, and a bulk
+    """Staging an unlabeled event counted it twice in the queue, and a bulk
     stage overwrote the reason and source an event was staged with before."""
     client, names = timeline_client
     client.post(

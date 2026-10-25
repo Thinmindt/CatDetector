@@ -134,7 +134,7 @@ class Label(NamedTuple):
 
 
 class Staging(NamedTuple):
-    """Why a labelled event is back in the review queue, since when, and by whom."""
+    """Why a labeled event is back in the review queue, since when, and by whom."""
 
     reason: str
     staged_at: str
@@ -146,7 +146,7 @@ class DatabaseInUseError(RuntimeError):
 
 
 class JoinRefusedError(ValueError):
-    """A join the grouping could not honour."""
+    """A join the grouping could not honor."""
 
 
 @dataclass(frozen=True)
@@ -397,7 +397,7 @@ class CaptureDB:
         """Make each clip continue the one before it in time, then place them.
 
         The events' clips can interleave, and an override naming a later clip is
-        never honoured, so the first clip of the later event is not enough.
+        never honored, so the first clip of the later event is not enough.
         Raises JoinRefusedError, with nothing changed, if they cannot be grouped.
         """
         for event in (this, following):
@@ -675,7 +675,7 @@ class CaptureDB:
         value: str | None = None,
         labeled_before: datetime.datetime | None = None,
     ) -> int:
-        """Stage every labelled event with this value, labelled before this time.
+        """Stage every labeled event with this value, labeled before this time.
         Returns how many were staged."""
         query = "SELECT event_id FROM label WHERE 1 = 1"
         params: list[str] = []
@@ -690,7 +690,7 @@ class CaptureDB:
 
     @serialized
     def stage_events(self, event_ids: list[int], reason: str, source: str) -> int:
-        """Stage those of these events that are labelled and not staged already,
+        """Stage those of these events that are labeled and not staged already,
         so no earlier staging is overwritten. Returns how many were staged."""
         wanted = set(event_ids) & self._stageable_event_ids()
         staging = Staging(reason, self._now(), source)
@@ -700,7 +700,7 @@ class CaptureDB:
 
     @serialized
     def ask(self, questions: list[tuple[int, str, str]], source: str) -> int:
-        """Stage each (event, question, reason) whose event is labelled, not staged
+        """Stage each (event, question, reason) whose event is labeled, not staged
         already, and was never asked that question on any of its clips; one staged
         already is left as it is, to ask another time. Returns how many were staged.
         """
@@ -740,7 +740,7 @@ class CaptureDB:
         return int(row["n"])
 
     def _stageable_event_ids(self) -> set[int]:
-        """Labelled and not staged: what staging may take without overwriting."""
+        """Labeled and not staged: what staging may take without overwriting."""
         return self._labeled_event_ids(None) - self._staged_event_ids()
 
     @serialized

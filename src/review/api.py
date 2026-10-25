@@ -249,7 +249,7 @@ class ReviewPages:
         if event is None:
             return no_such_event()
         if event.label is None:
-            return error("an unlabelled event is in the review queue already", 409)
+            return error("an unlabeled event is in the review queue already", 409)
         self.db.stage(event_id, reason, source)
         self.review.queue_changed()
         return self._event_payload(self.db.get(event_id))
@@ -283,7 +283,7 @@ class ReviewPages:
         )
 
     def set_counts(self, event_id: int) -> ResponseReturnValue:
-        """Poops found per box at a cleaning, signalled by hand in the clip."""
+        """Poops found per box at a cleaning, signaled by hand in the clip."""
         if self.db.get(event_id) is None:
             return no_such_event()
         counts = validated_counts(request_body().get("counts"))
@@ -351,7 +351,7 @@ class ReviewPages:
     ) -> Response:
         """A file for one clip, or 404.
 
-        send_file honours Range requests, which is what lets the player seek.
+        send_file honors Range requests, which is what lets the player seek.
         """
         clip = self.db.clip(clip_id)
         path = produce(clip) if clip is not None else None
