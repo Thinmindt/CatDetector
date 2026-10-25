@@ -125,8 +125,8 @@ def test_sigterm_runs_the_same_cleanup_as_ctrl_c() -> None:
 
 
 def test_a_stalled_camera_ends_the_process_through_the_usual_cleanup() -> None:
-    """Regression: on 2026-09-26 capture blocked for 3 h 46 min without raising,
-    and the process stayed alive, so systemd never restarted it."""
+    """Regression: capture blocked for hours without raising, and the process
+    stayed alive, so systemd never restarted it."""
     spy: Any = MonitorSpy(stalled_for=main.CAPTURE_STALL_SECONDS + 1)
 
     with pytest.raises(SystemExit) as exit_info:

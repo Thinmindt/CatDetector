@@ -29,7 +29,7 @@ from src.review.clip_frames import ClipFrames
 from src.web_app import create_app
 
 PORT = 5055
-SIZES = {"phone": "412,915", "desk": "1280,900"}  # a Pixel 9 portrait, and a laptop
+SIZES = {"phone": "412,915", "desk": "1280,900"}  # a phone portrait, and a laptop
 OUTPUT_DIR = Path("test_images")
 START_TIMEOUT = 30
 RENDER_BUDGET_MS = 15000

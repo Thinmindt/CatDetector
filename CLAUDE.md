@@ -19,10 +19,11 @@ B.5b, …) are cited by the design doc and the commit messages, and never change
 finished, or a passage turns into history, it moves verbatim to the archive under the same letter,
 so the roadmap only ever describes the present plan.
 
-Anything else in `docs/` is **gitignored** (`docs/TODO.md` is the owner's to-do list, open items
-only, and `docs/TODO_ARCHIVE.md` holds the finished ones), as is
-`CLAUDE.local.md`, which holds facts about the one Pi this runs on — its account, its mounts,
-what needs the owner's own terminal. A fresh clone has none of these files.
+Anything else in `docs/` is **gitignored** (`docs/TODO.md`, if present, is a maintainer's own
+to-do list, open items only, and `docs/TODO_ARCHIVE.md` holds the finished ones), as is
+`CLAUDE.local.md`, which holds facts about the one Pi a checkout runs on and the person who runs
+it — its account, its mounts, what needs that person's own terminal. A fresh clone has none of
+these files.
 
 ## What this actually is
 
@@ -30,9 +31,9 @@ A Raspberry Pi camera pointed **down at the litter boxes**, which must be lit ar
 motion-triggered clips and serves a live MJPEG stream. The end goal is **catching bowel or urinary
 trouble in a particular cat**. That needs every visit recorded and attributed to **which cat**
 made it, which is why the roadmap is split into triggering reliably (part A) and building a
-labelled dataset plus classifier (part B). Part C keeps it working for other installations: the
-owner's Pi, camera, box count and thresholds are one implementation and one calibration, not
-requirements. Telling poop from pee may be tried later; nothing
+labelled dataset plus classifier (part B). Part C keeps it working for other installations: any
+one installation's Pi, camera, box count and thresholds are one implementation and one
+calibration, not requirements. Telling poop from pee may be tried later; nothing
 should depend on it.
 
 Three consequences worth holding onto:
@@ -139,7 +140,10 @@ request is normally a cache hit; a request for a strip being built waits for tha
 `.review_cache`; that cache is keyed by **clip** id (`clip<id>*`), never by event id, because
 event ids change on a regroup; the media URLs name the clip for the same reason
 (`/review/clip/<clip id>/...`). Labels include `clean`, which records a litter cleaning and the
-poop count per box (`poop_count` table, roadmap B.5b).
+poop count per box (`poop_count` table, roadmap B.5b). A **peek**, a cat that looks in and uses
+no box, keeps its cat label and is marked beside it (`peek` table, a row per clip; the `p` key).
+It is not a visit: A.2's counts and B.4's habit rule leave it out, while the timeline and the
+progress line count events by label and show the mark.
 
 `METRICS_CSV` turns on the instrumentation for roadmap A.2. Point it at **local disk**, never at
 the share: one row per frame at 30 fps is the small-write pattern CIFS handles worst. Rows are
@@ -180,7 +184,7 @@ this project's own rule lives in `private_terms.sh`, so keep changes there.
 one bug the phone layout shipped with (a sheet that showed on load, because a `display: flex`
 rule beat the `hidden` attribute) was invisible to every gate. `tests/manual/check_page.py`
 serves the app from a copy of the review database, with no camera, and screenshots `/review` at
-a Pixel 9 portrait (412 x 915) and a laptop size into `test_images/`; `--filter multi` and the
+a phone portrait (412 x 915) and a laptop size into `test_images/`; `--filter multi` and the
 other walks work too, `--event <id>` opens one event as a link would, and `--path` takes any
 address, the timeline's included. Run it and read the
 images before calling a page change done. Flask caches templates once rendered, so a server
@@ -256,11 +260,11 @@ line is what produced the screenshot check. Write the spec and the code on one b
 commit first, so the roadmap checkbox and the code land together; two branches from `main` left
 the code unable to tick the box. A branch is reviewed before it is pushed.
 
-**Check a branch before handing it to the owner, by what it changes.** Code gets `/code-review
-high`; documentation gets the doc-audit checks (the conventions plugin's `doc-audit` skill:
-true, current, in one place, safe to publish, general), not a code review. Fix each finding or
-say why not. The gates check what they were written to check; a review reads the change against
-the libraries it calls. On the capture-stall branch it found, after every gate had passed, a
+**Check a branch before handing it to the maintainer, by what it changes.** Code gets
+`/code-review high`; documentation gets the doc-audit checks (the conventions plugin's `doc-audit`
+skill: true, current, in one place, safe to publish, general), not a code review. Fix each
+finding or say why not. The gates check what they were written to check; a review reads the change
+against the libraries it calls. On the capture-stall branch it found, after every gate had passed, a
 self-exit that picamera2's `atexit` close could hang forever and a secret URL reaching the log
 through exception text. When a document states an invariant ("never logged", "never on the
 capture thread"), write the test that would fail if it broke (`docs/STYLE.md`, Tests).
@@ -273,15 +277,20 @@ others are disabled inside `tests/**` for reasons recorded in `docs/STYLE.md` �
 ## Repo hygiene
 
 **This repo is public.** Treat tracked files and commit messages as world-readable. Never put LAN
-addresses, share names, hostnames, credentials, or anything personal about the owner — their
-email, their cats' names — in anything tracked; they belong in `CLAUDE.local.md` or `.env`, which
-are gitignored. A pet's name is a common answer to account-recovery questions, and knowing it
-lends a stranger false familiarity, so treat the cats' names like a password. It is also a
+addresses, share names, hostnames, credentials, or anything personal about whoever runs it —
+their email, their cats' names — in anything tracked; they belong in `CLAUDE.local.md` or `.env`,
+which are gitignored. A pet's name is a common answer to account-recovery questions, and knowing
+it lends a stranger false familiarity, so treat the cats' names like a password. It is also a
 generality rule: another installation has other cats, so code, tests and docs use made-up names
 (`Ada`, `Bea`) or "Cat A", never the ones in `.env`. `.env` is ignored and has never been
 committed; keep it that way. The same test applies to prose: tracked files are written for a
-stranger with a Pi and a cat. Opinions about the code belong in; notes about the owner, their
+stranger with a Pi and a cat. Opinions about the code belong in; notes about one person, their
 machine or their workflow go in `CLAUDE.local.md`.
+
+**Tracked docs describe the project, not one installation.** A dated measurement may justify a
+default, but one setup's counts, progress, incidents and hardware go in a gitignored local note
+(`CLAUDE.local.md`, or another gitignored file under `docs/`, such as a data-run note). When in
+doubt, share less.
 
 Commit messages carry no `Claude-Session:` trailers. `Co-Authored-By:` is fine. Author and
 committer lines are public too: list any address you would not publish in `.private-terms`, and
