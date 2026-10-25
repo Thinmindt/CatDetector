@@ -455,20 +455,35 @@ def test_a_restart_ends_the_clip_at_the_last_frame_before_it() -> None:
     assert 0.9 < broken.median_coverage < 1.0  # the 5 s with no frames are lost
 
 
-def test_a_clip_is_cut_at_the_recorder_s_limit_and_reopened() -> None:
-    visit = visit_at(1, 0, 400)
-    replays = [Replay(threshold_rule(500), seconds(10))]
-    run_lines = rows_at(-1, 0, 0) + rows_at(0, 400, 1000)
+def spans_of(
+    lines: list[str], visit: Visit, rule: Rule
+) -> list[tuple[datetime.datetime, datetime.datetime]]:
+    """The clips one rule records over `lines`."""
+    run = Replay(rule, seconds(10))
     header = ",".join(("x", *COLUMNS))
     index = WindowIndex([window_of(visit.row)])  # type: ignore[list-item]
-    for number, each in enumerate(read_frames([header, *run_lines])):
-        when = datetime.datetime.fromisoformat(each[0])
+    for number, each in enumerate(read_frames([header, *lines])):
         if number > WARMUP_FRAMES:
-            replays[0].feed(each, when, number, index)
-    replays[0].finish()
-    spans = replays[0].spans
+            run.feed(each, datetime.datetime.fromisoformat(each[0]), number, index)
+    run.finish()
+    return run.spans
+
+
+def test_a_clip_is_cut_at_the_recorder_s_limit_and_reopened() -> None:
+    lines = rows_at(-1, 0, 0) + rows_at(0, 400, 1000)
+    spans = spans_of(lines, visit_at(1, 0, 400), threshold_rule(500))
     assert len(spans) == 2
     assert spans[0][1] - spans[0][0] <= MAX_CLIP + PRE_ROLL
+
+
+def test_a_clip_closed_on_timeout_is_not_stretched_to_the_limit() -> None:
+    burst = rows_at(-1, 0, 0) + rows_at(0, 20, 1000)
+    lines = burst + rows_at(20, 420, 0) + rows_at(420, 440, 1000)
+    spans = spans_of(lines, visit_at(1, 0, 20), threshold_rule(500))
+    header = ",".join(("x", *COLUMNS))
+    *_, last_motion = read_frames([header, *burst])
+    assert len(spans) == 2
+    assert spans[0][1] == datetime.datetime.fromisoformat(last_motion[0]) + seconds(10)
 
 
 def test_the_sweep_ends_from_a_run_threshold_of_zero() -> None:

@@ -423,7 +423,12 @@ class Replay:
     def _cut_at_limit(self, when: datetime.datetime) -> None:
         """Close a clip that has run MAX_CLIP, as the recorder does; the next
         trigger opens another."""
-        if self.opened is not None and when - self.opened > MAX_CLIP:
+        if self.opened is None or self.last is None:
+            return
+        if (
+            when - self.opened > MAX_CLIP
+            and self.last + self.timeout > self.opened + MAX_CLIP
+        ):
             self.last = self.opened + MAX_CLIP - self.timeout
             self.finish()
             self.last = None
