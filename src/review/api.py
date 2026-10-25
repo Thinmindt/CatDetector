@@ -82,12 +82,17 @@ class Review:
     @property
     def cat_labels(self) -> tuple[str, ...]:
         """The labels that say a cat was there: only these may be a peek."""
-        return ("cat", *self.cat_names, MULTIPLE) if self.cat_names else ("cat",)
+        return cat_labels(self.cat_names)
 
     def queue_changed(self) -> None:
         """Ready the strips of whatever the queue now holds next."""
         if self.ahead is not None:
             self.ahead.wanted()
+
+
+def cat_labels(cat_names: tuple[str, ...]) -> tuple[str, ...]:
+    """The labels that say a cat was there."""
+    return ("cat", *cat_names, MULTIPLE) if cat_names else ("cat",)
 
 
 def _iso(when: datetime.datetime | None) -> str | None:

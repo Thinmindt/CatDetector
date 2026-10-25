@@ -18,6 +18,11 @@ DATE = "date"
 HOURS = "hours"
 
 
+def box_at(x: int) -> int:
+    """The box holding an x position in the analysis frame, 1 = leftmost."""
+    return min(len(BOXES), 1 + x * len(BOXES) // ANALYSIS_SIZE[0])
+
+
 @dataclass(frozen=True)
 class TimelineRow:
     id: int
@@ -33,10 +38,7 @@ class TimelineRow:
     @property
     def box(self) -> int | None:
         """The box by position in frame, 1 = leftmost: the third holding the trigger."""
-        if self.trigger_cx is None:
-            return None
-        width = ANALYSIS_SIZE[0]
-        return min(len(BOXES), 1 + self.trigger_cx * len(BOXES) // width)
+        return None if self.trigger_cx is None else box_at(self.trigger_cx)
 
     @property
     def seconds(self) -> int | None:

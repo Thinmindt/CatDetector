@@ -186,6 +186,49 @@ rule carries on in the roadmap.
       - No motion went unrecorded for want of a trigger. Every frame over its run's threshold
         either started a clip or was already in one.
 
+
+Moved 2026-10-03: done.
+
+- [x] **Calibrate with one command, `main.py --calibrate`.** Every new mounting needs its own
+      data run, so the method above is a command anyone reruns, not a script for one Pi. It reads
+      `captures.db` and the metrics CSV, from the run's start (`--since`), and prints the table
+      above with the counts so far (the weather is the reviewer's call) and how many events it
+      left out. Once every measured condition holds it prints the settings, each replayed over
+      the CSV with the visits it would miss (none, or it says so) and its false triggers per lit
+      hour: `MOTION_THRESHOLD` for today's global-count trigger, below every visit's largest
+      foreground count, and A.3's band (`min_cat_area`, `max_cat_area`), its lower edge below the
+      weakest visit's largest blob and its upper edge above the largest, which a cat leaping in
+      or out reaches. It stages the events that need a person's eye, each once and with the
+      question: the same cat seconds apart (one visit split in two?), the weakest visits (a
+      peek?), and `not_cat` events holding a visit-sized blob (a cat after all?), so calibrating
+      happens in the review queue like any labelling. The README's "Calibrating an installation"
+      walks a new installation through it: the data run, labelling, `--calibrate` until it
+      reports done, then the drop-in.
+      **Done means** the command prints the table, the settings and their replay, stages each
+      doubt once, CI runs it on a small synthetic database and CSV whose answer is known, and the
+      README section exists.
+      Done 2026-10-03: as specified, plus `--boxes` for fewer than three boxes. Two weeks of CSV
+      (47 million rows) take about six minutes on a Pi 5.
+
+- [x] **Measure boxes by where the cat stays, and visits by how much is recorded.** A visit's box
+      was the third holding its first clip's trigger, which is mostly the cat's head entering at
+      the frame's top edge: on one run (2026-10-03) that gave the right box 4 visits, while the
+      blob stayed 10 s or more in the right third in 38, and 66 of 126 visits stayed in more than
+      one box. `--calibrate` counts boxes by that dwell and reports each box's weakest visit. Its
+      replay also reports how much of each visit a rule records (each clip's span with the 5 s
+      pre-roll), since a threshold that starts and holds clips alike lets them close while a cat
+      squats: at 2876 the median visit was 84 % recorded, against 100 % at the run's 150. It
+      replays a sweep of thresholds up from the run's and proposes the highest that misses no visit
+      and keeps the median visit 98 % recorded, and replays A.3's start-and-hold pair beside it.
+      **Done means** the report shows boxes by dwell with each box's weakest visit, coverage per
+      rule, the sweep and the proposal by coverage, and tests cover a visit in two boxes, a dwell
+      too short to count, and a threshold whose coverage falls below the line.
+      Done 2026-10-04: as specified. A stay in a box runs from the blob's first sighting there to
+      its last before it shows in another box, since a still cat fades from view; a visit counts as missed when no trigger fell inside it, not
+      when no clip overlapped it; the replay ends a clip at a restart and at the recorder's
+      300 s limit; and the proposal also keeps the visits recorded under 80 % within 5 % of the
+      run's own count, or says that no threshold qualifies.
+
 ## A.3 Detect a cat-sized thing
 
 Moved 2026-09-26. The split landed as `src/capture/motion_detector.py` (5adcc87, 2026-09-20). The

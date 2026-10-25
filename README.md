@@ -109,15 +109,16 @@ uv run python main.py --stage --label not_cat --labeled-before 2026-09-20 --reas
 the service first. `--stage` puts labelled events back in the review queue with a reason, keeping
 their labels, and runs beside the service; `--label` and `--labeled-before` choose the events.
 
-The Review tab of the web UI (`http://<pi-ip>:5000/review`) scans the captures directory into
-a local database and serves a keyboard-driven labeler — `c` cat, `n` not a cat, `u` unsure, `z`
-undo, `l` a litter cleaning (enter the poops found per box, `Enter` saves), click a tile to see
-the full frame, "watch" to play the clip. With `CAT_NAMES` set, each cat gets a digit key in the
-configured order and `m` marks an event with more than one cat; `c` then means "a cat, which one
-not decided", and `/review?filter=cat` walks those to name them; `→` moves on while walking a
-filter. The address names the event and the walk (`/review/<event>?filter=multi`), so a reload,
-Back or a shared link returns to the same event. `main.py` serves it beside the live feed, so it is available whenever the detector is
-running.
+The Review tab of the web UI (`http://<pi-ip>:5000/review`) scans the captures directory into a
+local database and serves a keyboard-driven labeler — `c` cat, `n` not a cat, `u` unsure, `z` undo,
+`l` a litter cleaning (enter the poops found per box, `Enter` saves), click a tile to see the full
+frame, "watch" to play the clip. With `CAT_NAMES` set, each cat gets a digit key in the configured
+order and `m` marks an event with more than one cat; `c` then means "a cat, which one not decided",
+and `/review?filter=cat` walks those to name them; `→` moves on while walking a filter. `p` marks a
+**peek**, a cat that looks in and uses no box: press it, then the cat's digit. A peek keeps the
+cat's name but does not count as a visit. The address names the event and the walk
+(`/review/<event>?filter=multi`), so a reload, Back or a shared link returns to the same event.
+`main.py` serves it beside the live feed, so it is available whenever the detector is running.
 
 The Timeline tab (`/timeline`) lists every event newest first, with its time, label, box, length
 and clip count. Label chips choose which labels show, so one cat's rows are that cat's visit log;
@@ -125,6 +126,54 @@ drag across the day strip or the hour-of-day strip to take a slice of time ("out
 turns 06:00 to 22:00 into the night); and "labelled before" picks out old labels to recheck. The
 filter is kept in the address. Each row can be sent back for review, or everything shown at once,
 with a reason.
+
+## Calibrating an installation
+
+The default thresholds come from one camera mount. A new mount, with another height, lens,
+framing or set of cats, needs its own, and they come from a **data run**: a week or two of
+recording everything, labelled by hand.
+
+1. **Start the data run.** Settle the framing, the lighting and the camera mode first: changing
+   one afterwards starts the run again. Then set a low threshold, so nothing is missed, and turn
+   on the per-frame metrics, in the service's drop-in (`sudo systemctl edit catdetector`):
+
+   ```
+   [Service]
+   Environment=MOTION_THRESHOLD=150
+   Environment=METRICS_CSV=/home/you/metrics.csv
+   ```
+
+   Keep the CSV on local disk; it grows by about 150 MB a day. Note when the run starts.
+2. **Label every day** in the Review tab: name the cat on each visit, press `p` before the digit
+   for a peek, and join a visit that was split in two ("same visit as the next event" under
+   "more").
+3. **Check progress** now and then, beside the running service:
+
+   ```
+   uv run python main.py --calibrate --since 2026-09-16
+   ```
+
+   It reads the database and the CSV, and takes the run's settings (`MOTION_THRESHOLD`,
+   `METRICS_CSV`) from the service's drop-in, saying where they came from; `--metrics PATH` names
+   another CSV. A couple of weeks of CSV takes several minutes. With fewer than three boxes, name
+   the thirds of the frame, left to right, that hold one: `--boxes 1,3`. It prints what the run
+   needs, with the counts so far: 50 visits (100 is better), 10 at night, 15 per cat, every box
+   used (a cat staying 10 s in that box's third of the frame), and the weakest visit no
+   longer getting weaker. Varied weather, with an overcast day, is yours to judge; it does not
+   matter if the boxes' own light swamps the daylight. It also puts the events that need a second
+   look in the review queue, each with its question and each only once: the same cat seconds apart
+   (one visit split in two?), the weakest visits (a peek?), and `not_cat` events that held a blob
+   the size of a visit (a cat after all?). Answer them, keep labelling, and run it again.
+
+4. **Apply the result.** Once every condition holds, it replays a range of thresholds over the
+   CSV, from the run's upward, and shows for each the visits it would miss, the clips an hour it
+   would start with no cat in them, and how much of each visit it would record: a high
+   threshold also closes clips while a cat sits still. It proposes the highest that misses no
+   visit and still records 98 % of the median visit. While any of its questions waits in the
+   review queue the numbers are marked provisional; once they are answered, put the proposal in
+   the drop-in, remove `METRICS_CSV`, and restart the service. It also replays two planned
+   triggers (roadmap A.3) that are not settings yet: a high start threshold that keeps
+   recording above the run's, and a blob-size band.
 
 ## Test, lint, format, type-check
 
@@ -234,7 +283,7 @@ The other settings, with their defaults (`config.py` describes each):
 
 | setting | default | what it sets |
 |---|---|---|
-| `MOTION_THRESHOLD` | 300 | foreground pixels in the 640x480 analysis frame that start a clip |
+| `MOTION_THRESHOLD` | 300 | foreground pixels in the 640x480 analysis frame that start a clip; from one installation, and `--calibrate` proposes yours |
 | `DARK_BRIGHTNESS` | 10 | mean grey level below which motion is ignored |
 | `MOTION_TIMEOUT` | 10 | seconds without motion before a clip closes |
 | `MOG2_HISTORY` | 500 | frames over which a still subject fades into the background |
